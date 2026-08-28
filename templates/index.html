@@ -15,6 +15,20 @@
             <span data-i18n="champion_badge">Community Champion #1</span>
         </div>
         <h2 class="text-3xl sm:text-4xl font-black tracking-tight">{{ top_cat.name }}</h2>
+        
+        <!-- Author Profile Info in Champion Spotlight -->
+        <div class="flex items-center justify-center md:justify-start gap-2 text-xs text-amber-100 py-1">
+            <a href="/user/{{ top_cat.user_id }}" class="flex items-center gap-2 group hover:opacity-90 transition">
+                <img src="{{ top_cat.user_avatar or 'https://api.dicebear.com/7.x/bottts/svg?seed=' ~ (top_cat.user_name or 'Cat') ~ '&backgroundColor=b6e3f4,c0aede,d1d4f9' }}" 
+                     alt="{{ top_cat.user_name or 'Cat Lover' }}" 
+                     onerror="handleAvatarError(this, '{{ top_cat.user_name or 'Cat' }}')" 
+                     class="w-6 h-6 rounded-full border border-white/40 object-cover bg-white/10 shadow-xs">
+                <span class="font-bold text-white group-hover:underline">{{ top_cat.user_name or 'Cat Lover' }}</span>
+            </a>
+            <span>•</span>
+            <span><strong class="text-white font-black">{{ top_cat.likes_count }}</strong> <span data-i18n="votes">votes</span></span>
+        </div>
+
         <p class="text-xs sm:text-sm text-amber-100">
             <span data-i18n="champion_desc">The most beloved cat of the community with</span>
             <strong class="text-white font-black">{{ top_cat.likes_count }}</strong> 

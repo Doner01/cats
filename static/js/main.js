@@ -6,6 +6,11 @@ let activeModalCatId = null;
 let activeReplyParentId = null;
 let activeReplyAuthorName = null;
 
+function escapeJsString(str) {
+    if (!str) return '';
+    return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 function escapeHtml(str) {
     if (!str) return '';
     return String(str)
@@ -304,6 +309,8 @@ async function loadCatComments(catId) {
             countBadge.innerText = `${comments.length} ${label}`;
         }
 
+        if (!container) return;
+
         if (comments.length === 0) {
             const noCommentsText = typeof t === "function" ? t("no_comments") : "No comments yet. Be the first to say something nice!";
             container.innerHTML = `
@@ -315,17 +322,24 @@ async function loadCatComments(catId) {
             return;
         }
 
-        const currentUserId = (currentSession && currentSession.user) ? currentSession.user.id : null;
+        let currentUserId = null;
+        if (typeof currentSession !== "undefined" && currentSession && currentSession.user) {
+            currentUserId = currentSession.user.id;
+        }
 
         const rootComments = [];
         const repliesByParent = {};
+        const allCommentIds = new Set(comments.map(c => String(c.id)));
 
         comments.forEach(c => {
-            if (c.parent_id) {
-                if (!repliesByParent[c.parent_id]) {
-                    repliesByParent[c.parent_id] = [];
+            const rawPid = c.parent_id;
+            const pid = (rawPid && String(rawPid).trim() !== "" && String(rawPid).trim().toLowerCase() !== "null" && String(rawPid).trim().toLowerCase() !== "none" && String(rawPid).trim().toLowerCase() !== "undefined") ? String(rawPid).trim() : null;
+            
+            if (pid && allCommentIds.has(pid)) {
+                if (!repliesByParent[pid]) {
+                    repliesByParent[pid] = [];
                 }
-                repliesByParent[c.parent_id].push(c);
+                repliesByParent[pid].push(c);
             } else {
                 rootComments.push(c);
             }
@@ -340,22 +354,25 @@ async function loadCatComments(catId) {
             const userTarget = c.user_id || c.user_name || '';
             const avatar = c.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(authorDisplayName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
             const isOwner = currentUserId && String(c.user_id) === String(currentUserId);
-            const replies = repliesByParent[c.id] || [];
+            const replies = repliesByParent[String(c.id)] || [];
 
             const repliesHtml = replies.map(r => {
                 const rAuthorName = r.user_name || "Cat Lover";
                 const rUserTarget = r.user_id || r.user_name || '';
                 const rAvatar = r.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(rAuthorName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
                 const rIsOwner = currentUserId && String(r.user_id) === String(currentUserId);
+                const safeRAuthorName = escapeHtml(rAuthorName);
+                const jsSafeRAuthorName = escapeJsString(rAuthorName);
+
                 return `
                     <div class="flex items-start gap-2.5 p-2.5 rounded-2xl bg-white border border-slate-100 shadow-xs mt-2 transition hover:border-slate-200">
                         <a href="/user/${encodeURIComponent(rUserTarget)}" class="flex-shrink-0">
-                            <img src="${rAvatar}" alt="Avatar" onerror="handleAvatarError(this, '${escapeHtml(rAuthorName)}')" class="w-6 h-6 rounded-full bg-slate-50 border border-slate-200 object-cover">
+                            <img src="${rAvatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeRAuthorName}')" class="w-6 h-6 rounded-full bg-slate-50 border border-slate-200 object-cover">
                         </a>
                         <div class="flex-grow min-w-0">
                             <div class="flex items-center justify-between gap-1">
                                 <div class="flex items-center gap-1.5 flex-wrap">
-                                    <a href="/user/${encodeURIComponent(rUserTarget)}" class="text-xs font-bold text-slate-900 hover:text-indigo-600 transition">${escapeHtml(rAuthorName)}</a>
+                                    <a href="/user/${encodeURIComponent(rUserTarget)}" class="text-xs font-bold text-slate-900 hover:text-indigo-600 transition">${safeRAuthorName}</a>
                                     <span class="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1">
                                         <i class="fa-solid fa-reply text-[8px]"></i>
                                         <span>${replyingToText} @${escapeHtml(r.reply_to_name || authorDisplayName)}</span>
@@ -374,20 +391,23 @@ async function loadCatComments(catId) {
                 `;
             }).join("");
 
+            const safeAuthorDisplayName = escapeHtml(authorDisplayName);
+            const jsSafeAuthorDisplayName = escapeJsString(authorDisplayName);
+
             return `
                 <div class="p-3.5 rounded-2xl bg-white border border-slate-200/80 shadow-xs hover:border-slate-300 transition">
                     <div class="flex items-start gap-3">
                         <a href="/user/${encodeURIComponent(userTarget)}" class="flex-shrink-0">
-                            <img src="${avatar}" alt="Avatar" onerror="handleAvatarError(this, '${escapeHtml(authorDisplayName)}')" class="w-8 h-8 rounded-full bg-slate-50 border border-slate-200 object-cover">
+                            <img src="${avatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeAuthorDisplayName}')" class="w-8 h-8 rounded-full bg-slate-50 border border-slate-200 object-cover">
                         </a>
                         <div class="flex-grow min-w-0">
                             <div class="flex items-center justify-between gap-2">
                                 <div class="flex items-center gap-2">
-                                    <a href="/user/${encodeURIComponent(userTarget)}" class="text-xs font-bold text-slate-900 hover:text-indigo-600 transition">${escapeHtml(authorDisplayName)}</a>
+                                    <a href="/user/${encodeURIComponent(userTarget)}" class="text-xs font-bold text-slate-900 hover:text-indigo-600 transition">${safeAuthorDisplayName}</a>
                                     <span class="text-[10px] text-slate-400 font-medium">${(c.created_at || '').slice(0, 10)}</span>
                                 </div>
                                 <div class="flex items-center gap-1">
-                                    <button onclick="startReply('${c.id}', '${escapeHtml(authorDisplayName)}')" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-0.5 rounded-lg transition flex items-center gap-1">
+                                    <button onclick="startReply('${c.id}', '${jsSafeAuthorDisplayName}')" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-0.5 rounded-lg transition flex items-center gap-1">
                                         <i class="fa-solid fa-reply text-[10px]"></i>
                                         <span>${replyBtnText}</span>
                                     </button>
@@ -468,8 +488,14 @@ async function submitComment(event) {
             showToast(isReply ? (typeof t === "function" ? t("toast_reply_posted") : "Reply posted!") : (typeof t === "function" ? t("toast_comment_posted") : "Comment posted!"), "success");
             input.value = "";
             cancelReply();
-            loadCatComments(activeModalCatId);
-            fetchNotifications();
+            await loadCatComments(activeModalCatId);
+            const commentsContainer = document.getElementById("modal-comments-container");
+            if (commentsContainer) {
+                commentsContainer.scrollTop = commentsContainer.scrollHeight;
+            }
+            if (typeof fetchNotifications === "function") {
+                fetchNotifications();
+            }
         } else {
             showToast(data.error || "Failed to post comment.", "error");
         }

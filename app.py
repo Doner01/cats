@@ -6,15 +6,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional, cast, Dict, List
 
+BASE_DIR: Path = Path(__file__).resolve().parent
 try:
     from dotenv import load_dotenv
-    BASE_DIR = Path(__file__).resolve().parent
     load_dotenv(dotenv_path=BASE_DIR / ".env")
 except ImportError:
-    BASE_DIR = Path(__file__).resolve().parent
+    pass
 
-from flask import Flask, render_template, request, jsonify, g, Response
-from supabase import create_client, Client
+try:
+    from flask import Flask, render_template, request, jsonify, g, Response
+except ImportError:
+    Flask = Any  # type: ignore
+    render_template = request = jsonify = g = Response = Any  # type: ignore
+
+try:
+    from supabase import create_client, Client
+except ImportError:
+    create_client = None  # type: ignore
+    Client = Any  # type: ignore
 
 app = Flask(
     __name__,
@@ -22,24 +31,29 @@ app = Flask(
     static_folder=str(BASE_DIR / "static"),
     static_url_path="/static"
 )
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "default-flask-secret")
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "my-flask-secret-key-0101")
 
-SUPABASE_URL: Optional[str] = os.getenv("SUPABASE_URL")
-SUPABASE_ANON_KEY: Optional[str] = os.getenv("SUPABASE_ANON_KEY")
-SUPABASE_SERVICE_KEY: Optional[str] = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
-ADMIN_EMAIL_CONFIG: str = os.getenv("ADMIN_EMAILS", os.getenv("ADMIN_EMAIL", "")).strip().lower()
+DEFAULT_SUPABASE_URL = "https://zivitjreuzbttdppmjcg.supabase.co"
+DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppdml0anJldXpidHRkcHBtamNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3Mjk4ODMsImV4cCI6MjEwMzMwNTg4M30.H5yWfKiw87Y8AbrAfVDIogxRrEjJvjXOYCB0uZzstCk"
+DEFAULT_SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppdml0anJldXpidHRkcHBtamNnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NzcyOTg4MywiZXhwIjoyMTAzMzA1ODgzfQ.jqg7_jkutTskEAgaEuOpAkMPYFqKEF1UYsLc14RcZxA"
+DEFAULT_ADMIN_EMAIL = "programmer.doner2006@gmail.com"
+
+SUPABASE_URL: Optional[str] = os.getenv("SUPABASE_URL", DEFAULT_SUPABASE_URL)
+SUPABASE_ANON_KEY: Optional[str] = os.getenv("SUPABASE_ANON_KEY", DEFAULT_SUPABASE_ANON_KEY)
+SUPABASE_SERVICE_KEY: Optional[str] = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY") or DEFAULT_SUPABASE_SERVICE_KEY
+ADMIN_EMAIL_CONFIG: str = os.getenv("ADMIN_EMAILS", os.getenv("ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL)).strip().lower()
 
 # Initialize Supabase clients safely
 supabase_admin: Optional[Client] = None
 supabase_auth: Optional[Client] = None
 
-if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+if create_client and SUPABASE_URL and SUPABASE_SERVICE_KEY:
     try:
         supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     except Exception as init_err:
         print(f"Warning: Failed to init supabase_admin: {init_err}")
 
-if SUPABASE_URL and SUPABASE_ANON_KEY:
+if create_client and SUPABASE_URL and SUPABASE_ANON_KEY:
     try:
         supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
     except Exception as init_err:
@@ -141,10 +155,10 @@ MOCK_NOTIFICATIONS: List[Dict[str, Any]] = [
 ]
 
 def is_allowed_file(filename: Optional[str]) -> bool:
-    if not filename or "." not in filename:
+    if not filename or "." not in str(filename):
         return False
-    _, ext = os.path.splitext(filename)
-    return ext.lstrip(".").lower() in ALLOWED_EXTENSIONS
+    ext: str = str(filename).rsplit(".", 1)[-1].lower()
+    return ext in ALLOWED_EXTENSIONS
 
 def generate_default_avatar(name: str) -> str:
     safe_name = name.strip() or "Cat"
@@ -164,12 +178,12 @@ def resolve_user_avatar(user_id: Optional[str], user_name: Optional[str], existi
     if user_id and supabase_admin:
         try:
             user_obj: Any = supabase_admin.auth.admin.get_user_by_id(str(user_id))
-            user_inst = getattr(user_obj, "user", None)
+            user_inst: Any = getattr(user_obj, "user", None) or getattr(user_obj, "data", None)
             if user_inst:
-                raw_meta = getattr(user_inst, "user_metadata", {})
+                raw_meta: Any = getattr(user_inst, "user_metadata", {})
                 meta: Dict[str, Any] = cast(Dict[str, Any], raw_meta) if isinstance(raw_meta, dict) else {}
                 if meta.get("avatar_url"):
-                    avatar = str(meta.get("avatar_url")).strip()
+                    avatar = str(meta.get("avatar_url", "")).strip()
                     if avatar:
                         user_avatar_cache[str(user_id)] = avatar
                         return avatar
@@ -200,9 +214,17 @@ def is_admin_user(user: Any) -> bool:
     if app_meta.get("role") == "admin" or app_meta.get("is_admin") is True:
         return True
         
-    if not admin_list and user_email and user_email.startswith("admin@"):
+    if not admin_list and user_email and (user_email.startswith("admin@") or user_email == "programmer.doner2006@gmail.com"):
         return True
     return False
+
+def sanitize_nullable_str(val: Any) -> Optional[str]:
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s.lower() in ('none', 'null', 'undefined'):
+        return None
+    return s
 
 def safe_db_insert(table_name: str, payload: Dict[str, Any]) -> Any:
     if not supabase_admin:
@@ -302,29 +324,43 @@ def push_notification(
 def require_auth(f: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(f)
     def decorated_function(*args: Any, **kwargs: Any) -> Any:
-        auth_header = request.headers.get("Authorization")
+        auth_header: Optional[str] = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
             return jsonify({"error": "Unauthorized. Please sign in."}), 401
         
-        _, token = auth_header.split(" ", 1)
+        parts: List[str] = auth_header.split(" ", 1)
+        if len(parts) < 2:
+            return jsonify({"error": "Unauthorized. Invalid token format."}), 401
+        token: str = str(parts[1]).strip()
         
         if supabase_auth:
             try:
-                user_res: Any = supabase_auth.auth.get_user(token)
-                user_obj = getattr(user_res, "user", None)
+                user_res: Any = supabase_auth.auth.get_user(jwt=token)
+                user_obj: Any = getattr(user_res, "user", None)
                 if user_obj:
                     g.user = user_obj
                     return f(*args, **kwargs)
             except Exception:
-                pass
+                try:
+                    user_res2: Any = supabase_auth.auth.get_user(token)
+                    user_obj2: Any = getattr(user_res2, "user", None)
+                    if user_obj2:
+                        g.user = user_obj2
+                        return f(*args, **kwargs)
+                except Exception:
+                    pass
                 
         if token.startswith("mock-") or token == "test-token":
             class MockUser:
-                def __init__(self, uid: str, email: str, name: str, is_admin_flag: bool = False):
-                    self.id = uid
-                    self.email = email
-                    self.user_metadata = {"display_name": name, "is_admin": is_admin_flag}
-                    self.app_metadata = {"is_admin": is_admin_flag}
+                id: str
+                email: str
+                user_metadata: Dict[str, Any]
+                app_metadata: Dict[str, Any]
+                def __init__(self, uid: str, email: str, name: str, is_admin_flag: bool = False) -> None:
+                    self.id = str(uid)
+                    self.email = str(email)
+                    self.user_metadata = {"display_name": str(name), "is_admin": bool(is_admin_flag)}
+                    self.app_metadata = {"is_admin": bool(is_admin_flag)}
             g.user = MockUser("user-mock-1", "user@catrank.local", "MockUser", True)
             return f(*args, **kwargs)
             
@@ -408,7 +444,7 @@ def admin_page() -> str:
 
 @app.route("/api/cats/upload", methods=["POST"])
 @require_auth
-def upload_cat():
+def upload_cat() -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         user_email = str(getattr(getattr(g, "user", None), "email", "Anonymous"))
@@ -422,7 +458,7 @@ def upload_cat():
             return jsonify({"error": "No image file provided."}), 400
 
         cat_name = str(request.form.get("name") or "Whiskers").strip() or "Whiskers"
-        filename_str = str(file.filename)
+        filename_str: str = str(getattr(file, "filename", "") or "")
 
         if not is_allowed_file(filename_str):
             return jsonify({"error": "Invalid image extension. Allowed: PNG, JPG, JPEG, WEBP."}), 400
@@ -431,15 +467,19 @@ def upload_cat():
         if len(file_bytes) > MAX_FILE_SIZE: 
             return jsonify({"error": "File size exceeds maximum 5MB limit."}), 400
 
-        clean_ext = os.path.splitext(filename_str)[1].lstrip(".").lower()
+        clean_ext: str = str(filename_str.rsplit(".", 1)[-1]).lower() if "." in filename_str else "jpg"
         public_url = ""
 
         if supabase_admin:
             try:
                 unique_path = f"{user_id}/{uuid.uuid4()}.{clean_ext}"
-                file_mimetype: str = str(getattr(file, "mimetype", "image/jpeg"))
-                supabase_admin.storage.from_(STORAGE_BUCKET).upload(path=unique_path, file=file_bytes, file_options={"content-type": file_mimetype})
-                public_url = supabase_admin.storage.from_(STORAGE_BUCKET).get_public_url(unique_path)
+                file_mimetype: str = str(getattr(file, "mimetype", "image/jpeg") or "image/jpeg")
+                supabase_admin.storage.from_(STORAGE_BUCKET).upload(
+                    path=unique_path, 
+                    file=file_bytes, 
+                    file_options={"content-type": file_mimetype, "upsert": "true"}
+                )
+                public_url = str(supabase_admin.storage.from_(STORAGE_BUCKET).get_public_url(unique_path) or "")
             except Exception as se:
                 print(f"Storage upload error: {se}")
 
@@ -473,7 +513,7 @@ def upload_cat():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/cats/<cat_id>", methods=["GET"])
-def get_cat_details(cat_id: str):
+def get_cat_details(cat_id: str) -> Any:
     cat_obj = None
     if supabase_admin:
         try:
@@ -495,7 +535,7 @@ def get_cat_details(cat_id: str):
 
 @app.route("/api/cats/<cat_id>", methods=["PUT"])
 @require_auth
-def edit_cat(cat_id: str):
+def edit_cat(cat_id: str) -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         is_admin = is_admin_user(getattr(g, "user", None))
@@ -552,7 +592,7 @@ def edit_cat(cat_id: str):
 
 @app.route("/api/cats/<cat_id>", methods=["DELETE"])
 @require_auth
-def delete_cat(cat_id: str):
+def delete_cat(cat_id: str) -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         is_admin = is_admin_user(getattr(g, "user", None))
@@ -606,7 +646,7 @@ def delete_cat(cat_id: str):
 
 @app.route("/api/admin/cats/<cat_id>/force-delete", methods=["DELETE", "POST"])
 @require_auth
-def admin_force_delete(cat_id: str):
+def admin_force_delete(cat_id: str) -> Any:
     try:
         is_admin = is_admin_user(getattr(g, "user", None))
         if not is_admin:
@@ -614,7 +654,7 @@ def admin_force_delete(cat_id: str):
 
         if supabase_admin:
             try:
-                cat_raw = getattr(supabase_admin.table("cats").select("image_url").eq("id", cat_id).single().execute(), "data", None)
+                cat_raw: Any = getattr(supabase_admin.table("cats").select("image_url").eq("id", cat_id).single().execute(), "data", None)
                 if cat_raw:
                     img = str(cast(Dict[str, Any], cat_raw).get("image_url", ""))
                     if f"/{STORAGE_BUCKET}/" in img:
@@ -642,7 +682,7 @@ def admin_force_delete(cat_id: str):
 
 @app.route("/api/cats/<cat_id>/like", methods=["POST"])
 @require_auth
-def toggle_like(cat_id: str):
+def toggle_like(cat_id: str) -> Any:
     try:
         user = getattr(g, "user", None)
         user_id = str(getattr(user, "id", ""))
@@ -728,7 +768,7 @@ def toggle_like(cat_id: str):
         return jsonify({"error": str(ext)}), 500
 
 @app.route("/api/cats/<cat_id>/comments", methods=["GET"])
-def get_comments(cat_id: str):
+def get_comments(cat_id: str) -> Any:
     comments_list: List[Dict[str, Any]] = []
     if supabase_admin:
         try:
@@ -749,11 +789,14 @@ def get_comments(cat_id: str):
             
         reply_match = re.match(r"^\[reply:([^:]+):?([^\]]*)\]\s*(.*)$", comment_text)
         if reply_match:
-            c_dict["parent_id"] = reply_match.group(1).strip()
-            c_dict["reply_to_name"] = reply_match.group(2).strip() or None
+            pid = sanitize_nullable_str(reply_match.group(1))
+            r_name = sanitize_nullable_str(reply_match.group(2))
+            c_dict["parent_id"] = pid
+            c_dict["reply_to_name"] = r_name
             c_dict["comment"] = reply_match.group(3).strip()
-        elif "parent_id" not in c_dict or not c_dict["parent_id"]:
-            c_dict["parent_id"] = None
+        else:
+            c_dict["parent_id"] = sanitize_nullable_str(c_dict.get("parent_id"))
+            c_dict["reply_to_name"] = sanitize_nullable_str(c_dict.get("reply_to_name"))
             
         cleaned_comments.append(c_dict)
 
@@ -761,7 +804,7 @@ def get_comments(cat_id: str):
 
 @app.route("/api/cats/<cat_id>/comments", methods=["POST"])
 @require_auth
-def add_comment(cat_id: str):
+def add_comment(cat_id: str) -> Any:
     try:
         user = getattr(g, "user", None)
         user_id = str(getattr(user, "id", ""))
@@ -775,8 +818,8 @@ def add_comment(cat_id: str):
         raw_json: Any = request.get_json(silent=True)
         data: Dict[str, Any] = cast(Dict[str, Any], raw_json) if isinstance(raw_json, dict) else {}
         comment_text = str(data.get("comment", "")).strip()
-        parent_id = str(data.get("parent_id", "")).strip() or None
-        reply_to_name = str(data.get("reply_to_name", "")).strip() or None
+        parent_id = sanitize_nullable_str(data.get("parent_id"))
+        reply_to_name = sanitize_nullable_str(data.get("reply_to_name"))
         
         if not comment_text or len(comment_text) > 500:
             return jsonify({"error": "Comment must be between 1 and 500 characters."}), 400
@@ -823,9 +866,10 @@ def add_comment(cat_id: str):
             try:
                 c_res = getattr(supabase_admin.table("cats").select("user_id, name, image_url").eq("id", cat_id).single().execute(), "data", None)
                 if c_res:
-                    cat_owner_id = str(cast(Dict[str, Any], c_res).get("user_id", ""))
-                    cat_name = str(cast(Dict[str, Any], c_res).get("name", "Cat"))
-                    cat_image = str(cast(Dict[str, Any], c_res).get("image_url", ""))
+                    cat_dict = cast(Dict[str, Any], c_res)
+                    cat_owner_id = str(cat_dict.get("user_id", ""))
+                    cat_name = str(cat_dict.get("name", "Cat"))
+                    cat_image = str(cat_dict.get("image_url", ""))
             except Exception:
                 pass
 
@@ -884,7 +928,7 @@ def add_comment(cat_id: str):
 
 @app.route("/api/comments/<comment_id>", methods=["DELETE"])
 @require_auth
-def delete_comment(comment_id: str):
+def delete_comment(comment_id: str) -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         is_admin = is_admin_user(getattr(g, "user", None))
@@ -944,7 +988,7 @@ def delete_comment(comment_id: str):
 
 @app.route("/api/comments/<comment_id>", methods=["PUT"])
 @require_auth
-def edit_comment(comment_id: str):
+def edit_comment(comment_id: str) -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         is_admin = is_admin_user(getattr(g, "user", None))
@@ -985,7 +1029,7 @@ def edit_comment(comment_id: str):
 
 @app.route("/api/notifications", methods=["GET"])
 @require_auth
-def get_notifications():
+def get_notifications() -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         notifs: List[Dict[str, Any]] = []
@@ -1007,7 +1051,7 @@ def get_notifications():
 
 @app.route("/api/notifications/<notif_id>/read", methods=["POST"])
 @require_auth
-def mark_notification_read(notif_id: str):
+def mark_notification_read(notif_id: str) -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         if supabase_admin:
@@ -1026,7 +1070,7 @@ def mark_notification_read(notif_id: str):
 
 @app.route("/api/notifications/read-all", methods=["POST"])
 @require_auth
-def mark_all_notifications_read():
+def mark_all_notifications_read() -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         if supabase_admin:
@@ -1045,7 +1089,7 @@ def mark_all_notifications_read():
 
 @app.route("/api/notifications/<notif_id>", methods=["DELETE"])
 @require_auth
-def delete_single_notification(notif_id: str):
+def delete_single_notification(notif_id: str) -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         if supabase_admin:
@@ -1062,7 +1106,7 @@ def delete_single_notification(notif_id: str):
 
 @app.route("/api/notifications/clear-all", methods=["DELETE", "POST"])
 @require_auth
-def clear_all_notifications():
+def clear_all_notifications() -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         if supabase_admin:
@@ -1079,14 +1123,14 @@ def clear_all_notifications():
 
 @app.route("/api/user/avatar", methods=["POST"])
 @require_auth
-def upload_user_avatar():
+def upload_user_avatar() -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         file: Any = request.files.get("avatar") or request.files.get("file")
         if file is None or not getattr(file, "filename", None):
             return jsonify({"error": "No avatar file provided."}), 400
 
-        filename_str = str(file.filename)
+        filename_str: str = str(getattr(file, "filename", "") or "")
         if not is_allowed_file(filename_str):
             return jsonify({"error": "Invalid file format. Allowed: PNG, JPG, JPEG, WEBP."}), 400
 
@@ -1094,18 +1138,18 @@ def upload_user_avatar():
         if len(file_bytes) > MAX_FILE_SIZE:
             return jsonify({"error": "File size exceeds 5MB limit."}), 400
 
+        clean_ext: str = str(filename_str.rsplit(".", 1)[-1]).lower() if "." in filename_str else "jpg"
         avatar_url = ""
         if supabase_admin:
             try:
-                clean_ext = os.path.splitext(filename_str)[1].lstrip(".").lower()
                 unique_path = f"avatars/{user_id}/{uuid.uuid4()}.{clean_ext}"
-                file_mimetype = str(getattr(file, "mimetype", "image/jpeg"))
+                file_mimetype = str(getattr(file, "mimetype", "image/jpeg") or "image/jpeg")
                 supabase_admin.storage.from_(STORAGE_BUCKET).upload(
                     path=unique_path,
                     file=file_bytes,
                     file_options={"content-type": file_mimetype, "upsert": "true"}
                 )
-                avatar_url = supabase_admin.storage.from_(STORAGE_BUCKET).get_public_url(unique_path)
+                avatar_url = str(supabase_admin.storage.from_(STORAGE_BUCKET).get_public_url(unique_path) or "")
             except Exception as se:
                 print(f"Avatar storage error: {se}")
 
@@ -1137,7 +1181,7 @@ def upload_user_avatar():
 
 @app.route("/api/admin/users/<user_id>/avatar", methods=["POST"])
 @require_auth
-def admin_upload_user_avatar(user_id: str):
+def admin_upload_user_avatar(user_id: str) -> Any:
     try:
         is_admin = is_admin_user(getattr(g, "user", None))
         if not is_admin:
@@ -1147,7 +1191,7 @@ def admin_upload_user_avatar(user_id: str):
         if file is None or not getattr(file, "filename", None):
             return jsonify({"error": "No avatar file provided."}), 400
 
-        filename_str = str(file.filename)
+        filename_str: str = str(getattr(file, "filename", "") or "")
         if not is_allowed_file(filename_str):
             return jsonify({"error": "Invalid file format. Allowed: PNG, JPG, JPEG, WEBP."}), 400
 
@@ -1155,18 +1199,18 @@ def admin_upload_user_avatar(user_id: str):
         if len(file_bytes) > MAX_FILE_SIZE:
             return jsonify({"error": "File size exceeds 5MB limit."}), 400
 
+        clean_ext: str = str(filename_str.rsplit(".", 1)[-1]).lower() if "." in filename_str else "jpg"
         avatar_url = ""
         if supabase_admin:
             try:
-                clean_ext = os.path.splitext(filename_str)[1].lstrip(".").lower()
                 unique_path = f"avatars/{user_id}/{uuid.uuid4()}.{clean_ext}"
-                file_mimetype = str(getattr(file, "mimetype", "image/jpeg"))
+                file_mimetype = str(getattr(file, "mimetype", "image/jpeg") or "image/jpeg")
                 supabase_admin.storage.from_(STORAGE_BUCKET).upload(
                     path=unique_path,
                     file=file_bytes,
                     file_options={"content-type": file_mimetype, "upsert": "true"}
                 )
-                avatar_url = supabase_admin.storage.from_(STORAGE_BUCKET).get_public_url(unique_path)
+                avatar_url = str(supabase_admin.storage.from_(STORAGE_BUCKET).get_public_url(unique_path) or "")
             except Exception as se:
                 print(f"Admin avatar storage notice: {se}")
 
@@ -1195,7 +1239,7 @@ def admin_upload_user_avatar(user_id: str):
 
 @app.route("/api/user/profile", methods=["PUT"])
 @require_auth
-def sync_user_profile():
+def sync_user_profile() -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
         raw_json: Any = request.get_json(silent=True)
@@ -1244,7 +1288,7 @@ def sync_user_profile():
 
 @app.route("/api/admin/users/<user_id>/profile", methods=["PUT"])
 @require_auth
-def admin_edit_user_profile(user_id: str):
+def admin_edit_user_profile(user_id: str) -> Any:
     try:
         is_admin = is_admin_user(getattr(g, "user", None))
         if not is_admin:
@@ -1252,8 +1296,8 @@ def admin_edit_user_profile(user_id: str):
 
         raw_json = request.get_json(silent=True)
         data: Dict[str, Any] = cast(Dict[str, Any], raw_json) if isinstance(raw_json, dict) else {}
-        new_name = str(data.get("display_name", "")).strip()
-        new_avatar = str(data.get("avatar_url", "")).strip()
+        new_name = str(data.get("display_name", "") or data.get("user_name", "")).strip()
+        new_avatar = str(data.get("avatar_url", "") or data.get("user_avatar", "")).strip()
 
         payload: Dict[str, Any] = {}
         if new_name:
@@ -1275,8 +1319,8 @@ def admin_edit_user_profile(user_id: str):
                     auth_meta["avatar_url"] = new_avatar
                 if auth_meta:
                     supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": auth_meta})
-            except Exception:
-                pass
+            except Exception as ae:
+                print(f"Notice: Supabase admin auth update: {ae}")
 
         for c in MOCK_CATS:
             if str(c.get("user_id")) == str(user_id):
@@ -1287,13 +1331,13 @@ def admin_edit_user_profile(user_id: str):
                 if new_name: cm["user_name"] = new_name
                 if new_avatar: cm["user_avatar"] = new_avatar
 
-        return jsonify({"message": "User profile updated across all records.", "user_id": user_id}), 200
+        return jsonify({"message": "User profile updated across all records.", "user_id": user_id, "user_name": new_name, "user_avatar": new_avatar}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/admin/users/<user_id>/force-delete", methods=["DELETE", "POST"])
 @require_auth
-def admin_force_delete_user(user_id: str):
+def admin_force_delete_user(user_id: str) -> Any:
     try:
         is_admin = is_admin_user(getattr(g, "user", None))
         if not is_admin:
@@ -1301,8 +1345,28 @@ def admin_force_delete_user(user_id: str):
 
         if supabase_admin:
             try:
-                user_cats_raw = getattr(supabase_admin.table("cats").select("*").eq("user_id", user_id).execute(), "data", [])
-                user_cats = cast(List[Dict[str, Any]], user_cats_raw) if isinstance(user_cats_raw, list) else []
+                # 1. Delete comments made by user
+                try:
+                    supabase_admin.table("comments").delete().eq("user_id", user_id).execute()
+                except Exception as ce:
+                    print(f"Admin delete user comments error: {ce}")
+
+                # 2. Delete likes made by user
+                try:
+                    supabase_admin.table("likes").delete().eq("user_id", user_id).execute()
+                except Exception as le:
+                    print(f"Admin delete user likes error: {le}")
+
+                # 3. Delete notifications
+                try:
+                    supabase_admin.table("notifications").delete().eq("user_id", user_id).execute()
+                    supabase_admin.table("notifications").delete().eq("actor_id", user_id).execute()
+                except Exception as ne:
+                    print(f"Admin delete user notifications error: {ne}")
+
+                # 4. Find all cats uploaded by user
+                user_cats_raw: Any = getattr(supabase_admin.table("cats").select("*").eq("user_id", user_id).execute(), "data", [])
+                user_cats: List[Dict[str, Any]] = cast(List[Dict[str, Any]], user_cats_raw) if isinstance(user_cats_raw, list) else []
                 for c in user_cats:
                     cid = c.get("id")
                     if cid:
@@ -1323,21 +1387,28 @@ def admin_force_delete_user(user_id: str):
                             supabase_admin.table("cats").delete().eq("id", cid).execute()
                         except Exception:
                             pass
+
+                # 5. Delete all cats owned by user
+                try:
+                    supabase_admin.table("cats").delete().eq("user_id", user_id).execute()
+                except Exception:
+                    pass
+
+                # 6. Delete user from Supabase Auth
+                try:
+                    supabase_admin.auth.admin.delete_user(user_id)
+                except Exception as auth_err:
+                    print(f"Notice: Supabase delete user auth: {auth_err}")
+
             except Exception as e:
-                print(f"User cats delete notice: {e}")
+                print(f"User force delete error: {e}")
 
-            try:
-                supabase_admin.table("comments").delete().eq("user_id", user_id).execute()
-                supabase_admin.table("likes").delete().eq("user_id", user_id).execute()
-                supabase_admin.table("notifications").delete().eq("user_id", user_id).execute()
-                supabase_admin.auth.admin.delete_user(user_id)
-            except Exception:
-                pass
-
+        # Update in-memory stores
+        user_cat_ids = {str(c.get("id")) for c in MOCK_CATS if str(c.get("user_id")) == str(user_id)}
         MOCK_CATS[:] = [c for c in MOCK_CATS if str(c.get("user_id")) != str(user_id)]
-        MOCK_COMMENTS[:] = [c for c in MOCK_COMMENTS if str(c.get("user_id")) != str(user_id)]
-        MOCK_LIKES[:] = [l for l in MOCK_LIKES if str(l.get("user_id")) != str(user_id)]
-        MOCK_NOTIFICATIONS[:] = [n for n in MOCK_NOTIFICATIONS if str(n.get("user_id")) != str(user_id) and str(n.get("actor_id")) != str(user_id)]
+        MOCK_COMMENTS[:] = [c for c in MOCK_COMMENTS if str(c.get("user_id")) != str(user_id) and str(c.get("cat_id")) not in user_cat_ids]
+        MOCK_LIKES[:] = [l for l in MOCK_LIKES if str(l.get("user_id")) != str(user_id) and str(l.get("cat_id")) not in user_cat_ids]
+        MOCK_NOTIFICATIONS[:] = [n for n in MOCK_NOTIFICATIONS if str(n.get("user_id")) != str(user_id) and str(n.get("actor_id")) != str(user_id) and str(n.get("cat_id")) not in user_cat_ids]
 
         if user_id in user_avatar_cache:
             del user_avatar_cache[user_id]
@@ -1347,7 +1418,7 @@ def admin_force_delete_user(user_id: str):
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/user/<user_id>/profile", methods=["GET"])
-def get_public_profile(user_id: str):
+def get_public_profile(user_id: str) -> Any:
     cats: List[Dict[str, Any]] = []
     user_name = "Cat Lover"
     user_avatar = ""
@@ -1358,7 +1429,7 @@ def get_public_profile(user_id: str):
             raw_data: Any = getattr(supabase_admin.table("cats").select("*").eq("user_id", user_id).order("created_at", desc=True).execute(), "data", [])
             cats = cast(List[Dict[str, Any]], raw_data) if isinstance(raw_data, list) else []
             
-            # 2. If no cats found by user_id, search by user_name in case username like 'f0xy' was provided
+            # 2. If no cats found by user_id, search by user_name in case username was provided
             if not cats:
                 raw_data2: Any = getattr(supabase_admin.table("cats").select("*").ilike("user_name", user_id).order("created_at", desc=True).execute(), "data", [])
                 cats = cast(List[Dict[str, Any]], raw_data2) if isinstance(raw_data2, list) else []
@@ -1381,8 +1452,8 @@ def get_public_profile(user_id: str):
         # If no uploaded cats, try finding user in Supabase auth
         if supabase_admin:
             try:
-                u_obj = supabase_admin.auth.admin.get_user_by_id(user_id)
-                u_data = getattr(u_obj, "user", None) or getattr(u_obj, "data", None)
+                u_obj: Any = supabase_admin.auth.admin.get_user_by_id(user_id)
+                u_data: Any = getattr(u_obj, "user", None) or getattr(u_obj, "data", None)
                 if u_data:
                     u_meta = getattr(u_data, "user_metadata", {}) or {}
                     user_name = str(u_meta.get("display_name", "")).strip() or str(getattr(u_data, "email", "Cat Lover")).split("@")[0]
@@ -1405,7 +1476,7 @@ def get_public_profile(user_id: str):
 
 @app.route("/api/user/my-cats", methods=["GET"])
 @require_auth
-def get_my_cats():
+def get_my_cats() -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
     cats: List[Dict[str, Any]] = []
     if supabase_admin:
@@ -1421,7 +1492,7 @@ def get_my_cats():
 
 @app.route("/api/user/liked-cats", methods=["GET"])
 @require_auth
-def get_user_liked_cats():
+def get_user_liked_cats() -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
     liked_ids: List[str] = []
     if supabase_admin:
@@ -1439,7 +1510,7 @@ def get_user_liked_cats():
 
 @app.route("/api/admin/overview", methods=["GET"])
 @require_auth
-def admin_overview():
+def admin_overview() -> Any:
     try:
         is_admin = is_admin_user(getattr(g, "user", None))
         if not is_admin:
@@ -1451,8 +1522,8 @@ def admin_overview():
             try:
                 raw_data: Any = getattr(supabase_admin.table("cats").select("*").order("created_at", desc=True).execute(), "data", [])
                 cats = cast(List[Dict[str, Any]], raw_data) if isinstance(raw_data, list) else []
-            except Exception:
-                pass
+            except Exception as ce:
+                print(f"Admin overview cats notice: {ce}")
 
         if not cats:
             cats = list(MOCK_CATS)
@@ -1461,6 +1532,37 @@ def admin_overview():
             c["user_avatar"] = resolve_user_avatar(c.get("user_id"), c.get("user_name"), c.get("user_avatar"))
 
         users_dict: Dict[str, Dict[str, Any]] = {}
+
+        # 1. Populate all registered users from Supabase Auth if available
+        if supabase_admin:
+            try:
+                auth_users_res: Any = supabase_admin.auth.admin.list_users()
+                raw_users_list: Any = getattr(auth_users_res, "users", None) or getattr(auth_users_res, "data", None) or auth_users_res
+                if isinstance(raw_users_list, list):
+                    for u in raw_users_list:
+                        uid = str(getattr(u, "id", "") or "")
+                        if uid:
+                            u_email = str(getattr(u, "email", "") or "")
+                            u_meta = getattr(u, "user_metadata", {}) or {}
+                            if not isinstance(u_meta, dict):
+                                u_meta = {}
+                            disp_name = str(u_meta.get("display_name", "")).strip() or u_email.split("@")[0] or "Cat Lover"
+                            avatar_url = str(u_meta.get("avatar_url", "")).strip() or resolve_user_avatar(uid, disp_name, None)
+                            users_dict[uid] = {
+                                "user_id": uid,
+                                "user_name": disp_name,
+                                "display_name": disp_name,
+                                "user_avatar": avatar_url,
+                                "avatar_url": avatar_url,
+                                "email": u_email,
+                                "cats_count": 0,
+                                "cat_count": 0,
+                                "total_likes": 0
+                            }
+            except Exception as ue:
+                print(f"Notice: Admin auth list users: {ue}")
+
+        # 2. Enrich/aggregate stats from uploaded cats
         for c in cats:
             uid = str(c.get("user_id", ""))
             uname = str(c.get("user_name", "Cat Lover"))
@@ -1470,16 +1572,40 @@ def admin_overview():
                     users_dict[uid] = {
                         "user_id": uid,
                         "user_name": uname,
+                        "display_name": uname,
                         "user_avatar": uavatar,
+                        "avatar_url": uavatar,
+                        "email": str(c.get("user_email", "") or ""),
                         "cats_count": 0,
+                        "cat_count": 0,
                         "total_likes": 0
                     }
                 users_dict[uid]["cats_count"] += 1
+                users_dict[uid]["cat_count"] += 1
                 users_dict[uid]["total_likes"] += int(c.get("likes_count", 0) or 0)
+
+        # Fallback if no users in dict
+        if not users_dict:
+            for c in MOCK_CATS:
+                uid = str(c.get("user_id", "user-mock-1"))
+                uname = str(c.get("user_name", "WhiskersFan"))
+                uavatar = str(c.get("user_avatar", "")) or generate_default_avatar(uname)
+                if uid not in users_dict:
+                    users_dict[uid] = {
+                        "user_id": uid,
+                        "user_name": uname,
+                        "display_name": uname,
+                        "user_avatar": uavatar,
+                        "avatar_url": uavatar,
+                        "email": f"{uname.lower()}@catrank.local",
+                        "cats_count": 1,
+                        "cat_count": 1,
+                        "total_likes": int(c.get("likes_count", 0) or 0)
+                    }
 
         return jsonify({
             "total_cats": len(cats),
-            "total_likes": sum(int(c.get("likes_count", 0) or 0) for c in cats),
+            "total_votes": sum(int(c.get("likes_count", 0) or 0) for c in cats),
             "cats": cats,
             "users": list(users_dict.values())
         }), 200

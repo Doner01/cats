@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Admin Dashboard | CatRank{% endblock %}
-
+{% block title %}Admin Dashboard | CatRank{% endblock %}\n
 {% block content %}
 <div class="max-w-6xl mx-auto space-y-8">
     <!-- Header with Admin Banner -->
@@ -205,7 +204,7 @@
             <div class="space-y-2">
                 <label class="block text-xs font-bold text-slate-700" data-i18n="profile_photo_label">Profile Photo</label>
                 <div class="flex items-center gap-3">
-                    <img id="admin-user-avatar-preview" src="#" alt="Preview" class="w-12 h-12 rounded-2xl border border-slate-200 object-cover bg-slate-50 shadow-xs">
+                    <img id="admin-user-avatar-preview" src="#" alt="Preview" class="w-12 h-12 rounded-2xl border border-slate-200 object-cover bg-slate-50 shadow-xs" onerror="handleAvatarError(this)">
                     <div class="flex flex-col gap-1 flex-grow">
                         <label for="admin-user-avatar-file" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl transition cursor-pointer text-center border border-indigo-200/60 shadow-xs flex items-center justify-center gap-1" data-i18n="upload_new_photo">
                             <i class="fa-solid fa-cloud-arrow-up text-xs"></i>
@@ -318,6 +317,8 @@ function renderCatsTable(cats) {
     tbody.innerHTML = cats.map(cat => {
         const uploaderName = cat.user_name || "Cat Lover";
         const userTarget = cat.user_id || cat.user_name || '';
+        const jsSafeUploaderName = (uploaderName || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
         return `
             <tr id="admin-row-${cat.id}" class="hover:bg-slate-50/70 transition">
                 <td class="p-4">
@@ -328,7 +329,7 @@ function renderCatsTable(cats) {
                     <div class="flex items-center gap-2">
                         <img src="${cat.user_avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + encodeURIComponent(uploaderName)}" 
                              alt="${uploaderName}" 
-                             onerror="handleAvatarError(this, '${uploaderName.replace(/'/g, "\\'")}')" 
+                             onerror="handleAvatarError(this, '${jsSafeUploaderName}')" 
                              class="w-6 h-6 rounded-full border border-slate-200 object-cover bg-slate-50">
                         <a href="/user/${encodeURIComponent(userTarget)}" class="text-slate-700 font-bold hover:text-indigo-600 transition">${uploaderName}</a>
                     </div>
@@ -378,28 +379,35 @@ function renderUsersTable(users) {
     const viewProfText = typeof t === "function" ? t("btn_view_profile") : "View Profile";
 
     tbody.innerHTML = users.map(user => {
-        const uName = user.display_name || "Cat Lover";
+        const uName = user.display_name || user.user_name || "Cat Lover";
         const userTarget = user.user_id || uName;
+        const uAvatar = user.avatar_url || user.user_avatar || ('https://api.dicebear.com/7.x/bottts/svg?seed=' + encodeURIComponent(uName));
+        const catCount = user.cat_count !== undefined ? user.cat_count : (user.cats_count !== undefined ? user.cats_count : 0);
+        const totalLikes = user.total_likes !== undefined ? user.total_likes : 0;
+        const userEmail = user.email || '';
+        const jsSafeUName = (uName || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const jsSafeAvatar = (user.avatar_url || user.user_avatar || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
         return `
             <tr id="admin-user-row-${user.user_id}" class="hover:bg-slate-50/70 transition">
                 <td class="p-4">
                     <div class="flex items-center gap-3">
-                        <img src="${user.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + encodeURIComponent(uName)}" 
+                        <img src="${uAvatar}" 
                              alt="${uName}" 
-                             onerror="handleAvatarError(this, '${uName.replace(/'/g, "\\'")}')" 
+                             onerror="handleAvatarError(this, '${jsSafeUName}')" 
                              class="w-8 h-8 rounded-full border border-slate-200 object-cover bg-slate-50 shadow-xs">
                         <div>
                             <div class="font-bold text-slate-900">${uName}</div>
-                            <div class="text-[10px] text-slate-400 font-normal">${user.email || ''}</div>
+                            <div class="text-[10px] text-slate-400 font-normal">${userEmail}</div>
                         </div>
                     </div>
                 </td>
                 <td class="p-4 font-mono text-[11px] text-slate-400 truncate max-w-[120px]" title="${user.user_id}">${user.user_id}</td>
-                <td class="p-4 font-bold text-slate-900">${user.cat_count}</td>
+                <td class="p-4 font-bold text-slate-900">${catCount}</td>
                 <td class="p-4">
                     <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 text-rose-700 rounded-full font-bold text-xs border border-rose-100">
                         <i class="fa-solid fa-heart text-[10px]"></i>
-                        <span>${user.total_likes}</span>
+                        <span>${totalLikes}</span>
                     </span>
                 </td>
                 <td class="p-4 text-right">
@@ -408,7 +416,7 @@ function renderUsersTable(users) {
                             <i class="fa-solid fa-user text-[10px]"></i>
                             <span>${viewProfText}</span>
                         </a>
-                        <button onclick="openAdminEditUserModal('${user.user_id}', '${uName.replace(/'/g, "\\'")}', '${user.avatar_url || ''}')" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition shadow-xs flex items-center gap-1">
+                        <button onclick="openAdminEditUserModal('${user.user_id}', '${jsSafeUName}', '${jsSafeAvatar}')" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition shadow-xs flex items-center gap-1">
                             <i class="fa-solid fa-pen text-[10px]"></i>
                             <span>${editBtnText}</span>
                         </button>
@@ -441,6 +449,10 @@ function closeAdminEditCatModal() {
 }
 
 async function submitAdminEditCat() {
+    if (typeof supabaseClient === "undefined" || !supabaseClient) {
+        showToast("Supabase client not initialized.", "error");
+        return;
+    }
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session) return;
 
@@ -488,6 +500,8 @@ function openAdminEditUserModal(userId, displayName, avatarUrl) {
     document.getElementById("edit-user-display-name").value = displayName || "";
     document.getElementById("admin-user-avatar-preview").src = avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(displayName || 'Cat')}`;
     adminSelectedUserAvatarFile = null;
+    const fileInput = document.getElementById("admin-user-avatar-file");
+    if (fileInput) fileInput.value = "";
     
     document.getElementById("admin-edit-user-modal").classList.remove("hidden");
 }
@@ -509,8 +523,15 @@ function handleAdminAvatarSelect(event) {
 }
 
 async function submitAdminEditUser() {
+    if (typeof supabaseClient === "undefined" || !supabaseClient) {
+        showToast("Supabase client not initialized.", "error");
+        return;
+    }
     const { data: { session } } = await supabaseClient.auth.getSession();
-    if (!session) return;
+    if (!session) {
+        showToast("Admin session expired. Please sign in.", "error");
+        return;
+    }
 
     const userId = document.getElementById("edit-user-id").value;
     const displayName = document.getElementById("edit-user-display-name").value.trim();
@@ -528,6 +549,7 @@ async function submitAdminEditUser() {
 
         if (adminSelectedUserAvatarFile) {
             const formData = new FormData();
+            formData.append("avatar", adminSelectedUserAvatarFile);
             formData.append("file", adminSelectedUserAvatarFile);
 
             const uploadRes = await fetch(`/api/admin/users/${userId}/avatar`, {
@@ -587,6 +609,10 @@ async function adminForceDeleteCat(catId) {
 
     if (!confirmed) return;
     
+    if (typeof supabaseClient === "undefined" || !supabaseClient) {
+        showToast("Supabase client not initialized.", "error");
+        return;
+    }
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session) {
         showToast("Please sign in as admin.", "error");
@@ -633,6 +659,10 @@ async function adminForceDeleteUser(userId) {
 
     if (!confirmed) return;
 
+    if (typeof supabaseClient === "undefined" || !supabaseClient) {
+        showToast("Supabase client not initialized.", "error");
+        return;
+    }
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session) {
         showToast("Please sign in as admin.", "error");
