@@ -171,7 +171,7 @@
             
             <!-- Left: Cat Image (50% Width on Desktop, centered dark ambient backdrop) -->
             <div class="md:w-1/2 bg-slate-950 flex items-center justify-center h-[36vh] md:h-full overflow-hidden relative flex-shrink-0 group select-none">
-                <img id="modal-cat-image" src="#" alt="Cat preview" ondblclick="toggleLike(activeModalCatId, event)" class="w-full h-full object-contain max-h-[86vh] cursor-pointer transition-transform duration-300 group-hover:scale-[1.01]">
+                <img id="modal-cat-image" src="#" alt="Cat preview" loading="eager" class="w-full h-full object-contain max-h-[86vh] cursor-pointer transition-transform duration-300 group-hover:scale-[1.01]" ondblclick="toggleLike(activeModalCatId, event)">
                 
                 <!-- Heart Pop Animation on double-click -->
                 <div id="double-click-heart" class="hidden absolute inset-0 flex items-center justify-center pointer-events-none text-rose-500 text-8xl animate-ping drop-shadow-2xl z-30">
@@ -200,6 +200,7 @@
                                 <span>•</span>
                                 <span id="modal-cat-date" class="text-[11px] text-slate-400 font-medium"></span>
                             </div>
+                            <div id="modal-cat-bio" class="hidden mt-2 text-xs leading-relaxed text-slate-600 max-w-xl whitespace-pre-wrap break-words"></div>
                         </div>
                     </div>
                     

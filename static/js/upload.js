@@ -68,6 +68,7 @@ if (uploadForm) {
         }
 
         const nameInput = document.getElementById("cat-name");
+        const bioInput = document.getElementById("cat-bio");
         const submitBtn = document.getElementById("submit-btn");
 
         if (!fileInput.files || fileInput.files.length === 0) {
@@ -78,6 +79,7 @@ if (uploadForm) {
         const formData = new FormData();
         formData.append("file", fileInput.files[0]);
         formData.append("name", nameInput.value.trim());
+        formData.append("bio", bioInput ? bioInput.value.trim() : "");
 
         if (submitBtn) {
             submitBtn.disabled = true;

@@ -13,17 +13,8 @@ try:
 except ImportError:
     pass
 
-try:
-    from flask import Flask, render_template, request, jsonify, g, Response
-except ImportError:
-    Flask = Any  # type: ignore
-    render_template = request = jsonify = g = Response = Any  # type: ignore
-
-try:
-    from supabase import create_client, Client
-except ImportError:
-    create_client = None  # type: ignore
-    Client = Any  # type: ignore
+from flask import Flask, Response, g, jsonify, render_template, request
+from supabase import Client, create_client
 
 app = Flask(
     __name__,
@@ -31,29 +22,30 @@ app = Flask(
     static_folder=str(BASE_DIR / "static"),
     static_url_path="/static"
 )
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "my-flask-secret-key-0101")
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or os.urandom(32)
 
 DEFAULT_SUPABASE_URL = "https://zivitjreuzbttdppmjcg.supabase.co"
 DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppdml0anJldXpidHRkcHBtamNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3Mjk4ODMsImV4cCI6MjEwMzMwNTg4M30.H5yWfKiw87Y8AbrAfVDIogxRrEjJvjXOYCB0uZzstCk"
-DEFAULT_SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppdml0anJldXpidHRkcHBtamNnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NzcyOTg4MywiZXhwIjoyMTAzMzA1ODgzfQ.jqg7_jkutTskEAgaEuOpAkMPYFqKEF1UYsLc14RcZxA"
+# Never hard-code the Supabase service-role key. Set it only in the server environment.
+DEFAULT_SUPABASE_SERVICE_KEY = ""
 DEFAULT_ADMIN_EMAIL = "programmer.doner2006@gmail.com"
 
 SUPABASE_URL: Optional[str] = os.getenv("SUPABASE_URL", DEFAULT_SUPABASE_URL)
 SUPABASE_ANON_KEY: Optional[str] = os.getenv("SUPABASE_ANON_KEY", DEFAULT_SUPABASE_ANON_KEY)
-SUPABASE_SERVICE_KEY: Optional[str] = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY") or DEFAULT_SUPABASE_SERVICE_KEY
+SUPABASE_SERVICE_KEY: Optional[str] = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY") or DEFAULT_SUPABASE_SERVICE_KEY or None
 ADMIN_EMAIL_CONFIG: str = os.getenv("ADMIN_EMAILS", os.getenv("ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL)).strip().lower()
 
 # Initialize Supabase clients safely
 supabase_admin: Optional[Client] = None
 supabase_auth: Optional[Client] = None
 
-if create_client and SUPABASE_URL and SUPABASE_SERVICE_KEY:
+if SUPABASE_URL and SUPABASE_SERVICE_KEY:
     try:
         supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     except Exception as init_err:
         print(f"Warning: Failed to init supabase_admin: {init_err}")
 
-if create_client and SUPABASE_URL and SUPABASE_ANON_KEY:
+if SUPABASE_URL and SUPABASE_ANON_KEY:
     try:
         supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
     except Exception as init_err:
@@ -62,6 +54,7 @@ if create_client and SUPABASE_URL and SUPABASE_ANON_KEY:
 STORAGE_BUCKET = "cat-images"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+MAX_CAT_BIO_LENGTH = 1000
 
 # In-memory mock store for offline and test resilience
 MOCK_CATS: List[Dict[str, Any]] = [
@@ -71,6 +64,7 @@ MOCK_CATS: List[Dict[str, Any]] = [
         "user_name": "WhiskersFan",
         "user_avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
         "name": "Mochi the Fluff",
+        "bio": "A fluffy little champion who loves naps and attention.",
         "image_url": "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&fit=crop&w=1000&q=80",
         "likes_count": 42,
         "created_at": "2026-08-28T10:00:00Z"
@@ -81,6 +75,7 @@ MOCK_CATS: List[Dict[str, Any]] = [
         "user_name": "CatMaster",
         "user_avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80",
         "name": "Luna Starry Eyes",
+        "bio": "Sweet, curious, and always watching the night sky.",
         "image_url": "https://images.unsplash.com/photo-1573865526739-10659fec78a5?auto=format&fit=crop&w=1000&q=80",
         "likes_count": 38,
         "created_at": "2026-08-28T11:15:00Z"
@@ -91,6 +86,7 @@ MOCK_CATS: List[Dict[str, Any]] = [
         "user_name": "OliverQueen",
         "user_avatar": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80",
         "name": "Ginger King Leo",
+        "bio": "A confident ginger explorer with a big personality.",
         "image_url": "https://images.unsplash.com/photo-1533738363-b7f9aef128ce?auto=format&fit=crop&w=1000&q=80",
         "likes_count": 29,
         "created_at": "2026-08-28T12:30:00Z"
@@ -458,6 +454,9 @@ def upload_cat() -> Any:
             return jsonify({"error": "No image file provided."}), 400
 
         cat_name = str(request.form.get("name") or "Whiskers").strip() or "Whiskers"
+        cat_bio = str(request.form.get("bio") or "").strip()
+        if len(cat_bio) > MAX_CAT_BIO_LENGTH:
+            return jsonify({"error": f"Cat bio must be {MAX_CAT_BIO_LENGTH} characters or fewer."}), 400
         filename_str: str = str(getattr(file, "filename", "") or "")
 
         if not is_allowed_file(filename_str):
@@ -492,6 +491,7 @@ def upload_cat() -> Any:
             "user_name": user_name,
             "user_avatar": avatar_url,
             "name": cat_name,
+            "bio": cat_bio,
             "image_url": public_url,
             "likes_count": 0,
             "created_at": datetime.now(timezone.utc).isoformat()
@@ -565,6 +565,12 @@ def edit_cat(cat_id: str) -> Any:
         put_obj: Dict[str, Any] = {}
         if "name" in data and str(data["name"]).strip():
             put_obj["name"] = str(data["name"]).strip()
+
+        if "bio" in data:
+            bio_value = str(data.get("bio") or "").strip()
+            if len(bio_value) > MAX_CAT_BIO_LENGTH:
+                return jsonify({"error": f"Cat bio must be {MAX_CAT_BIO_LENGTH} characters or fewer."}), 400
+            put_obj["bio"] = bio_value
 
         if is_admin:
             if "user_name" in data and str(data["user_name"]).strip():
@@ -926,6 +932,26 @@ def add_comment(cat_id: str) -> Any:
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+def remove_mock_comment_tree(comment_id: str) -> None:
+    """Remove a comment and every nested reply from the in-memory mock store."""
+    target_ids = {str(comment_id)}
+    changed = True
+    while changed:
+        changed = False
+        for item in MOCK_COMMENTS:
+            item_id = str(item.get("id", ""))
+            parent_id = str(item.get("parent_id", ""))
+            if parent_id in target_ids and item_id not in target_ids:
+                target_ids.add(item_id)
+                changed = True
+            raw_comment = str(item.get("comment", ""))
+            match = re.match(r"^\[reply:([^:]+):?[^\]]*\]", raw_comment)
+            if match and match.group(1) in target_ids and item_id not in target_ids:
+                target_ids.add(item_id)
+                changed = True
+    MOCK_COMMENTS[:] = [item for item in MOCK_COMMENTS if str(item.get("id", "")) not in target_ids]
+
+
 @app.route("/api/comments/<comment_id>", methods=["DELETE"])
 @require_auth
 def delete_comment(comment_id: str) -> Any:
@@ -975,12 +1001,7 @@ def delete_comment(comment_id: str) -> Any:
             except Exception as de:
                 print(f"Error deleting comment from supabase: {de}")
 
-        MOCK_COMMENTS[:] = [
-            c for c in MOCK_COMMENTS 
-            if str(c.get("id")) != str(comment_id) 
-            and str(c.get("parent_id")) != str(comment_id)
-            and not str(c.get("comment", "")).startswith(f"[reply:{comment_id}:")
-        ]
+        remove_mock_comment_tree(comment_id)
 
         return jsonify({"message": "Comment deleted successfully.", "id": comment_id}), 200
     except Exception as e:
@@ -989,16 +1010,17 @@ def delete_comment(comment_id: str) -> Any:
 @app.route("/api/comments/<comment_id>", methods=["PUT"])
 @require_auth
 def edit_comment(comment_id: str) -> Any:
+    """Edit a comment. Editing is intentionally restricted to administrators."""
     try:
-        user_id = str(getattr(getattr(g, "user", None), "id", ""))
-        is_admin = is_admin_user(getattr(g, "user", None))
-        
+        if not is_admin_user(getattr(g, "user", None)):
+            return jsonify({"error": "Only administrators can edit comments."}), 403
+
         raw_json: Any = request.get_json(silent=True)
         new_text = str(cast(Dict[str, Any], raw_json if isinstance(raw_json, dict) else {}).get("comment", "")).strip()
 
         if not new_text or len(new_text) > 500:
             return jsonify({"error": "Comment must be between 1 and 500 characters."}), 400
-        
+
         cdata = None
         if supabase_admin:
             try:
@@ -1013,8 +1035,6 @@ def edit_comment(comment_id: str) -> Any:
 
         if not cdata:
             return jsonify({"error": "Comment not found."}), 404
-        if str(cdata.get("user_id", "")) != user_id and not is_admin:
-            return jsonify({"error": "Access denied. Unauthorized to edit this comment."}), 403
 
         if supabase_admin:
             safe_db_update("comments", {"comment": new_text}, "id", comment_id)
@@ -1024,6 +1044,109 @@ def edit_comment(comment_id: str) -> Any:
                 c["comment"] = new_text
 
         return jsonify({"message": "Comment updated successfully.", "text": new_text}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/admin/comments", methods=["GET"])
+@require_auth
+def admin_get_comments() -> Any:
+    try:
+        if not is_admin_user(getattr(g, "user", None)):
+            return jsonify({"error": "Admin access required."}), 403
+
+        comments: List[Dict[str, Any]] = []
+        if supabase_admin:
+            try:
+                raw_comments: Any = getattr(
+                    supabase_admin.table("comments").select("*").order("created_at", desc=True).limit(500).execute(),
+                    "data",
+                    []
+                )
+                comments = cast(List[Dict[str, Any]], raw_comments) if isinstance(raw_comments, list) else []
+            except Exception as ce:
+                print(f"Admin comments load notice: {ce}")
+
+        if not comments:
+            comments = [dict(c) for c in MOCK_COMMENTS]
+
+        cat_map: Dict[str, Dict[str, Any]] = {}
+        if supabase_admin:
+            try:
+                raw_cats: Any = getattr(supabase_admin.table("cats").select("id,name,image_url").execute(), "data", [])
+                if isinstance(raw_cats, list):
+                    cat_map = {str(c.get("id")): cast(Dict[str, Any], c) for c in raw_cats if isinstance(c, dict)}
+            except Exception as ce:
+                print(f"Admin comments cat lookup notice: {ce}")
+
+        if not cat_map:
+            cat_map = {str(c.get("id")): c for c in MOCK_CATS}
+
+        enriched: List[Dict[str, Any]] = []
+        for comment in comments:
+            item = dict(comment)
+            uid = str(item.get("user_id", ""))
+            uname = str(item.get("user_name", "Cat Lover"))
+            item["user_avatar"] = resolve_user_avatar(uid, uname, item.get("user_avatar"))
+            cat = cat_map.get(str(item.get("cat_id", "")), {})
+            item["cat_name"] = str(cat.get("name", "Unknown cat"))
+            item["cat_image"] = str(cat.get("image_url", ""))
+            enriched.append(item)
+
+        return jsonify({"comments": enriched, "total_comments": len(enriched)}), 200
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+@app.route("/api/admin/comments/<comment_id>", methods=["PUT", "DELETE"])
+@require_auth
+def admin_comment_action(comment_id: str) -> Any:
+    try:
+        if not is_admin_user(getattr(g, "user", None)):
+            return jsonify({"error": "Admin access required."}), 403
+
+        cdata = None
+        if supabase_admin:
+            try:
+                raw: Any = getattr(supabase_admin.table("comments").select("*").eq("id", comment_id).single().execute(), "data", None)
+                if raw:
+                    cdata = cast(Dict[str, Any], raw)
+            except Exception:
+                pass
+        if not cdata:
+            cdata = next((c for c in MOCK_COMMENTS if str(c.get("id")) == str(comment_id)), None)
+        if not cdata:
+            return jsonify({"error": "Comment not found."}), 404
+
+        if request.method == "PUT":
+            raw_json: Any = request.get_json(silent=True)
+            new_text = str(cast(Dict[str, Any], raw_json if isinstance(raw_json, dict) else {}).get("comment", "")).strip()
+            if not new_text or len(new_text) > 500:
+                return jsonify({"error": "Comment must be between 1 and 500 characters."}), 400
+
+            if supabase_admin:
+                supabase_admin.table("comments").update({"comment": new_text}).eq("id", comment_id).execute()
+            for c in MOCK_COMMENTS:
+                if str(c.get("id")) == str(comment_id):
+                    c["comment"] = new_text
+            return jsonify({"message": "Comment updated successfully.", "text": new_text}), 200
+
+        # DELETE: also remove replies/notifications tied to this comment.
+        if supabase_admin:
+            try:
+                supabase_admin.table("notifications").delete().eq("comment_id", comment_id).execute()
+            except Exception:
+                pass
+            try:
+                supabase_admin.table("comments").delete().eq("parent_id", comment_id).execute()
+            except Exception:
+                pass
+            try:
+                supabase_admin.table("comments").delete().like("comment", f"[reply:{comment_id}:%").execute()
+            except Exception:
+                pass
+            supabase_admin.table("comments").delete().eq("id", comment_id).execute()
+
+        remove_mock_comment_tree(comment_id)
+        return jsonify({"message": "Comment deleted successfully.", "id": comment_id}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

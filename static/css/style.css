@@ -78,3 +78,18 @@ input:focus, textarea:focus, select:focus, button:focus-visible {
 #toast-container > * {
     pointer-events: auto;
 }
+
+/* Keep uploaded/user images visually untouched. */
+img {
+    filter: none !important;
+    opacity: 1 !important;
+    mix-blend-mode: normal !important;
+}
+
+.cat-img-wrapper img,
+#modal-cat-image {
+    filter: none !important;
+    opacity: 1 !important;
+    mix-blend-mode: normal !important;
+    image-rendering: auto;
+}

@@ -9,14 +9,16 @@ CREATE TABLE IF NOT EXISTS public.cats (
     user_name TEXT NOT NULL DEFAULT 'Cat Lover',
     user_avatar TEXT,
     name TEXT NOT NULL,
+    bio TEXT,
     image_url TEXT NOT NULL,
     likes_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
--- Ensure user_avatar and user_name columns exist on cats
+-- Ensure cat profile columns exist
 ALTER TABLE public.cats ADD COLUMN IF NOT EXISTS user_avatar TEXT;
 ALTER TABLE public.cats ADD COLUMN IF NOT EXISTS user_name TEXT DEFAULT 'Cat Lover';
+ALTER TABLE public.cats ADD COLUMN IF NOT EXISTS bio TEXT;
 
 -- 2. Likes Table
 CREATE TABLE IF NOT EXISTS public.likes (\

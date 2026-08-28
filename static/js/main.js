@@ -211,6 +211,13 @@ async function openCatModal(catId) {
 
         document.getElementById("modal-cat-image").src = cat.image_url;
         document.getElementById("modal-cat-name").innerText = cat.name;
+
+        const bioElem = document.getElementById("modal-cat-bio");
+        const catBio = String(cat.bio || "").trim();
+        if (bioElem) {
+            bioElem.textContent = catBio;
+            bioElem.classList.toggle("hidden", !catBio);
+        }
         
         const uploadedOnText = typeof t === "function" ? t("uploaded_on") : "Uploaded on";
         document.getElementById("modal-cat-date").innerText = `${uploadedOnText} ${(cat.created_at || '').slice(0, 10)}`;
@@ -292,18 +299,120 @@ function cancelReply() {
 }
 
 // Load Comments & Replies
+function normalizeParentId(value) {
+    if (value === null || value === undefined) return null;
+    const str = String(value).trim();
+    if (!str || ["null", "none", "undefined"].includes(str.toLowerCase())) return null;
+    return str;
+}
+
+function buildCommentTree(comments) {
+    const byId = {};
+    const roots = [];
+
+    comments.forEach(comment => {
+        byId[String(comment.id)] = { ...comment, children: [] };
+    });
+
+    comments.forEach(comment => {
+        const id = String(comment.id);
+        const node = byId[id];
+        const parentId = normalizeParentId(comment.parent_id);
+        if (parentId && byId[parentId]) {
+            byId[parentId].children.push(node);
+        } else {
+            roots.push(node);
+        }
+    });
+
+    return roots;
+}
+
+function encodedHandlerValue(value) {
+    return encodeURIComponent(String(value || "")).replace(/'/g, "%27");
+}
+
+function renderCommentNode(comment, currentUserId, parentAuthorName, depth = 0) {
+    const authorDisplayName = String(comment.user_name || "Cat Lover");
+    const userTarget = String(comment.user_id || authorDisplayName || "");
+    const avatar = String(comment.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(authorDisplayName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`);
+    const isOwner = !!currentUserId && String(comment.user_id) === String(currentUserId);
+    const replyBtnText = typeof t === "function" ? t("reply_btn") : "Reply";
+    const deleteBtnText = typeof t === "function" ? t("delete_btn") : "Delete";
+    const replyingToText = typeof t === "function" ? t("replying_to") : "Replying to";
+    const safeAuthor = escapeHtml(authorDisplayName);
+    const safeAvatar = escapeHtml(avatar);
+    const safeComment = escapeHtml(String(comment.comment || ""));
+    const safeUserTarget = encodeURIComponent(userTarget);
+    const replyAuthorEncoded = encodedHandlerValue(authorDisplayName);
+    const commentId = String(comment.id);
+    const parentLabel = parentAuthorName || comment.reply_to_name || "";
+    const children = Array.isArray(comment.children) ? comment.children : [];
+
+    const childIndent = Math.min(depth + 1, 4);
+    const childNodes = children.map(child =>
+        renderCommentNode(child, currentUserId, authorDisplayName, childIndent)
+    ).join("");
+
+    const rootClasses = depth === 0
+        ? "p-3.5 rounded-2xl bg-white border border-slate-200/80 shadow-xs hover:border-slate-300 transition"
+        : "p-3 rounded-2xl bg-white border border-slate-100 shadow-xs hover:border-slate-200 transition";
+
+    const avatarSize = depth === 0 ? "w-8 h-8" : "w-7 h-7";
+    const replyBadge = parentLabel ? `
+        <span class="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1">
+            <i class="fa-solid fa-reply text-[8px]"></i>
+            <span>${replyingToText} @${escapeHtml(parentLabel)}</span>
+        </span>
+    ` : "";
+
+    return `
+        <div class="${rootClasses}">
+            <div class="flex items-start gap-3">
+                <a href="/user/${safeUserTarget}" class="flex-shrink-0">
+                    <img src="${safeAvatar}" alt="Avatar" onerror="handleAvatarError(this, decodeURIComponent('${replyAuthorEncoded}'))" class="${avatarSize} rounded-full bg-slate-50 border border-slate-200 object-cover">
+                </a>
+                <div class="flex-grow min-w-0">
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2 min-w-0 flex-wrap">
+                            <a href="/user/${safeUserTarget}" class="text-xs font-bold text-slate-900 hover:text-indigo-600 transition truncate">${safeAuthor}</a>
+                            ${replyBadge}
+                            <span class="text-[10px] text-slate-400 font-medium">${escapeHtml((comment.created_at || '').slice(0, 10))}</span>
+                        </div>
+                        <div class="flex items-center gap-1 flex-shrink-0">
+                            <button type="button" data-reply-id="${escapeHtml(commentId)}" data-reply-author="${escapeHtml(authorDisplayName)}" onclick="startReply(this.dataset.replyId, this.dataset.replyAuthor)" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-0.5 rounded-lg transition flex items-center gap-1">
+                                <i class="fa-solid fa-reply text-[10px]"></i>
+                                <span>${replyBtnText}</span>
+                            </button>
+                            ${isOwner ? `
+                                <button type="button" onclick="deleteComment('${escapeHtml(commentId)}', event)" class="text-slate-400 hover:text-rose-600 transition p-1 text-xs ml-1" title="${deleteBtnText}">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            ` : ""}
+                        </div>
+                    </div>
+                    <p class="text-xs text-slate-700 mt-1 leading-relaxed break-words font-medium">${safeComment}</p>
+                </div>
+            </div>
+            ${children.length ? `
+                <div class="ml-5 pl-3 border-l-2 border-indigo-100 space-y-2 mt-2">
+                    ${childNodes}
+                </div>
+            ` : ""}
+        </div>
+    `;
+}
+
 async function loadCatComments(catId) {
     try {
         const res = await fetch(`/api/cats/${catId}/comments`);
         const data = await res.json();
-        const comments = data.comments || [];
+        const comments = Array.isArray(data.comments) ? data.comments : [];
         const container = document.getElementById("modal-comments-list");
         const countElem = document.getElementById("modal-comments-count");
         const countBadge = document.getElementById("modal-comments-count-badge");
 
-        if (countElem) {
-            countElem.innerText = `(${comments.length})`;
-        }
+        if (countElem) countElem.innerText = `(${comments.length})`;
         if (countBadge) {
             const label = typeof t === "function" ? (currentLang === 'ru' ? "комментариев" : "comments") : "comments";
             countBadge.innerText = `${comments.length} ${label}`;
@@ -327,111 +436,14 @@ async function loadCatComments(catId) {
             currentUserId = currentSession.user.id;
         }
 
-        const rootComments = [];
-        const repliesByParent = {};
-        const allCommentIds = new Set(comments.map(c => String(c.id)));
-
-        comments.forEach(c => {
-            const rawPid = c.parent_id;
-            const pid = (rawPid && String(rawPid).trim() !== "" && String(rawPid).trim().toLowerCase() !== "null" && String(rawPid).trim().toLowerCase() !== "none" && String(rawPid).trim().toLowerCase() !== "undefined") ? String(rawPid).trim() : null;
-            
-            if (pid && allCommentIds.has(pid)) {
-                if (!repliesByParent[pid]) {
-                    repliesByParent[pid] = [];
-                }
-                repliesByParent[pid].push(c);
-            } else {
-                rootComments.push(c);
-            }
-        });
-
-        const replyBtnText = typeof t === "function" ? t("reply_btn") : "Reply";
-        const deleteBtnText = typeof t === "function" ? t("delete_btn") : "Delete";
-        const replyingToText = typeof t === "function" ? t("replying_to") : "Replying to";
-
-        container.innerHTML = rootComments.map(c => {
-            const authorDisplayName = c.user_name || "Cat Lover";
-            const userTarget = c.user_id || c.user_name || '';
-            const avatar = c.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(authorDisplayName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
-            const isOwner = currentUserId && String(c.user_id) === String(currentUserId);
-            const replies = repliesByParent[String(c.id)] || [];
-
-            const repliesHtml = replies.map(r => {
-                const rAuthorName = r.user_name || "Cat Lover";
-                const rUserTarget = r.user_id || r.user_name || '';
-                const rAvatar = r.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(rAuthorName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
-                const rIsOwner = currentUserId && String(r.user_id) === String(currentUserId);
-                const safeRAuthorName = escapeHtml(rAuthorName);
-                const jsSafeRAuthorName = escapeJsString(rAuthorName);
-
-                return `
-                    <div class="flex items-start gap-2.5 p-2.5 rounded-2xl bg-white border border-slate-100 shadow-xs mt-2 transition hover:border-slate-200">
-                        <a href="/user/${encodeURIComponent(rUserTarget)}" class="flex-shrink-0">
-                            <img src="${rAvatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeRAuthorName}')" class="w-6 h-6 rounded-full bg-slate-50 border border-slate-200 object-cover">
-                        </a>
-                        <div class="flex-grow min-w-0">
-                            <div class="flex items-center justify-between gap-1">
-                                <div class="flex items-center gap-1.5 flex-wrap">
-                                    <a href="/user/${encodeURIComponent(rUserTarget)}" class="text-xs font-bold text-slate-900 hover:text-indigo-600 transition">${safeRAuthorName}</a>
-                                    <span class="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1">
-                                        <i class="fa-solid fa-reply text-[8px]"></i>
-                                        <span>${replyingToText} @${escapeHtml(r.reply_to_name || authorDisplayName)}</span>
-                                    </span>
-                                    <span class="text-[10px] text-slate-400">${(r.created_at || '').slice(0, 10)}</span>
-                                </div>
-                                ${rIsOwner ? `
-                                    <button onclick="deleteComment('${r.id}', event)" class="text-slate-400 hover:text-rose-600 transition p-1 text-xs" title="${deleteBtnText}">
-                                        <i class="fa-solid fa-trash-can"></i>
-                                    </button>
-                                ` : ''}
-                            </div>
-                            <p class="text-xs text-slate-700 mt-1 leading-relaxed break-words font-medium">${escapeHtml(r.comment)}</p>
-                        </div>
-                    </div>
-                `;
-            }).join("");
-
-            const safeAuthorDisplayName = escapeHtml(authorDisplayName);
-            const jsSafeAuthorDisplayName = escapeJsString(authorDisplayName);
-
-            return `
-                <div class="p-3.5 rounded-2xl bg-white border border-slate-200/80 shadow-xs hover:border-slate-300 transition">
-                    <div class="flex items-start gap-3">
-                        <a href="/user/${encodeURIComponent(userTarget)}" class="flex-shrink-0">
-                            <img src="${avatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeAuthorDisplayName}')" class="w-8 h-8 rounded-full bg-slate-50 border border-slate-200 object-cover">
-                        </a>
-                        <div class="flex-grow min-w-0">
-                            <div class="flex items-center justify-between gap-2">
-                                <div class="flex items-center gap-2">
-                                    <a href="/user/${encodeURIComponent(userTarget)}" class="text-xs font-bold text-slate-900 hover:text-indigo-600 transition">${safeAuthorDisplayName}</a>
-                                    <span class="text-[10px] text-slate-400 font-medium">${(c.created_at || '').slice(0, 10)}</span>
-                                </div>
-                                <div class="flex items-center gap-1">
-                                    <button onclick="startReply('${c.id}', '${jsSafeAuthorDisplayName}')" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-0.5 rounded-lg transition flex items-center gap-1">
-                                        <i class="fa-solid fa-reply text-[10px]"></i>
-                                        <span>${replyBtnText}</span>
-                                    </button>
-                                    ${isOwner ? `
-                                        <button onclick="deleteComment('${c.id}', event)" class="text-slate-400 hover:text-rose-600 transition p-1 text-xs ml-1" title="${deleteBtnText}">
-                                            <i class="fa-solid fa-trash-can"></i>
-                                        </button>
-                                    ` : ''}
-                                </div>
-                            </div>
-                            <p class="text-xs text-slate-700 mt-1 leading-relaxed break-words font-medium">${escapeHtml(c.comment)}</p>
-                        </div>
-                    </div>
-
-                    ${replies.length > 0 ? `
-                        <div class="ml-5 pl-3 border-l-2 border-indigo-100 space-y-1.5 mt-2">
-                            ${repliesHtml}
-                        </div>
-                    ` : ''}
-                </div>
-            `;
-        }).join("");
+        const roots = buildCommentTree(comments);
+        container.innerHTML = roots.map(comment => renderCommentNode(comment, currentUserId)).join("");
     } catch (e) {
         console.error("Comments error:", e);
+        const container = document.getElementById("modal-comments-list");
+        if (container) {
+            container.innerHTML = `<p class="text-xs text-rose-500 py-8 text-center">Failed to load comments.</p>`;
+        }
     }
 }
 
