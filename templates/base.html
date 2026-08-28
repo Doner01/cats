@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}CatRank | Modern Cat Voting & Leaderboard{% endblock %}</title>
+    <!-- Dynamic SVG Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐱</text></svg>">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Font Awesome 6 Icons (No emojis!) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Global Avatar Fallback Handlers -->
+    <script>
+        function getFallbackAvatarSvg(name) {
+            const safeName = (name || 'Cat').trim();
+            const initial = safeName.charAt(0).toUpperCase() || 'C';
+            const colors = ['#6366f1', '#ec4899', '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#06b6d4', '#4f46e5', '#d946ef'];
+            let hash = 0;
+            for (let i = 0; i < safeName.length; i++) {
+                hash = safeName.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const color = colors[Math.abs(hash) % colors.length];
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><rect width="100" height="100" rx="50" fill="${color}"/><text x="50" y="58" font-size="44" font-family="Plus Jakarta Sans, -apple-system, sans-serif" font-weight="bold" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">${initial}</text></svg>`;
+            return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+        }
+
+        function handleAvatarError(imgElem, name = "Cat") {
+            if (!imgElem) return;
+            imgElem.onerror = null;
+            imgElem.src = getFallbackAvatarSvg(name);
+        }
+    </script>
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const SUPABASE_URL = "{{ supabase_url }}";
+        const SUPABASE_ANON_KEY = "{{ supabase_anon_key }}";
+        let supabaseClient = null;
+        if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        }
+    </script>
+</head>
+<body class="bg-slate-50/70 text-slate-900 min-h-screen flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
+    <!-- Modern Navigation Bar -->
+    <header class="glass-nav border-b border-slate-200/80 sticky top-0 z-40 transition-all shadow-xs">
+        <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
+            <!-- Brand Logo -->
+            <a href="/" class="flex items-center gap-2.5 font-black text-xl text-indigo-600 tracking-tight hover:opacity-90 transition flex-shrink-0 group">
+                <div class="w-9 h-9 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 group-hover:scale-105 transition transform">
+                    <i class="fa-solid fa-cat text-lg"></i>
+                </div>
+                <span class="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 bg-clip-text text-transparent" data-i18n="nav_brand">CatRank</span>
+            </a>
+            
+            <nav class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                <a href="/" class="px-3 py-2 text-xs sm:text-sm font-bold text-slate-600 hover:text-indigo-600 hover:bg-slate-100/80 rounded-xl transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-house text-slate-400 text-xs"></i>
+                    <span data-i18n="nav_feed">Feed</span>
+                </a>
+                <a href="/leaderboard" class="px-3 py-2 text-xs sm:text-sm font-bold text-slate-600 hover:text-indigo-600 hover:bg-slate-100/80 rounded-xl transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-trophy text-amber-500 text-xs"></i>
+                    <span data-i18n="nav_leaderboard">Leaderboard</span>
+                </a>
+                <a href="/upload" class="px-3.5 py-2 text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl transition shadow-sm hover:shadow-indigo-500/25 whitespace-nowrap flex items-center gap-1.5 transform hover:-translate-y-0.5">
+                    <i class="fa-solid fa-cloud-arrow-up text-xs"></i>
+                    <span data-i18n="nav_upload">Upload Cat</span>
+                </a>
+                
+                <!-- Language Switcher -->
+                <div class="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 text-xs font-bold shadow-inner">
+                    <span class="text-slate-400 pl-1.5 pr-0.5"><i class="fa-solid fa-globe text-[11px]"></i></span>
+                    <button id="lang-btn-en" onclick="setLanguage('en')" class="px-2 py-1 text-xs font-black rounded-lg transition" title="English">EN</button>
+                    <button id="lang-btn-ru" onclick="setLanguage('ru')" class="px-2 py-1 text-xs font-bold rounded-lg transition" title="Русский">RU</button>
+                </div>
+
+                <!-- Notifications Dropdown Menu -->
+                <div class="relative" id="notifications-menu-container">
+                    <button id="notifications-bell-btn" onclick="toggleNotificationsDropdown(event)" class="relative p-2 rounded-xl text-slate-600 hover:text-indigo-600 hover:bg-slate-100 transition focus:outline-none" title="Notifications" data-i18n-title="nav_notifications">
+                        <i class="fa-solid fa-bell text-base"></i>
+                        <span id="notifications-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-sm ring-2 ring-white animate-pulse">0</span>
+                    </button>
+
+                    <!-- Notifications Popup Panel -->
+                    <div id="notifications-dropdown" class="hidden absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden z-50 animate-in fade-in duration-150">
+                        <div class="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-bell text-indigo-600 text-sm"></i>
+                                <h3 class="font-black text-slate-900 text-sm" data-i18n="notifications_title">Notifications</h3>
+                                <span id="notif-unread-pill" class="hidden px-2 py-0.5 bg-rose-50 text-rose-600 text-[10px] font-black rounded-full border border-rose-100">0 new</span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button onclick="markAllNotificationsRead()" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition flex items-center gap-1" title="Mark all as read" data-i18n="notif_mark_read">
+                                    <i class="fa-solid fa-check-double text-[10px]"></i>
+                                    <span>Mark all read</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Notification List -->
+                        <div id="notifications-list" class="max-h-80 overflow-y-auto divide-y divide-slate-100 scrollbar-thin bg-white">
+                            <div class="p-8 text-center text-slate-400 space-y-2">
+                                <i class="fa-solid fa-bell-slash text-2xl opacity-40"></i>
+                                <p class="text-xs font-medium" data-i18n="notif_empty">No notifications yet</p>
+                            </div>
+                        </div>
+
+                        <!-- Footer -->
+                        <div class="p-2.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between text-[11px]">
+                            <span class="text-slate-400 font-medium" data-i18n="notif_footer">Activity updates</span>
+                            <button onclick="clearAllNotifications()" class="text-slate-400 hover:text-rose-600 font-bold transition px-2 py-0.5 rounded-lg hover:bg-rose-50 flex items-center gap-1" data-i18n="notif_clear_all">
+                                <i class="fa-solid fa-trash-can text-[10px]"></i>
+                                <span>Clear all</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dynamic Auth Section -->
+                <div id="auth-section" class="flex items-center gap-1.5">
+                    <a href="/login" class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition flex items-center gap-1.5" data-i18n="nav_signin">
+                        <i class="fa-solid fa-right-to-bracket text-xs text-slate-500"></i>
+                        <span>Sign In</span>
+                    </a>
+                    <a href="/register" class="hidden sm:inline-flex px-3.5 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition items-center gap-1.5" data-i18n="nav_signup">
+                        <i class="fa-solid fa-user-plus text-xs text-indigo-500"></i>
+                        <span>Sign Up</span>
+                    </a>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-grow max-w-6xl mx-auto px-4 py-8 w-full">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Custom Designed Confirmation & Alert Modal (Replaces browser confirm/alert dialogs) -->
+    <div id="custom-confirm-modal" class="fixed inset-0 z-[100] hidden items-center justify-center p-4 bg-slate-950/65 backdrop-blur-sm transition-all duration-200 opacity-0 pointer-events-none">
+        <div id="custom-confirm-box" class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 transform scale-95 transition-all duration-200 space-y-5">
+            <div class="flex items-start gap-4">
+                <div id="custom-confirm-icon-bg" class="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center flex-shrink-0 text-rose-600 shadow-xs">
+                    <i id="custom-confirm-icon" class="fa-solid fa-triangle-exclamation text-xl"></i>
+                </div>
+                <div class="flex-grow min-w-0 pt-0.5">
+                    <h3 id="custom-confirm-title" class="text-base font-extrabold text-slate-900 leading-tight">Confirm Action</h3>
+                    <p id="custom-confirm-message" class="text-xs text-slate-500 mt-1.5 leading-relaxed break-words font-medium">Are you sure you want to proceed?</p>
+                </div>
+            </div>
+            <div class="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                <button id="custom-confirm-cancel-btn" type="button" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-bold transition shadow-xs">
+                    Cancel
+                </button>
+                <button id="custom-confirm-action-btn" type="button" class="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5">
+                    <span>Confirm</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modern Full-Sized Interactive Cat Detail & Threaded Comments Modal -->
+    <div id="cat-detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl max-w-5xl w-full h-[92vh] md:h-[86vh] overflow-hidden shadow-2xl flex flex-col md:flex-row border border-slate-100 animate-in fade-in duration-200 relative">
+            
+            <!-- Left: Cat Image (50% Width on Desktop, centered dark ambient backdrop) -->
+            <div class="md:w-1/2 bg-slate-950 flex items-center justify-center h-[36vh] md:h-full overflow-hidden relative flex-shrink-0 group select-none">
+                <img id="modal-cat-image" src="#" alt="Cat preview" ondblclick="toggleLike(activeModalCatId, event)" class="w-full h-full object-contain max-h-[86vh] cursor-pointer transition-transform duration-300 group-hover:scale-[1.01]">
+                
+                <!-- Heart Pop Animation on double-click -->
+                <div id="double-click-heart" class="hidden absolute inset-0 flex items-center justify-center pointer-events-none text-rose-500 text-8xl animate-ping drop-shadow-2xl z-30">
+                    <i class="fa-solid fa-heart"></i>
+                </div>
+                
+                <span class="absolute bottom-3 left-3 px-3 py-1.5 bg-black/70 backdrop-blur-md text-white/90 text-[11px] font-semibold rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none flex items-center gap-1.5 shadow-lg">
+                    <i class="fa-solid fa-heart text-rose-400 text-xs"></i>
+                    <span data-i18n="double_click_hint">Double click photo to vote</span>
+                </span>
+            </div>
+
+            <!-- Right: Detail, Threaded Comments & Upgraded Action Controls -->
+            <div class="md:w-1/2 flex flex-col h-[56vh] md:h-full bg-white relative overflow-hidden">
+                
+                <!-- Fixed Header: Author Profile on Left & Clean Close Button on Right -->
+                <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-white/95 backdrop-blur z-20 flex-shrink-0">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <a id="modal-author-link" href="#" class="flex-shrink-0 group/avatar relative">
+                            <img id="modal-author-avatar" src="#" alt="Avatar" class="w-10 h-10 rounded-full border border-slate-200 object-cover bg-slate-50 shadow-sm group-hover/avatar:scale-105 transition" onerror="handleAvatarError(this)">
+                        </a>
+                        <div class="min-w-0">
+                            <h3 id="modal-cat-name" class="font-extrabold text-slate-900 text-base sm:text-lg leading-tight truncate">Cat Name</h3>
+                            <div class="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5">
+                                <a id="modal-author-name" href="#" class="font-bold text-indigo-600 hover:underline truncate">Author</a>
+                                <span>•</span>
+                                <span id="modal-cat-date" class="text-[11px] text-slate-400 font-medium"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Clean, beautifully spaced Close button in header top-right -->
+                    <button id="modal-close-btn" onclick="closeCatModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-500 hover:text-slate-900 flex items-center justify-center font-bold text-sm transition shadow-xs flex-shrink-0 focus:outline-none" title="Close" data-i18n-title="close_modal">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- Full-Height Scrollable Comments & Replies Area -->
+                <div class="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3.5 scrollbar-thin bg-slate-50/40" id="modal-comments-container">
+                    <div class="flex items-center justify-between pb-1 border-b border-slate-200/60">
+                        <h4 class="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                            <i class="fa-solid fa-comments text-indigo-500"></i>
+                            <span data-i18n="modal_comments_title">Comments</span>
+                        </h4>
+                        <span id="modal-comments-count" class="text-[11px] font-bold text-slate-400"></span>
+                    </div>
+                    
+                    <div id="modal-comments-list" class="space-y-3.5 text-xs">
+                        <p class="text-xs text-slate-400 py-8 text-center" data-i18n="loading_comments">Loading comments...</p>
+                    </div>
+                </div>
+
+                <!-- Interactive Engagement Action Bar -->
+                <div class="px-4 sm:px-5 py-2.5 border-t border-slate-100 bg-white flex items-center justify-between gap-3 flex-shrink-0 z-20">
+                    <button id="modal-like-btn" onclick="toggleLike(activeModalCatId, event)" class="flex items-center gap-2 px-4 py-2 rounded-2xl bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200/80 text-rose-700 transition transform hover:scale-105 active:scale-95 shadow-xs font-bold text-xs group">
+                        <i id="modal-heart-icon" class="fa-regular fa-heart text-base text-rose-500 transition-transform group-hover:scale-125"></i>
+                        <span class="font-extrabold text-rose-700">
+                            <span id="modal-like-count">0</span>
+                            <span data-i18n="votes">votes</span>
+                        </span>
+                    </button>
+                    
+                    <div class="flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
+                        <i class="fa-solid fa-comment text-slate-400 text-xs"></i>
+                        <span id="modal-comments-count-badge">0 comments</span>
+                    </div>
+                </div>
+
+                <!-- Bottom Pinned Comment & Reply Form -->
+                <div class="p-3 sm:p-4 border-t border-slate-200/80 bg-white flex-shrink-0 z-20">
+                    <!-- Active Replying Banner -->
+                    <div id="modal-reply-banner" class="hidden flex items-center justify-between px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs rounded-xl mb-2 shadow-sm animate-in fade-in duration-150">
+                        <div class="flex items-center gap-1.5 truncate">
+                            <i class="fa-solid fa-reply text-indigo-500 text-xs"></i>
+                            <span data-i18n="replying_to">Replying to</span>
+                            <strong id="modal-reply-target-name" class="font-bold text-indigo-900">@User</strong>
+                        </div>
+                        <button type="button" onclick="cancelReply()" class="text-slate-400 hover:text-rose-600 font-black px-1 text-sm transition" title="Cancel Reply" data-i18n-title="cancel_reply">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+
+                    <!-- Input & Send Button -->
+                    <form onsubmit="submitComment(event)" class="flex gap-2 items-center">
+                        <input type="text" id="modal-comment-input" required maxlength="500" placeholder="Add a comment... (10s cooldown)" data-i18n-placeholder="comment_placeholder" class="flex-grow px-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
+                        <button type="submit" id="modal-comment-btn" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs rounded-2xl shadow-md transition flex items-center gap-1.5 whitespace-nowrap transform hover:-translate-y-0.5" data-i18n="post_btn">
+                            <i class="fa-solid fa-paper-plane text-xs"></i>
+                            <span>Post</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modern Footer -->
+    <footer class="bg-white border-t border-slate-200 py-8 text-center text-xs text-slate-500 mt-12 w-full">
+        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-2.5 font-bold text-slate-800 opacity-90 hover:opacity-100 transition cursor-default">
+                <div class="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-xs shadow-xs">
+                    <i class="fa-solid fa-cat"></i>
+                </div>
+                <span>CatRank</span>
+                <span class="text-slate-300">•</span>
+                <span class="font-medium text-slate-500" data-i18n="footer_tagline">Community Cat Voting & Leaderboard</span>
+            </div>
+            <div class="flex items-center gap-4 text-[11px] font-bold uppercase tracking-wider opacity-80">
+                <a href="/leaderboard" class="hover:text-indigo-600 transition hover:-translate-y-0.5 duration-300 inline-flex items-center gap-1" data-i18n="nav_leaderboard">
+                    <i class="fa-solid fa-trophy text-amber-500 text-[10px]"></i>
+                    <span>Leaderboard</span>
+                </a>
+                <a href="/admin" class="hover:text-indigo-600 transition hover:-translate-y-0.5 duration-300 inline-flex items-center gap-1" data-i18n="nav_admin">
+                    <i class="fa-solid fa-shield-halved text-indigo-500 text-[10px]"></i>
+                    <span>Admin Panel</span>
+                </a>
+                <p data-i18n="footer_copyright">© 2026 CatRank</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Translations, Toast Notifications & Auth Scripts -->
+    <script src="{{ url_for('static', filename='js/translations.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
