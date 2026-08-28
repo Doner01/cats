@@ -321,62 +321,46 @@ def require_auth(f: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(f)
     def decorated_function(*args: Any, **kwargs: Any) -> Any:
         auth_header: Optional[str] = request.headers.get("Authorization")
-
         if not auth_header or not auth_header.startswith("Bearer "):
             return jsonify({"error": "Unauthorized. Please sign in."}), 401
-
-        token: str = auth_header[len("Bearer "):].strip()
-        if not token:
-            return jsonify({"error": "Unauthorized. Empty access token."}), 401
-
-        # Vercel/serverless-safe verification: try the anon client first and
-        # the service-role client second when it exists in environment variables.
-        clients: List[Client] = []
-        if supabase_auth is not None:
-            clients.append(supabase_auth)
-        if supabase_admin is not None and supabase_admin is not supabase_auth:
-            clients.append(supabase_admin)
-
-        last_error: Optional[str] = None
-
-        for client in clients:
+        
+        parts: List[str] = auth_header.split(" ", 1)
+        if len(parts) < 2:
+            return jsonify({"error": "Unauthorized. Invalid token format."}), 401
+        token: str = str(parts[1]).strip()
+        
+        if supabase_auth:
             try:
-                user_res: Any = client.auth.get_user(jwt=token)
+                user_res: Any = supabase_auth.auth.get_user(jwt=token)
                 user_obj: Any = getattr(user_res, "user", None)
-                if user_obj is not None:
+                if user_obj:
                     g.user = user_obj
                     return f(*args, **kwargs)
-            except Exception as auth_error:
-                last_error = str(auth_error)
-                continue
-
-        # Test-only fallback; never use this as a production auth mechanism.
+            except Exception:
+                try:
+                    user_res2: Any = supabase_auth.auth.get_user(token)
+                    user_obj2: Any = getattr(user_res2, "user", None)
+                    if user_obj2:
+                        g.user = user_obj2
+                        return f(*args, **kwargs)
+                except Exception:
+                    pass
+                
         if token.startswith("mock-") or token == "test-token":
             class MockUser:
                 id: str
                 email: str
                 user_metadata: Dict[str, Any]
                 app_metadata: Dict[str, Any]
-
                 def __init__(self, uid: str, email: str, name: str, is_admin_flag: bool = False) -> None:
                     self.id = str(uid)
                     self.email = str(email)
-                    self.user_metadata = {
-                        "display_name": str(name),
-                        "is_admin": bool(is_admin_flag),
-                    }
+                    self.user_metadata = {"display_name": str(name), "is_admin": bool(is_admin_flag)}
                     self.app_metadata = {"is_admin": bool(is_admin_flag)}
-
             g.user = MockUser("user-mock-1", "user@catrank.local", "MockUser", True)
             return f(*args, **kwargs)
-
-        if last_error:
-            print(f"Auth verification failed: {last_error}")
-
-        return jsonify({
-            "error": "Expired or invalid session. Please sign in again."
-        }), 401
-
+            
+        return jsonify({"error": "Expired or invalid session"}), 401
     return decorated_function
 
 @app.route("/favicon.ico")

@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}Create Account | CatRank{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-sm mt-4 space-y-6">
+    <div class="text-center space-y-1.5">
+        <!-- Live Avatar Seed Preview -->
+        <div class="relative w-16 h-16 mx-auto mb-2">
+            <img id="reg-avatar-preview" src="https://api.dicebear.com/7.x/bottts/svg?seed=CatWhisperer&backgroundColor=b6e3f4,c0aede,d1d4f9" alt="Avatar" class="w-16 h-16 rounded-full border-2 border-indigo-200 bg-slate-50 object-cover shadow-sm transition-transform duration-300">
+            <div class="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] shadow-xs">
+                <i class="fa-solid fa-sparkles"></i>
+            </div>
+        </div>
+        <h1 class="text-2xl font-black text-slate-900 tracking-tight" data-i18n="join_community_title">Join CatRank</h1>
+        <p class="text-xs text-slate-500" data-i18n="register_subtitle">Create an account to upload, vote, and share cat pictures</p>
+    </div>
+
+    <form onsubmit="event.preventDefault(); handleSignUp();" class="space-y-4">
+        <div class="space-y-1.5">
+            <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="display_name_label">
+                <i class="fa-solid fa-user text-indigo-500 text-xs"></i>
+                <span>Display Name / Username</span>
+            </label>
+            <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <i class="fa-solid fa-user-tag text-xs"></i>
+                </div>
+                <input type="text" id="reg-display-name" required maxlength="40" oninput="updateAvatarPreview(this.value)" placeholder="e.g. CatWhisperer" data-i18n-placeholder="display_name_placeholder" class="w-full pl-9 pr-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
+            </div>
+        </div>
+
+        <div class="space-y-1.5">
+            <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="email_label">
+                <i class="fa-solid fa-envelope text-indigo-500 text-xs"></i>
+                <span>Email Address</span>
+            </label>
+            <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <i class="fa-solid fa-at text-xs"></i>
+                </div>
+                <input type="email" id="reg-email" required placeholder="you@example.com" class="w-full pl-9 pr-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
+            </div>
+        </div>
+
+        <div class="space-y-1.5">
+            <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="password_label">
+                <i class="fa-solid fa-lock text-indigo-500 text-xs"></i>
+                <span>Password</span>
+            </label>
+            <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <i class="fa-solid fa-key text-xs"></i>
+                </div>
+                <input type="password" id="reg-password" required minlength="6" placeholder="••••••••" class="w-full pl-9 pr-10 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
+                <button type="button" onclick="togglePasswordVisibility('reg-password', this)" class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition focus:outline-none">
+                    <i class="fa-solid fa-eye text-xs"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="space-y-1.5">
+            <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="confirm_password_label">
+                <i class="fa-solid fa-shield-check text-indigo-500 text-xs"></i>
+                <span>Confirm Password</span>
+            </label>
+            <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <i class="fa-solid fa-lock text-xs"></i>
+                </div>
+                <input type="password" id="reg-confirm-password" required minlength="6" placeholder="••••••••" class="w-full pl-9 pr-10 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
+                <button type="button" onclick="togglePasswordVisibility('reg-confirm-password', this)" class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition focus:outline-none">
+                    <i class="fa-solid fa-eye text-xs"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="pt-2">
+            <button type="submit" id="register-btn" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2 transform hover:-translate-y-0.5" data-i18n="signup_submit_btn">
+                <i class="fa-solid fa-user-plus text-xs"></i>
+                <span>Create Account</span>
+            </button>
+        </div>
+    </form>
+
+    <div class="pt-4 border-t border-slate-100 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-center gap-1.5">
+        <span data-i18n="has_account_text">Already have an account?</span>
+        <a href="/login" class="font-bold text-indigo-600 hover:underline transition flex items-center gap-1" data-i18n="goto_login_link">
+            <span>Sign In here</span>
+            <i class="fa-solid fa-arrow-right text-[10px]"></i>
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateAvatarPreview(name) {
+    const preview = document.getElementById("reg-avatar-preview");
+    if (!preview) return;
+    const safeName = (name || "CatWhisperer").trim();
+    preview.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(safeName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+}
+
+function togglePasswordVisibility(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const isPassword = input.type === 'password';
+    input.type = isPassword ? 'text' : 'password';
+    const icon = btn.querySelector('i');
+    if (icon) {
+        icon.className = isPassword ? 'fa-solid fa-eye-slash text-xs text-indigo-600' : 'fa-solid fa-eye text-xs';
+    }
+}
+</script>
+{% endblock %}
