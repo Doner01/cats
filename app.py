@@ -1134,7 +1134,10 @@ def admin_edit_user_profile(user_id: str) -> Any:
                 if meta_update: auth_update["user_metadata"] = meta_update
                 if new_email: auth_update["email"] = new_email
                 if auth_update:
-                    supabase_admin.auth.admin.update_user_by_id(user_id, auth_update)
+                    supabase_admin.auth.admin.update_user_by_id(
+                        user_id,
+                        cast(Any, auth_update)
+                    )
             except Exception as ae:
                 print(f"Notice: Admin auth update user: {ae}")
 

@@ -21,7 +21,7 @@
             <a href="/user/{{ top_cat.user_id }}" class="flex items-center gap-2 group hover:opacity-90 transition">
                 <img src="{{ top_cat.user_avatar or 'https://api.dicebear.com/7.x/bottts/svg?seed=' ~ (top_cat.user_name or 'Cat') ~ '&backgroundColor=b6e3f4,c0aede,d1d4f9' }}" 
                      alt="{{ top_cat.user_name or 'Cat Lover' }}" 
-                     onerror="handleAvatarError(this, '{{ top_cat.user_name or 'Cat' }}')" 
+                     onerror="handleAvatarError(this, this.alt)" 
                      class="w-6 h-6 rounded-full border border-white/40 object-cover bg-white/10 shadow-xs">
                 <span class="font-bold text-white group-hover:underline">{{ top_cat.user_name or 'Cat Lover' }}</span>
             </a>
@@ -144,7 +144,7 @@
                     <a href="/user/{{ cat.user_id }}" class="flex items-center gap-2 group/user hover:opacity-90 transition min-w-0">
                         <img src="{{ cat.user_avatar or 'https://api.dicebear.com/7.x/bottts/svg?seed=' ~ (cat.user_name or 'Cat') ~ '&backgroundColor=b6e3f4,c0aede,d1d4f9' }}" 
                              alt="{{ cat.user_name or 'Cat Lover' }}" 
-                             onerror="handleAvatarError(this, '{{ cat.user_name or 'Cat' }}')" 
+                             onerror="handleAvatarError(this, this.alt)" 
                              class="w-6 h-6 rounded-full border border-slate-200 object-cover bg-slate-50 flex-shrink-0">
                         <span class="text-xs font-bold text-slate-700 group-hover/user:text-indigo-600 truncate">{{ cat.user_name or 'Cat Lover' }}</span>
                     </a>
