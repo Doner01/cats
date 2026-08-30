@@ -1,0 +1,14 @@
+{
+    "typeCheckingMode": "basic",
+    "reportMissingImports": false,
+    "reportMissingTypeStubs": false,
+    "reportUnknownMemberType": false,
+    "reportUnknownVariableType": false,
+    "reportUnknownArgumentType": false,
+    "reportUnknownParameterType": false,
+    "reportUntypedFunctionDecorator": false,
+    "pythonVersion": "3.10",
+    "include": [
+        "."
+    ]
+}

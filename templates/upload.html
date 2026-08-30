@@ -3,7 +3,7 @@
 {% block title %}Upload Cat Photo | CatRank{% endblock %}
 
 {% block content %}
-<div class="max-w-lg mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-sm mt-2 space-y-6">
+<div class="max-w-lg mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xl mt-2 space-y-6">
     <div class="text-center space-y-1.5">
         <div class="w-14 h-14 mx-auto rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center text-2xl shadow-xs">
             <i class="fa-solid fa-cloud-arrow-up"></i>
@@ -15,31 +15,36 @@
         </p>
     </div>
 
-    <form id="upload-form" class="space-y-5">
+    <form id="upload-form" class="space-y-4">
+        <!-- Cat Name -->
         <div class="space-y-1.5">
             <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="cat_name_label">
                 <i class="fa-solid fa-tag text-indigo-500 text-xs"></i>
                 <span>Cat Name</span>
             </label>
-            <input type="text" id="cat-name" required maxlength="40" placeholder="e.g. Luna, Simba, Mochi" data-i18n-placeholder="cat_name_placeholder" class="w-full px-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
+            <input type="text" id="cat-name" required maxlength="40" placeholder="e.g. Luna, Simba, Mochi, Barsik" data-i18n-placeholder="cat_name_placeholder" class="w-full px-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
         </div>
 
+        <!-- Cat Bio / Story (New!) -->
         <div class="space-y-1.5">
-            <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" for="cat-bio">
-                <i class="fa-solid fa-align-left text-indigo-500 text-xs"></i>
-                <span>Cat Bio / Description <span class="text-slate-400 font-normal">(optional)</span></span>
-            </label>
-            <textarea id="cat-bio" maxlength="1000" rows="4" placeholder="Describe your cat... personality, habits, favorite things, etc." class="w-full px-4 py-3 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition resize-y"></textarea>
-            <div class="text-[10px] text-slate-400 text-right">Up to 1000 characters. Leave empty for no bio.</div>
+            <div class="flex items-center justify-between">
+                <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <i class="fa-solid fa-quote-left text-indigo-500 text-xs"></i>
+                    <span data-i18n="cat_bio_label">Cat Bio / Story (Optional)</span>
+                </label>
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded-full" data-i18n="optional_badge">Optional</span>
+            </div>
+            <textarea id="cat-bio" rows="2" maxlength="300" placeholder="Tell us about your cat's personality, favorite habits, or story..." data-i18n-placeholder="cat_bio_placeholder" class="w-full px-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition"></textarea>
         </div>
 
+        <!-- Photo Upload Dropzone -->
         <div class="space-y-1.5">
             <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="photo_label">
                 <i class="fa-solid fa-image text-indigo-500 text-xs"></i>
                 <span>Photo (PNG, JPG, WEBP, max 5MB)</span>
             </label>
             <div id="drop-zone" class="border-2 border-dashed border-slate-200 hover:border-indigo-400 rounded-2xl p-6 text-center cursor-pointer transition bg-slate-50/50 hover:bg-slate-50">
-                <input type="file" id="cat-file" required accept="image/png, image/jpeg, image/webp" class="hidden">
+                <input type="file" id="cat-file" required accept="image/png, image/jpeg, image/webp, image/gif" class="hidden">
                 <div onclick="document.getElementById('cat-file').click()" class="space-y-1.5">
                     <i class="fa-solid fa-arrow-up-from-bracket text-2xl text-slate-400"></i>
                     <p class="text-xs font-bold text-slate-700" data-i18n="drop_drag_text">Click to browse or drag & drop</p>
@@ -48,12 +53,13 @@
             </div>
         </div>
 
+        <!-- Preview Container -->
         <div id="preview-container" class="hidden space-y-1.5 animate-in fade-in duration-150">
             <div class="flex items-center justify-between">
                 <label class="block text-xs font-bold text-slate-700" data-i18n="preview_label">Preview</label>
                 <button type="button" onclick="clearUploadPreview()" class="text-xs text-rose-600 font-bold hover:underline flex items-center gap-1">
                     <i class="fa-solid fa-trash-can text-[10px]"></i>
-                    <span>Remove</span>
+                    <span data-i18n="remove_preview_btn">Remove</span>
                 </button>
             </div>
             <div class="cat-img-wrapper rounded-2xl overflow-hidden border border-slate-200 shadow-xs relative bg-slate-900">

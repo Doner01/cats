@@ -34,64 +34,42 @@ function getUserDisplayName(user) {
 }
 
 async function checkAuth() {
-    if (typeof supabaseClient === "undefined" || !supabaseClient) return null;
-
+    if (typeof supabaseClient === "undefined" || !supabaseClient) return;
     try {
-        // Ask Supabase for the current session. This also lets the SDK refresh
-        // an access token when the refresh token is still valid.
-        const { data, error } = await supabaseClient.auth.getSession();
-        if (error) throw error;
-
-        let session = data?.session || null;
-
-        // If the cached access token has expired, explicitly try a refresh once.
-        if (!session) {
-            const refreshResult = await supabaseClient.auth.refreshSession();
-            if (!refreshResult.error && refreshResult.data?.session) {
-                session = refreshResult.data.session;
-            }
-        }
-
+        const { data: { session } } = await supabaseClient.auth.getSession();
         currentSession = session;
-
-        // IMPORTANT: if the user is already authenticated and opens /login,
-        // immediately send them back to the feed instead of showing login again.
-        const isLoginPage = window.location.pathname === "/login";
-        const isRegisterPage = window.location.pathname === "/register";
-
-        if (session?.user && (isLoginPage || isRegisterPage)) {
-            window.location.replace("/");
-            return session;
-        }
-
         const authSection = document.getElementById("auth-section");
-        if (!authSection) return session;
-
-        if (session?.user) {
+        if (!authSection) return;
+        
+        if (session && session.user) {
             const displayName = getUserDisplayName(session.user);
             const avatarUrl = getAvatarUrl(session.user);
             const profileText = typeof t === "function" ? t("nav_profile") : "Profile";
             const signOutText = typeof t === "function" ? t("nav_signout") : "Sign Out";
-
+            
             authSection.innerHTML = `
                 <div class="flex items-center gap-1.5">
-                    <a href="/profile" class="flex items-center gap-2 px-2.5 py-1.5 bg-slate-100/90 hover:bg-slate-200/90 rounded-xl transition group shadow-xs">
-                        <img src="${avatarUrl}" alt="Avatar" onerror="handleAvatarError(this, ${JSON.stringify(displayName)})" class="w-6 h-6 rounded-full bg-white border border-slate-200 object-cover">
+                    <a href="/profile" class="flex items-center gap-2 px-2.5 py-1.5 bg-slate-100/90 hover:bg-slate-200/90 rounded-xl transition group shadow-2xs">
+                        <img src="${avatarUrl}" alt="Avatar" onerror="handleAvatarError(this, '${displayName.replace(/'/g, "\\'")}')" class="w-6 h-6 rounded-full bg-white border border-slate-200 object-cover">
                         <span class="text-xs font-bold text-slate-800 max-w-[100px] truncate hidden sm:inline">${displayName}</span>
                     </a>
-                    <button onclick="handleLogout()" class="px-3 py-1.5 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition flex items-center gap-1" title="${signOutText}">
+                    <button onclick="handleLogout()" class="px-3 py-1.5 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-xl transition flex items-center gap-1 shadow-2xs" title="${signOutText}">
                         <i class="fa-solid fa-right-from-bracket text-xs"></i>
                         <span class="hidden sm:inline">${signOutText}</span>
                     </button>
                 </div>
             `;
 
-            if (typeof syncUserLikes === "function") syncUserLikes();
-            if (typeof fetchNotifications === "function") fetchNotifications();
+            if (typeof syncUserLikes === "function") {
+                syncUserLikes();
+            }
+            if (typeof fetchNotifications === "function") {
+                fetchNotifications();
+            }
         } else {
             const signInText = typeof t === "function" ? t("nav_signin") : "Sign In";
             const signUpText = typeof t === "function" ? t("nav_signup") : "Sign Up";
-
+            
             authSection.innerHTML = `
                 <a href="/login" class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition flex items-center gap-1.5">
                     <i class="fa-solid fa-right-to-bracket text-xs text-slate-500"></i>
@@ -103,12 +81,8 @@ async function checkAuth() {
                 </a>
             `;
         }
-
-        return session;
     } catch (err) {
         console.error("Auth status check error:", err);
-        currentSession = null;
-        return null;
     }
 }
 
@@ -117,25 +91,11 @@ async function handleLogin() {
         showToast("Supabase client is not initialized.", "error");
         return;
     }
-
-    // Never ask an already authenticated user to log in again.
-    try {
-        const existing = await supabaseClient.auth.getSession();
-        if (existing.data?.session?.user) {
-            currentSession = existing.data.session;
-            window.location.replace("/");
-            return;
-        }
-    } catch (err) {
-        console.warn("Existing-session check failed:", err);
-    }
-
     const emailElem = document.getElementById("email");
     const passElem = document.getElementById("password");
     const btn = document.getElementById("login-btn");
-
+    
     if (!emailElem || !passElem) return;
-
     const email = emailElem.value.trim();
     const password = passElem.value;
 
@@ -151,27 +111,20 @@ async function handleLogin() {
 
     try {
         const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-
         if (error) {
             showToast(error.message, "error");
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = `<i class="fa-solid fa-right-to-bracket text-xs"></i> <span>${typeof t === "function" ? t("signin_submit_btn") : "Sign In"}</span>`;
             }
-            return;
+        } else {
+            showToast(typeof t === "function" ? t("toast_signin_success") : "Welcome back! Redirecting...", "success");
+            setTimeout(() => {
+                window.location.href = "/";
+            }, 600);
         }
-
-        currentSession = data?.session || null;
-
-        showToast(
-            typeof t === "function" ? t("toast_signin_success") : "Welcome back! Redirecting...",
-            "success"
-        );
-
-        window.location.replace("/");
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        showToast("Connection error: " + message, "error");
+        showToast("Connection error: " + err.message, "error");
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = `<i class="fa-solid fa-right-to-bracket text-xs"></i> <span>${typeof t === "function" ? t("signin_submit_btn") : "Sign In"}</span>`;
@@ -186,6 +139,8 @@ async function handleSignUp() {
     }
     const nameElem = document.getElementById("reg-display-name");
     const emailElem = document.getElementById("reg-email");
+    const phoneElem = document.getElementById("reg-phone");
+    const bioElem = document.getElementById("reg-bio");
     const passElem = document.getElementById("reg-password");
     const confirmElem = document.getElementById("reg-confirm-password");
     const btn = document.getElementById("register-btn");
@@ -193,6 +148,8 @@ async function handleSignUp() {
     if (!emailElem || !passElem) return;
     const displayName = (nameElem ? nameElem.value.trim() : "") || emailElem.value.split('@')[0];
     const email = emailElem.value.trim();
+    const phone = phoneElem ? phoneElem.value.trim() : "";
+    const bio = bioElem ? bioElem.value.trim() : "";
     const password = passElem.value;
     const confirmPassword = confirmElem ? confirmElem.value : password;
 
@@ -216,7 +173,11 @@ async function handleSignUp() {
         btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Creating account...</span>`;
     }
 
-    const defaultAvatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(displayName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+    // Avatar calculation
+    let avatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(displayName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+    if (typeof customAvatarDataUrl !== "undefined" && customAvatarDataUrl) {
+        avatarUrl = customAvatarDataUrl;
+    }
 
     try {
         const { data, error } = await supabaseClient.auth.signUp({ 
@@ -225,7 +186,9 @@ async function handleSignUp() {
             options: {
                 data: {
                     display_name: displayName,
-                    avatar_url: defaultAvatar
+                    phone_number: phone,
+                    bio: bio,
+                    avatar_url: avatarUrl
                 }
             }
         });
@@ -237,10 +200,22 @@ async function handleSignUp() {
                 btn.innerHTML = `<i class="fa-solid fa-user-plus text-xs"></i> <span>${typeof t === "function" ? t("signup_submit_btn") : "Create Account"}</span>`;
             }
         } else {
-            showToast(typeof t === "function" ? t("toast_signup_success") : "Account created successfully! Redirecting...", "success");
-            setTimeout(() => {
-                window.location.href = "/";
-            }, 700);
+            // Show the prominent confirmation card
+            const formCard = document.getElementById("reg-card-container");
+            const successCard = document.getElementById("reg-success-card");
+            const emailDisp = document.getElementById("registered-email-display");
+
+            if (formCard && successCard) {
+                if (emailDisp) emailDisp.innerText = email;
+                formCard.classList.add("hidden");
+                successCard.classList.remove("hidden");
+                showToast(typeof t === "function" && currentLang === "ru" ? "Аккаунт создан! Проверьте вашу почту." : "Account created! Please check your email.", "success");
+            } else {
+                showToast(typeof t === "function" ? t("toast_signup_success") : "Account created successfully! Redirecting...", "success");
+                setTimeout(() => {
+                    window.location.href = "/";
+                }, 800);
+            }
         }
     } catch (err) {
         showToast("Connection error: " + err.message, "error");
@@ -261,19 +236,4 @@ async function handleLogout() {
 }
 
 window.addEventListener("catrank_language_changed", checkAuth);
-
-if (typeof supabaseClient !== "undefined" && supabaseClient) {
-    supabaseClient.auth.onAuthStateChange((_event, session) => {
-        currentSession = session || null;
-
-        // Keep /login and /register pages out of the way for authenticated users.
-        if (session?.user && ["/login", "/register"].includes(window.location.pathname)) {
-            window.location.replace("/");
-            return;
-        }
-
-        if (document.readyState !== "loading") checkAuth();
-    });
-}
-
 document.addEventListener("DOMContentLoaded", checkAuth);
