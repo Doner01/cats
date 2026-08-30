@@ -358,6 +358,23 @@ function switchAdminTab(tab) {
 }
 
 async function loadAdminData() {
+    // Do not depend on auth.js' DOMContentLoaded timing. The admin page has
+    // its own DOMContentLoaded handler, so currentSession can still be null
+    // even when Supabase has already restored a valid login session.
+    try {
+        if (typeof supabaseClient === "undefined" || !supabaseClient) {
+            throw new Error("Supabase client is not initialized.");
+        }
+
+        const sessionRes = await supabaseClient.auth.getSession();
+        const restoredSession = sessionRes && sessionRes.data ? sessionRes.data.session : null;
+        if (restoredSession) {
+            currentSession = restoredSession;
+        }
+    } catch (sessionErr) {
+        console.error("Admin session restore error:", sessionErr);
+    }
+
     if (!currentSession || !currentSession.access_token) {
         showToast("Please sign in with an admin account.", "error");
         setTimeout(() => window.location.href = "/login", 800);

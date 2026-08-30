@@ -10,6 +10,8 @@
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     
@@ -242,10 +244,10 @@
     </div>
 
     <!-- Scripts -->
-    <script src="{{ url_for('static', filename='js/translations.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/toast.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/translations.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/toast.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/auth.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
 
     <!-- Global Password Recovery & Hash Handler -->
     <script>
@@ -262,10 +264,23 @@
                 return;
             }
 
-            // 2. Password recovery redirect
-            if (hash.includes("type=recovery") || hash.includes("access_token=")) {
+            const params = new URLSearchParams(hash.substring(1));
+            const authType = params.get("type");
+
+            // 2. Password recovery redirect. Do not redirect every access_token here:
+            // Supabase also uses access tokens for email-change confirmation links.
+            if (authType === "recovery") {
                 if (!window.location.pathname.includes("/reset-password")) {
                     window.location.href = "/reset-password" + hash;
+                }
+                return;
+            }
+
+            // 3. Email-change confirmation redirect. Keep the hash so Supabase JS can
+            // consume the confirmation session, then show the updated profile.
+            if (authType === "email_change") {
+                if (!window.location.pathname.includes("/profile")) {
+                    window.location.href = "/profile" + hash;
                 }
             }
         }

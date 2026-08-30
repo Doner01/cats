@@ -111,7 +111,7 @@ BEGIN
         new.raw_user_meta_data->>'phone_number',
         new.raw_user_meta_data->>'bio',
         new.raw_user_meta_data->>'avatar_url',
-        COALESCE(new.raw_user_meta_data->>'role', 'user')
+        'user'
     )
     ON CONFLICT (id) DO UPDATE SET
         email = EXCLUDED.email,
@@ -188,40 +188,67 @@ CREATE POLICY "Allow authenticated read own notifications" ON public.notificatio
 CREATE POLICY "Allow authenticated update own notifications" ON public.notifications FOR UPDATE TO authenticated USING (auth.uid() = user_id);
 CREATE POLICY "Allow authenticated delete own notifications" ON public.notifications FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
--- 8. Storage Buckets Creation & File Protection Security Policies
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('cat-images', 'cat-images', true)
-ON CONFLICT (id) DO UPDATE SET public = true;
+-- 8. Media storage
+-- Uploaded media is stored in Cloudflare R2.
+-- Supabase stores only the public R2 URL in cats.image_url and profiles.avatar_url.
 
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('avatars', 'avatars', true)
-ON CONFLICT (id) DO UPDATE SET public = true;
 
--- Storage Policies
-DROP POLICY IF EXISTS "Public Read Cat Images" ON storage.objects;
-DROP POLICY IF EXISTS "Authenticated Users Upload Own Cat Images" ON storage.objects;
-DROP POLICY IF EXISTS "Authenticated Users Update Own Cat Images" ON storage.objects;
-DROP POLICY IF EXISTS "Authenticated Users Delete Own Cat Images" ON storage.objects;
+-- 9. Performance indexes for the public feed and authenticated activity.
+CREATE INDEX IF NOT EXISTS idx_cats_created_at ON public.cats (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cats_likes_created_at ON public.cats (likes_count DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cats_user_id_created_at ON public.cats (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_likes_user_id_cat_id ON public.likes (user_id, cat_id);
+CREATE INDEX IF NOT EXISTS idx_likes_cat_id_user_id ON public.likes (cat_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_comments_cat_id_created_at ON public.comments (cat_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON public.comments (parent_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id_created_at ON public.notifications (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id_unread ON public.notifications (user_id, is_read, created_at DESC);
 
-DROP POLICY IF EXISTS "Public Read Avatars" ON storage.objects;
-DROP POLICY IF EXISTS "Authenticated Users Upload Own Avatar" ON storage.objects;
-DROP POLICY IF EXISTS "Authenticated Users Delete Own Avatar" ON storage.objects;
+-- 10. Fast atomic like toggle. This collapses several client/server round trips
+-- into one RPC and avoids count races under concurrent voting.
+CREATE OR REPLACE FUNCTION public.toggle_cat_like(p_cat_id UUID, p_user_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_owner_id UUID;
+    v_name TEXT;
+    v_image TEXT;
+    v_likes INTEGER;
+    v_status TEXT;
+BEGIN
+    SELECT user_id, name, image_url, likes_count
+      INTO v_owner_id, v_name, v_image, v_likes
+      FROM public.cats
+     WHERE id = p_cat_id
+     FOR UPDATE;
 
-CREATE POLICY "Public Read Cat Images" ON storage.objects FOR SELECT USING (bucket_id = 'cat-images');
-CREATE POLICY "Authenticated Users Upload Own Cat Images" ON storage.objects FOR INSERT TO authenticated WITH CHECK (
-    bucket_id = 'cat-images' AND (storage.foldername(name))[1] = auth.uid()::text
-);
-CREATE POLICY "Authenticated Users Update Own Cat Images" ON storage.objects FOR UPDATE TO authenticated USING (
-    bucket_id = 'cat-images' AND (storage.foldername(name))[1] = auth.uid()::text
-);
-CREATE POLICY "Authenticated Users Delete Own Cat Images" ON storage.objects FOR DELETE TO authenticated USING (
-    bucket_id = 'cat-images' AND (storage.foldername(name))[1] = auth.uid()::text
-);
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('error', 'Cat not found');
+    END IF;
 
-CREATE POLICY "Public Read Avatars" ON storage.objects FOR SELECT USING (bucket_id = 'avatars');
-CREATE POLICY "Authenticated Users Upload Own Avatar" ON storage.objects FOR INSERT TO authenticated WITH CHECK (
-    bucket_id = 'avatars' AND ((storage.foldername(name))[1] = auth.uid()::text OR (storage.foldername(name))[2] = auth.uid()::text)
-);
-CREATE POLICY "Authenticated Users Delete Own Avatar" ON storage.objects FOR DELETE TO authenticated USING (
-    bucket_id = 'avatars' AND ((storage.foldername(name))[1] = auth.uid()::text OR (storage.foldername(name))[2] = auth.uid()::text)
-);
+    IF EXISTS (SELECT 1 FROM public.likes WHERE cat_id = p_cat_id AND user_id = p_user_id) THEN
+        DELETE FROM public.likes WHERE cat_id = p_cat_id AND user_id = p_user_id;
+        v_likes := GREATEST(0, COALESCE(v_likes, 0) - 1);
+        v_status := 'unliked';
+    ELSE
+        INSERT INTO public.likes (cat_id, user_id) VALUES (p_cat_id, p_user_id);
+        v_likes := COALESCE(v_likes, 0) + 1;
+        v_status := 'liked';
+    END IF;
+
+    UPDATE public.cats SET likes_count = v_likes WHERE id = p_cat_id;
+
+    RETURN jsonb_build_object(
+        'status', v_status,
+        'likes_count', v_likes,
+        'cat_owner_id', v_owner_id,
+        'cat_name', v_name,
+        'cat_image', v_image
+    );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.toggle_cat_like(UUID, UUID) TO service_role;

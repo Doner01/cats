@@ -65,6 +65,14 @@
 
 {% block scripts %}
 <script>
+document.addEventListener("DOMContentLoaded", () => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("verified") === "1") {
+        showToast("Email confirmed successfully. You can now sign in.", "success");
+        history.replaceState(null, document.title, window.location.pathname);
+    }
+});
+
 function togglePasswordVisibility(inputId, btn) {
     const input = document.getElementById(inputId);
     if (!input) return;

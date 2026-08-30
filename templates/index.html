@@ -74,6 +74,7 @@
     
     <div class="w-full md:w-1/2 rounded-2xl overflow-hidden shadow-2xl border border-white/10 aspect-video z-10">
         <iframe 
+            loading="lazy"
             class="w-full h-full" 
             src="https://www.youtube-nocookie.com/embed/ByH9LuSILxU?rel=0" 
             title="Cute Cats Spotlight" 
@@ -117,7 +118,7 @@
         <div class="cat-card bg-white rounded-3xl overflow-hidden border border-slate-200/90 shadow-sm flex flex-col group relative" data-cat-id="{{ cat.id }}" data-cat-name="{{ cat.name }}" data-likes="{{ cat.likes_count }}" data-date="{{ cat.created_at }}">
             <!-- Image Card Clickable -->
             <div class="cat-img-wrapper cursor-pointer bg-slate-950 overflow-hidden relative" onclick="openCatModal('{{ cat.id }}')">
-                <img src="{{ cat.image_url }}" alt="{{ cat.name }}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                <img src="{{ cat.image_url }}" alt="{{ cat.name }}" loading="lazy" decoding="async" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
                 <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-end p-4">
                     <span class="text-white text-xs font-bold flex items-center gap-1.5">
                         <i class="fa-solid fa-comments text-xs"></i>

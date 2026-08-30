@@ -60,11 +60,10 @@ async function checkAuth() {
                 </div>
             `;
 
-            if (typeof syncUserLikes === "function") {
+            // Only load page-specific authenticated data when it is actually needed.
+            // Notifications are fetched when the bell is opened, not on every page load.
+            if (typeof syncUserLikes === "function" && document.querySelector('[id^="heart-icon-"]')) {
                 syncUserLikes();
-            }
-            if (typeof fetchNotifications === "function") {
-                fetchNotifications();
             }
         } else {
             const signInText = typeof t === "function" ? t("nav_signin") : "Sign In";
@@ -137,6 +136,7 @@ async function handleSignUp() {
         showToast("Supabase client is not initialized.", "error");
         return;
     }
+
     const nameElem = document.getElementById("reg-display-name");
     const emailElem = document.getElementById("reg-email");
     const phoneElem = document.getElementById("reg-phone");
@@ -146,8 +146,9 @@ async function handleSignUp() {
     const btn = document.getElementById("register-btn");
 
     if (!emailElem || !passElem) return;
-    const displayName = (nameElem ? nameElem.value.trim() : "") || emailElem.value.split('@')[0];
-    const email = emailElem.value.trim();
+
+    const displayName = (nameElem ? nameElem.value.trim() : "") || emailElem.value.split("@")[0];
+    const email = emailElem.value.trim().toLowerCase();
     const phone = phoneElem ? phoneElem.value.trim() : "";
     const bio = bioElem ? bioElem.value.trim() : "";
     const password = passElem.value;
@@ -170,20 +171,18 @@ async function handleSignUp() {
 
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Creating account...</span>`;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Creating account...</span>';
     }
 
-    // Avatar calculation
-    let avatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(displayName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
-    if (typeof customAvatarDataUrl !== "undefined" && customAvatarDataUrl) {
-        avatarUrl = customAvatarDataUrl;
-    }
+    const avatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(displayName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
 
     try {
-        const { data, error } = await supabaseClient.auth.signUp({ 
-            email, 
+        const redirectTo = `${window.location.origin}/login?verified=1`;
+        const { data, error } = await supabaseClient.auth.signUp({
+            email,
             password,
             options: {
+                emailRedirectTo: redirectTo,
                 data: {
                     display_name: displayName,
                     phone_number: phone,
@@ -192,36 +191,80 @@ async function handleSignUp() {
                 }
             }
         });
-        
-        if (error) {
-            showToast(error.message, "error");
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = `<i class="fa-solid fa-user-plus text-xs"></i> <span>${typeof t === "function" ? t("signup_submit_btn") : "Create Account"}</span>`;
-            }
-        } else {
-            // Show the prominent confirmation card
-            const formCard = document.getElementById("reg-card-container");
-            const successCard = document.getElementById("reg-success-card");
-            const emailDisp = document.getElementById("registered-email-display");
 
-            if (formCard && successCard) {
-                if (emailDisp) emailDisp.innerText = email;
-                formCard.classList.add("hidden");
-                successCard.classList.remove("hidden");
-                showToast(typeof t === "function" && currentLang === "ru" ? "Аккаунт создан! Проверьте вашу почту." : "Account created! Please check your email.", "success");
+        if (error) {
+            const msg = String(error.message || "");
+            const lower = msg.toLowerCase();
+            if (lower.includes("already registered") || lower.includes("already exists")) {
+                showToast("An account with this email already exists. Please sign in or use Forgot Password.", "error");
             } else {
-                showToast(typeof t === "function" ? t("toast_signup_success") : "Account created successfully! Redirecting...", "success");
-                setTimeout(() => {
-                    window.location.href = "/";
-                }, 800);
+                showToast(msg || "Could not create the account.", "error");
             }
+            return;
+        }
+
+        const user = data && data.user ? data.user : null;
+        const session = data && data.session ? data.session : null;
+        const identities = user && Array.isArray(user.identities) ? user.identities : null;
+
+        // When Confirm Email is enabled, Supabase intentionally returns an
+        // obfuscated/fake user for an existing confirmed email. That object has
+        // no identities, so do not show a false "Account Created" success state.
+        if (user && identities && identities.length === 0) {
+            showToast("An account with this email already exists. Please sign in or use Forgot Password.", "error");
+            return;
+        }
+
+        const formCard = document.getElementById("reg-card-container");
+        const successCard = document.getElementById("reg-success-card");
+        const emailDisp = document.getElementById("registered-email-display");
+        const successTitle = document.querySelector("#reg-success-card h2");
+        const successPrefix = document.querySelector("#reg-success-card [data-i18n='check_email_desc_prefix']");
+        const successSuffix = document.querySelector("#reg-success-card [data-i18n='check_email_desc_suffix']");
+
+        if (emailDisp) emailDisp.innerText = email;
+
+        if (session) {
+            // Confirm Email is disabled in Supabase, so there is no verification
+            // email to send. Create/sync the profile now and tell the user the truth.
+            try {
+                const verifyRes = await fetch("/api/user/profile/ensure", {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${session.access_token}` }
+                });
+                if (!verifyRes.ok) {
+                    const verifyData = await verifyRes.json().catch(() => ({}));
+                    console.warn("Profile ensure after signup failed:", verifyData.error || verifyRes.statusText);
+                }
+            } catch (profileErr) {
+                console.warn("Profile ensure after signup failed:", profileErr);
+            }
+
+            showToast("Account created successfully. You can sign in now.", "success");
+            setTimeout(() => {
+                window.location.href = "/";
+            }, 700);
+            return;
+        }
+
+        // No session means Supabase is requiring email confirmation. The signup
+        // call itself sends the verification email; we only show the confirmation UI.
+        if (formCard && successCard) {
+            if (successTitle) successTitle.textContent = "Please Check Your Email";
+            if (successPrefix) successPrefix.textContent = "We've sent a verification link to";
+            if (successSuffix) successSuffix.textContent = "Please click the link in your inbox to activate your account and finish registration.";
+            formCard.classList.add("hidden");
+            successCard.classList.remove("hidden");
+            showToast("Verification email sent. Please check your inbox and spam folder.", "success");
+        } else {
+            showToast("Verification email sent. Please check your inbox.", "success");
         }
     } catch (err) {
-        showToast("Connection error: " + err.message, "error");
+        showToast("Connection error: " + (err && err.message ? err.message : err), "error");
+    } finally {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = `<i class="fa-solid fa-user-plus text-xs"></i> <span>${typeof t === "function" ? t("signup_submit_btn") : "Create Account"}</span>`;
+            btn.innerHTML = '<i class="fa-solid fa-user-plus text-xs"></i> <span>' + (typeof t === "function" ? t("signup_submit_btn") : "Create Account") + '</span>';
         }
     }
 }

@@ -25,6 +25,8 @@ const COOLDOWN_MS = 15000; // 10s cooldown
 
 let activeModalCatId = null;
 let activeReplyParentId = null;
+const catDetailCache = new Map();
+let likedCatIdsCache = null;
 let activeReplyAuthorName = null;
 
 function escapeHtml(str) {
@@ -103,10 +105,15 @@ async function openCatModal(catId) {
     }
 
     try {
-        const res = await fetch(`/api/cats/${catId}`);
-        if (res.ok) {
+        let cat = catDetailCache.get(String(catId));
+        if (!cat) {
+            const res = await fetch(`/api/cats/${catId}`);
+            if (!res.ok) throw new Error("Cat details request failed");
             const data = await res.json();
-            const cat = data.cat || data;
+            cat = data.cat || data;
+            if (cat) catDetailCache.set(String(catId), cat);
+        }
+        if (cat) {
             if (modalNameElem) modalNameElem.innerText = cat.name || "Whiskers";
             if (modalImgElem) modalImgElem.src = cat.image_url || "";
 
@@ -166,9 +173,9 @@ async function syncUserLikes() {
         });
         if (!res.ok) return;
         const data = await res.json();
-        const likedIds = new Set(data.liked_cat_ids || []);
+        likedCatIdsCache = new Set((data.liked_cat_ids || []).map(String));
 
-        likedIds.forEach(id => {
+        likedCatIdsCache.forEach(id => {
             const heartElem = document.getElementById(`heart-icon-${id}`);
             if (heartElem) heartElem.innerText = "❤️";
         });
@@ -185,7 +192,7 @@ async function toggleLike(catId, event) {
         return;
     }
 
-    const { data: { session } } = await supabaseClient.auth.getSession();
+    const session = currentSession || (await supabaseClient.auth.getSession()).data.session;
     if (!session) {
         showToast(typeof t === "function" ? t("toast_need_signin_vote") : "Please sign in to vote for cats!", "info");
         setTimeout(() => window.location.href = "/login", 800);
@@ -432,7 +439,7 @@ async function submitComment(event) {
         showToast("Supabase client not initialized.", "error");
         return;
     }
-    const { data: { session } } = await supabaseClient.auth.getSession();
+    const session = currentSession || (await supabaseClient.auth.getSession()).data.session;
     if (!session) {
         showToast(typeof t === "function" ? t("toast_need_signin_comment") : "Please sign in to post comments.", "info");
         setTimeout(() => window.location.href = "/login", 800);

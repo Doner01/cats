@@ -194,12 +194,9 @@
                 <div class="space-y-2">
                     <input type="email" id="edit-new-email" required placeholder="New Email Address" data-i18n-placeholder="new_email_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
                     
-                    <div class="relative">
-                        <input type="password" id="edit-email-current-password" required placeholder="Enter current password to authorize" data-i18n-placeholder="enter_current_password_placeholder" class="w-full pl-3.5 pr-10 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
-                        <button type="button" onclick="togglePasswordVisibility('edit-email-current-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition focus:outline-none" title="Toggle visibility">
-                            <i class="fa-solid fa-eye text-xs"></i>
-                        </button>
-                    </div>
+                    <input type="password" id="edit-email-current-password" required placeholder="Enter current password to authorize" data-i18n-placeholder="enter_current_password_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+
+                    <div id="email-change-status" class="hidden p-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-[11px] text-indigo-800 leading-relaxed"></div>
 
                     <button type="button" id="update-email-btn" onclick="handleUserEmailChange()" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5" data-i18n="change_email_btn">
                         <i class="fa-solid fa-shield-check text-xs"></i>
@@ -559,74 +556,120 @@ async function saveUserProfileChanges() {
 }
 
 async function handleUserEmailChange() {
-    if (!currentSession || !currentSession.access_token || !currentSession.user) return;
+    if (!supabaseClient || !currentSession || !currentSession.user) {
+        showToast("Please sign in again before changing your email.", "error");
+        return;
+    }
+
     const emailInput = document.getElementById("edit-new-email");
     const passInput = document.getElementById("edit-email-current-password");
     const btn = document.getElementById("update-email-btn");
+    const statusBox = document.getElementById("email-change-status");
+
+    if (!emailInput || !btn) return;
 
     const newEmail = emailInput.value.trim().toLowerCase();
+    const currentEmail = String(currentSession.user.email || "").trim().toLowerCase();
     const currentPass = passInput ? passInput.value : "";
-    const currentEmail = currentSession.user.email.toLowerCase();
 
-    if (!newEmail || !newEmail.includes("@")) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Пожалуйста, введите корректный новый email." : "Please enter a valid new email address.", "error");
+    if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+        showToast("Please enter a valid new email address.", "error");
+        return;
+    }
+    if (!currentEmail) {
+        showToast("Your current account email could not be read. Please sign in again.", "error");
         return;
     }
     if (newEmail === currentEmail) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Этот email уже привязан к вашему аккаунту." : "This is already your current email address.", "info");
+        showToast("This is already your current email address.", "info");
         return;
     }
     if (!currentPass) {
-        showToast(typeof t === "function" ? t("toast_wrong_pass_email") : "Current password is required to change email.", "error");
+        showToast("Enter your current password to authorize the email change.", "error");
         return;
     }
 
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Verifying...</span>';
+    if (statusBox) {
+        statusBox.classList.add("hidden");
+        statusBox.innerHTML = "";
+    }
 
     try {
-        // Step 1: Security re-authentication using current password
+        // Make sure the profile row exists before starting the account change.
+        try {
+            const ensureRes = await fetch("/api/user/profile/ensure", {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${currentSession.access_token}` }
+            });
+            if (!ensureRes.ok) {
+                const ensureData = await ensureRes.json().catch(() => ({}));
+                throw new Error(ensureData.error || "Could not prepare your profile.");
+            }
+        } catch (profileErr) {
+            throw profileErr;
+        }
+
+        // Re-authenticate with the current password before allowing the email change.
         const { error: authError } = await supabaseClient.auth.signInWithPassword({
             email: currentEmail,
             password: currentPass
         });
 
         if (authError) {
-            showToast(typeof t === "function" ? t("toast_wrong_pass_email") : "Incorrect password. Current password is required.", "error");
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-shield-check text-xs"></i> <span>' + (typeof t === "function" ? t("change_email_btn") : "Update Email") + '</span>';
+            showToast("Incorrect current password.", "error");
             return;
         }
 
-        // Step 2: Update email securely via backend API
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Updating...</span>';
-        const res = await fetch("/api/user/email", {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${currentSession.access_token}`
-            },
-            body: JSON.stringify({ email: newEmail })
-        });
-        const data = await res.json();
-
-        if (res.ok) {
-            showToast(typeof t === "function" ? t("toast_email_updated") : "Account email updated successfully!", "success");
-            currentSession.user.email = newEmail;
-            
-            const emailText = document.getElementById("profile-email-text");
-            if (emailText) emailText.innerText = newEmail;
-            
-            const currentEmailEl = document.getElementById("current-user-email-display");
-            if (currentEmailEl) currentEmailEl.innerText = newEmail;
-            
-            emailInput.value = "";
-            if (passInput) passInput.value = "";
-        } else {
-            showToast(data.error || "Failed to update email.", "error");
+        // Re-read the session because signInWithPassword can rotate the access token.
+        const sessionRes = await supabaseClient.auth.getSession();
+        const freshSession = sessionRes && sessionRes.data ? sessionRes.data.session : null;
+        if (!freshSession || !freshSession.user) {
+            throw new Error("Your session expired. Please sign in again.");
         }
+        currentSession = freshSession;
+
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Sending confirmation...</span>';
+
+        // IMPORTANT: Use the normal authenticated updateUser flow. This sends the
+        // confirmation email instead of changing the account immediately.
+        const redirectTo = window.location.origin + "/profile";
+        const { data: updateData, error: updateError } = await supabaseClient.auth.updateUser(
+            { email: newEmail },
+            { emailRedirectTo: redirectTo }
+        );
+
+        if (updateError) {
+            throw new Error(updateError.message);
+        }
+
+        const updatedUser = updateData && updateData.user ? updateData.user : null;
+        const activeEmail = String(updatedUser && updatedUser.email ? updatedUser.email : currentEmail).trim().toLowerCase();
+        const pendingEmail = String(updatedUser && updatedUser.new_email ? updatedUser.new_email : "").trim().toLowerCase();
+
+        // A correctly configured Supabase email-change flow leaves the current
+        // email unchanged and stores the requested address as a pending change
+        // until the confirmation link is opened.
+        if (activeEmail === newEmail && !pendingEmail) {
+            throw new Error(
+                "Supabase changed the email immediately instead of waiting for confirmation. " +
+                "Check Authentication > Providers > Email and make sure the project's email-change confirmation flow is configured."
+            );
+        }
+
+        emailInput.value = "";
+        if (passInput) passInput.value = "";
+
+        if (statusBox) {
+            statusBox.innerHTML = `<i class="fa-solid fa-envelope-circle-check text-indigo-600 mr-1"></i> Confirmation email sent to <strong>${escapeHtml(newEmail)}</strong>. Your current email stays unchanged until you open the confirmation link.`;
+            statusBox.classList.remove("hidden");
+        }
+
+        showToast("Confirmation email sent. Your current email stays unchanged until you confirm it.", "success");
     } catch (e) {
-        showToast("Error: " + e.message, "error");
+        console.error("Email change error:", e);
+        showToast("Failed to start email change: " + (e && e.message ? e.message : e), "error");
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fa-solid fa-shield-check text-xs"></i> <span>' + (typeof t === "function" ? t("change_email_btn") : "Update Email") + '</span>';
@@ -722,6 +765,52 @@ async function deleteMyCat(catId) {
     }
 }
 
-document.addEventListener("DOMContentLoaded", loadProfile);
+function handleEmailChangeConfirmation() {
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (params.get("type") !== "email_change") return;
+
+    // Supabase JS consumes the confirmation session automatically. Keep the page
+    // usable while the auth state settles, then remove the token fragment.
+    setTimeout(async () => {
+        try {
+            const sessionRes = await supabaseClient.auth.getSession();
+            const confirmedSession = sessionRes && sessionRes.data ? sessionRes.data.session : null;
+            if (confirmedSession && confirmedSession.user) {
+                currentSession = confirmedSession;
+                const emailText = document.getElementById("profile-email-text");
+                const currentEmailEl = document.getElementById("current-user-email-display");
+                const confirmedEmail = confirmedSession.user.email || "";
+                if (emailText && confirmedEmail) emailText.innerText = confirmedEmail;
+                if (currentEmailEl && confirmedEmail) currentEmailEl.innerText = confirmedEmail;
+
+                // Persist the confirmed Auth email to the public profile only after
+                // Supabase has completed the email-change confirmation.
+                try {
+                    await fetch("/api/user/profile/sync-email", {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${confirmedSession.access_token}` }
+                    });
+                } catch (syncErr) {
+                    console.warn("Confirmed email profile sync failed:", syncErr);
+                }
+
+                const statusBox = document.getElementById("email-change-status");
+                if (statusBox) {
+                    statusBox.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i> Email address confirmed successfully. Your new email is now active.';
+                    statusBox.classList.remove("hidden");
+                }
+                showToast("New email confirmed successfully.", "success");
+                history.replaceState(null, document.title, window.location.pathname);
+            }
+        } catch (e) {
+            console.error("Email confirmation handling error:", e);
+        }
+    }, 300);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    loadProfile();
+    handleEmailChangeConfirmation();
+});
 </script>
 {% endblock %}
