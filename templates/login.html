@@ -2,6 +2,15 @@
 
 {% block title %}Sign In | CatRank{% endblock %}
 
+<script>
+if (typeof supabaseClient !== "undefined" && supabaseClient) {
+    supabaseClient.auth.getSession().then(({ data: { session } }) => {
+        if (session && session.user) {
+            window.location.replace("/");
+        }
+    });
+}
+</script>
 {% block content %}
 <div class="max-w-md mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-sm mt-4 space-y-6">
     <div class="text-center space-y-1.5">
@@ -65,14 +74,6 @@
 
 {% block scripts %}
 <script>
-document.addEventListener("DOMContentLoaded", () => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("verified") === "1") {
-        showToast("Email confirmed successfully. You can now sign in.", "success");
-        history.replaceState(null, document.title, window.location.pathname);
-    }
-});
-
 function togglePasswordVisibility(inputId, btn) {
     const input = document.getElementById(inputId);
     if (!input) return;
