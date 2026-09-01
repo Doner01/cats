@@ -14,7 +14,7 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
 {% block content %}
 <div class="max-w-lg mx-auto bg-white/95 backdrop-blur-md p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xl mt-4 space-y-6">
     <div class="text-center space-y-1.5">
-        <!-- Live Avatar Seed/Custom Preview -->
+        
         <div class="relative w-20 h-20 mx-auto mb-2 group">
             <img id="reg-avatar-preview" src="https://api.dicebear.com/7.x/bottts/svg?seed=CatWhisperer&backgroundColor=b6e3f4,c0aede,d1d4f9" alt="Avatar" class="w-20 h-20 rounded-full border-2 border-indigo-200 bg-slate-50 object-cover shadow-sm transition-transform duration-300">
             <label for="reg-avatar-file" class="absolute inset-0 bg-black/40 text-white rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer text-[10px] font-bold">
@@ -30,10 +30,12 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
         <p class="text-xs text-slate-500" data-i18n="register_subtitle">Create an account to upload, vote, and share cat pictures</p>
     </div>
 
+    <div id="register-alert-box" class="hidden p-3 rounded-2xl border border-emerald-200 bg-emerald-50 text-xs font-medium text-emerald-800"></div>
+
     <form onsubmit="event.preventDefault(); handleSignUp();" class="space-y-4">
-        <!-- Display Name -->
+        
         <div class="space-y-1.5">
-            <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="display_name_label">
+            <label for="reg-display-name" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="display_name_label">
                 <i class="fa-solid fa-user text-indigo-500 text-xs"></i>
                 <span>Display Name / Username</span>
             </label>
@@ -45,9 +47,8 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
             </div>
         </div>
 
-        <!-- Email Address -->
         <div class="space-y-1.5">
-            <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="email_label">
+            <label for="reg-email" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="email_label">
                 <i class="fa-solid fa-envelope text-indigo-500 text-xs"></i>
                 <span>Email Address</span>
             </label>
@@ -55,14 +56,13 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
                 <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                     <i class="fa-solid fa-at text-xs"></i>
                 </div>
-                <input type="email" id="reg-email" required placeholder="you@example.com" class="w-full pl-9 pr-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
+                <input type="email" autocomplete="email" id="reg-email" required placeholder="you@example.com" class="w-full pl-9 pr-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
             </div>
         </div>
 
-        <!-- Optional Phone Number -->
         <div class="space-y-1.5">
             <div class="flex items-center justify-between">
-                <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <label for="reg-phone" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <i class="fa-solid fa-phone text-indigo-500 text-xs"></i>
                     <span data-i18n="phone_label">Phone Number</span>
                 </label>
@@ -76,10 +76,9 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
             </div>
         </div>
 
-        <!-- Optional Bio -->
         <div class="space-y-1.5">
             <div class="flex items-center justify-between">
-                <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <label for="reg-bio" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <i class="fa-solid fa-quote-left text-indigo-500 text-xs"></i>
                     <span data-i18n="bio_label">Short Bio</span>
                 </label>
@@ -88,9 +87,8 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
             <input type="text" id="reg-bio" maxlength="150" placeholder="Tell us about your love for cats..." data-i18n-placeholder="bio_placeholder" class="w-full px-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
         </div>
 
-        <!-- Password -->
         <div class="space-y-1.5">
-            <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="password_label">
+            <label for="reg-password" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="password_label">
                 <i class="fa-solid fa-lock text-indigo-500 text-xs"></i>
                 <span>Password</span>
             </label>
@@ -98,25 +96,24 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
                 <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                     <i class="fa-solid fa-key text-xs"></i>
                 </div>
-                <input type="password" id="reg-password" required minlength="6" placeholder="••••••••" class="w-full pl-9 pr-10 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
-                <button type="button" onclick="togglePasswordVisibility('reg-password', this)" class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition focus:outline-none">
+                <input type="password" maxlength="128" autocomplete="new-password" id="reg-password" required minlength="8" placeholder="••••••••" class="w-full pl-9 pr-10 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
+                <button type="button" aria-label="Show or hide password" onclick="togglePasswordVisibility('reg-password', this)" class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition focus:outline-none">
                     <i class="fa-solid fa-eye text-xs"></i>
                 </button>
             </div>
         </div>
 
-        <!-- Confirm Password -->
         <div class="space-y-1.5">
-            <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="confirm_password_label">
-                <i class="fa-solid fa-shield-check text-indigo-500 text-xs"></i>
+            <label for="reg-confirm-password" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="confirm_password_label">
+                <i class="fa-solid fa-shield-halved text-indigo-500 text-xs"></i>
                 <span>Confirm Password</span>
             </label>
             <div class="relative">
                 <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                     <i class="fa-solid fa-lock text-xs"></i>
                 </div>
-                <input type="password" id="reg-confirm-password" required minlength="6" placeholder="••••••••" class="w-full pl-9 pr-10 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
-                <button type="button" onclick="togglePasswordVisibility('reg-confirm-password', this)" class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition focus:outline-none">
+                <input type="password" maxlength="128" autocomplete="new-password" id="reg-confirm-password" required minlength="8" placeholder="••••••••" class="w-full pl-9 pr-10 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
+                <button type="button" aria-label="Show or hide password" onclick="togglePasswordVisibility('reg-confirm-password', this)" class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition focus:outline-none">
                     <i class="fa-solid fa-eye text-xs"></i>
                 </button>
             </div>
@@ -168,9 +165,21 @@ function handleRegAvatarSelect(input) {
     }
     const reader = new FileReader();
     reader.onload = function(e) {
-        customAvatarDataUrl = e.target.result;
-        const preview = document.getElementById("reg-avatar-preview");
-        if (preview) preview.src = customAvatarDataUrl;
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            const scale = Math.max(256 / img.width, 256 / img.height);
+            const width = img.width * scale;
+            const height = img.height * scale;
+            ctx.drawImage(img, (256 - width) / 2, (256 - height) / 2, width, height);
+            customAvatarDataUrl = canvas.toDataURL('image/webp', 0.86);
+            const preview = document.getElementById("reg-avatar-preview");
+            if (preview) preview.src = customAvatarDataUrl;
+        };
+        img.src = e.target.result;
     };
     reader.readAsDataURL(file);
 }

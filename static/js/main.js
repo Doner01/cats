@@ -1,31 +1,12 @@
-function formatCommentText(rawComment) {
-    if (!rawComment) return { text: '', replyTo: null };
-    let text = String(rawComment);
-    let replyTo = null;
-
-    if (text.startsWith("[reply:")) {
-        const endIdx = text.indexOf("]");
-        if (endIdx !== -1) {
-            const tagContent = text.substring(7, endIdx); // after reply prefix
-            const parts = tagContent.split(":");
-            replyTo = parts.length > 1 ? parts[1].trim() : parts[0].trim();
-            text = text.substring(endIdx + 1).trim();
-        }
-    }
-    return { text: text, replyTo: replyTo };
-}
-
-/**
- * CatRank Core Interaction & Modal Engine
- */
-
-let lastLikeTime = 0;
+const pendingLikes = new Set();
+let modalRequestVersion = 0;
 let lastCommentTime = 0;
-const COOLDOWN_MS = 2000; // 10s cooldown
+const COOLDOWN_MS = 2000; // 2s anti-spam cooldown
 
 let activeModalCatId = null;
 let activeReplyParentId = null;
 let activeReplyAuthorName = null;
+const userLikedCatIds = new Set();
 
 function escapeHtml(str) {
     if (!str) return '';
@@ -39,12 +20,33 @@ function escapeHtml(str) {
 
 function escapeJsString(str) {
     if (!str) return '';
-    return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n');
 }
 
-// ----------------------------------------------------
-// Cat Detail Modal & Feed Interaction
-// ----------------------------------------------------
+function formatCommentText(rawComment) {
+    if (!rawComment) return { text: '', replyTo: null };
+    let text = String(rawComment);
+    let replyTo = null;
+
+    if (text.startsWith("[reply:")) {
+        const endIdx = text.indexOf("]");
+        if (endIdx !== -1) {
+            const tagContent = text.substring(7, endIdx);
+            const parts = tagContent.split(":");
+            replyTo = parts.length > 1 ? parts[1].trim() : parts[0].trim();
+            text = text.substring(endIdx + 1).trim();
+        }
+    }
+    return { text: text, replyTo: replyTo };
+}
 
 function resetCatModalState() {
     const modalNameElem = document.getElementById("modal-cat-name");
@@ -55,6 +57,8 @@ function resetCatModalState() {
     const commentsCount = document.getElementById("modal-comments-count");
     const countBadge = document.getElementById("modal-comments-count-badge");
     const commentInput = document.getElementById("modal-comment-input");
+    const modalLikeCount = document.getElementById("modal-like-count");
+    const modalHeartIcon = document.getElementById("modal-heart-icon");
 
     if (modalNameElem) modalNameElem.innerText = "";
     if (modalImgElem) {
@@ -71,15 +75,17 @@ function resetCatModalState() {
         const label = typeof t === 'function' ? (currentLang === 'ru' ? 'комментариев' : 'comments') : 'comments';
         countBadge.innerText = `0 ${label}`;
     }
+    if (modalLikeCount) modalLikeCount.innerText = "0";
+    if (modalHeartIcon) modalHeartIcon.innerText = "🤍";
     if (commentInput) commentInput.value = "";
     cancelReply();
 }
 
 async function openCatModal(catId) {
     if (!catId) return;
-    activeModalCatId = catId;
+    activeModalCatId = String(catId);
+    const requestVersion = ++modalRequestVersion;
 
-    // Reset previous modal data completely before opening new modal
     resetCatModalState();
 
     const modal = document.getElementById("cat-detail-modal");
@@ -87,11 +93,13 @@ async function openCatModal(catId) {
 
     modal.classList.remove("hidden");
     document.body.style.overflow = "hidden";
-
-    // Instant optimistic populate from clicked cat card in DOM if available
     const card = document.querySelector(`[data-cat-id="${catId}"]`);
+    const countElem = document.getElementById(`like-count-${catId}`);
+    const heartElem = document.getElementById(`heart-icon-${catId}`);
     const modalNameElem = document.getElementById("modal-cat-name");
     const modalImgElem = document.getElementById("modal-cat-img");
+    const modalLikeCount = document.getElementById("modal-like-count");
+    const modalHeartIcon = document.getElementById("modal-heart-icon");
 
     if (card) {
         const cardName = card.dataset.catName;
@@ -102,15 +110,26 @@ async function openCatModal(catId) {
         if (modalNameElem) modalNameElem.innerText = typeof t === "function" && currentLang === "ru" ? "Загрузка..." : "Loading...";
     }
 
+    if (countElem && modalLikeCount) {
+        modalLikeCount.innerText = countElem.innerText.trim() || "0";
+    }
+    if (modalHeartIcon) {
+        const isLiked = userLikedCatIds.has(String(catId)) || (heartElem && heartElem.innerText.trim() === "❤️");
+        modalHeartIcon.innerText = isLiked ? "❤️" : "🤍";
+    }
     try {
         const res = await fetch(`/api/cats/${catId}`);
         if (res.ok) {
             const data = await res.json();
+            if (requestVersion !== modalRequestVersion) return;
             const cat = data.cat || data;
             if (modalNameElem) modalNameElem.innerText = cat.name || "Whiskers";
             if (modalImgElem) modalImgElem.src = cat.image_url || "";
+            if (modalLikeCount) modalLikeCount.innerText = cat.likes_count !== undefined ? cat.likes_count : 0;
+            if (modalHeartIcon) {
+                modalHeartIcon.innerText = userLikedCatIds.has(String(catId)) ? "❤️" : "🤍";
+            }
 
-            // Display cat bio / story if present
             const catBio = cat.bio || cat.description || "";
             const bioBox = document.getElementById("modal-cat-bio-box");
             const bioText = document.getElementById("modal-cat-bio-text");
@@ -118,12 +137,14 @@ async function openCatModal(catId) {
                 bioText.innerText = catBio;
                 bioBox.classList.remove("hidden");
             }
+        } else {
+            if (requestVersion !== modalRequestVersion) return;
+            showToast("Could not load this cat. Please try again.", "error");
         }
     } catch (err) {
-        console.error("Failed to load cat details:", err);
+        if (requestVersion === modalRequestVersion) showToast("Could not load this cat. Please try again.", "error");
     }
-
-    loadCatComments(catId);
+    if (requestVersion === modalRequestVersion) loadCatComments(catId);
 }
 
 function closeCatModal() {
@@ -132,31 +153,23 @@ function closeCatModal() {
     modal.classList.add("hidden");
     document.body.style.overflow = "auto";
     activeModalCatId = null;
-
-    // Reset and forget all previous data immediately upon closing
+    modalRequestVersion++;
     resetCatModalState();
 }
 
-// Close modal on escape key
-document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-        closeCatModal();
-    }
-});
-
-// Close modal when clicking backdrop outside dialog
 const catDetailModalElem = document.getElementById("cat-detail-modal");
 if (catDetailModalElem) {
     catDetailModalElem.addEventListener("click", (e) => {
-        if (e.target === catDetailModalElem) {
-            closeCatModal();
-        }
+        if (e.target === catDetailModalElem) closeCatModal();
     });
 }
 
-// ----------------------------------------------------
-// Like & Community Voting System
-// ----------------------------------------------------
+function toggleModalLike(event) {
+    if (event) event.stopPropagation();
+    if (activeModalCatId) {
+        toggleLike(activeModalCatId, event);
+    }
+}
 
 async function syncUserLikes() {
     if (!currentSession || !currentSession.access_token) return;
@@ -166,12 +179,20 @@ async function syncUserLikes() {
         });
         if (!res.ok) return;
         const data = await res.json();
-        const likedIds = new Set(data.liked_cat_ids || []);
+        userLikedCatIds.clear();
+        (data.liked_cat_ids || []).forEach(id => userLikedCatIds.add(String(id)));
 
-        likedIds.forEach(id => {
-            const heartElem = document.getElementById(`heart-icon-${id}`);
-            if (heartElem) heartElem.innerText = "❤️";
+        document.querySelectorAll('[id^="heart-icon-"]').forEach(heart => {
+            const id = heart.id.slice('heart-icon-'.length);
+            const liked = userLikedCatIds.has(id);
+            heart.innerText = liked ? "❤️" : "🤍";
+            document.getElementById(`like-btn-${id}`)?.setAttribute('aria-pressed', String(liked));
         });
+
+        if (activeModalCatId) {
+            const modalHeart = document.getElementById("modal-heart-icon");
+            if (modalHeart) modalHeart.innerText = userLikedCatIds.has(String(activeModalCatId)) ? "❤️" : "🤍";
+        }
     } catch (e) {
         console.error("Failed to sync liked cats:", e);
     }
@@ -192,26 +213,34 @@ async function toggleLike(catId, event) {
         return;
     }
 
-    const now = Date.now();
-    if (now - lastLikeTime < COOLDOWN_MS) {
-        const remaining = Math.ceil((COOLDOWN_MS - (now - lastLikeTime)) / 1000);
-        const cooldownMsg = typeof t === "function" ? t("toast_cooldown", { sec: remaining }) : `Cooldown: Please wait ${remaining}s before voting again.`;
-        showToast(cooldownMsg, "info");
-        return;
-    }
-    lastLikeTime = now;
-
+    if (pendingLikes.has(String(catId))) return;
+    pendingLikes.add(String(catId));
     const countElem = document.getElementById(`like-count-${catId}`);
     const heartElem = document.getElementById(`heart-icon-${catId}`);
-    const prevCount = parseInt(countElem ? countElem.innerText : "0", 10) || 0;
-    const isLiked = heartElem ? heartElem.innerText === "❤️" : false;
+    const modalCount = document.getElementById("modal-like-count");
+    const modalHeart = document.getElementById("modal-heart-icon");
 
-    // Optimistic UI update
-    const nextLiked = !isLiked;
+    const isModal = String(activeModalCatId) === String(catId);
+    const isCurrentlyLiked = userLikedCatIds.has(String(catId)) || (heartElem ? heartElem.innerText === "❤️" : (isModal && modalHeart ? modalHeart.innerText === "❤️" : false));
+    const prevCount = parseInt(isModal && modalCount ? modalCount.innerText : (countElem ? countElem.innerText : "0"), 10) || 0;
+
+    const nextLiked = !isCurrentlyLiked;
     const nextCount = nextLiked ? prevCount + 1 : Math.max(0, prevCount - 1);
+
+    if (nextLiked) userLikedCatIds.add(String(catId));
+    else userLikedCatIds.delete(String(catId));
 
     if (heartElem) heartElem.innerText = nextLiked ? "❤️" : "🤍";
     if (countElem) countElem.innerText = nextCount;
+    if (modalHeart && String(activeModalCatId) === String(catId)) modalHeart.innerText = nextLiked ? "❤️" : "🤍";
+    if (modalCount && String(activeModalCatId) === String(catId)) modalCount.innerText = nextCount;
+    if (nextLiked && String(activeModalCatId) === String(catId)) {
+        const heartBurst = document.getElementById("double-click-heart");
+        if (heartBurst) {
+            heartBurst.classList.remove("hidden");
+            setTimeout(() => heartBurst.classList.add("hidden"), 700);
+        }
+    }
 
     try {
         const res = await fetch(`/api/cats/${catId}/like`, {
@@ -221,26 +250,41 @@ async function toggleLike(catId, event) {
         const data = await res.json();
         if (res.ok) {
             const serverLiked = data.status === "liked";
+            if (serverLiked) userLikedCatIds.add(String(catId));
+            else userLikedCatIds.delete(String(catId));
+
             if (countElem) countElem.innerText = data.likes_count;
             if (heartElem) heartElem.innerText = serverLiked ? "❤️" : "🤍";
+            if (modalHeart && String(activeModalCatId) === String(catId)) modalHeart.innerText = serverLiked ? "❤️" : "🤍";
+            if (modalCount && String(activeModalCatId) === String(catId)) modalCount.innerText = data.likes_count;
+            document.getElementById(`like-btn-${catId}`)?.setAttribute('aria-pressed', String(serverLiked));
+            const card = document.querySelector(`[data-cat-id="${catId}"]`);
+            if (card) card.dataset.likes = String(data.likes_count);
             showToast(serverLiked ? "Voted!" : "Vote removed", "success");
             if (typeof fetchNotifications === "function") fetchNotifications();
         } else {
-            // Revert
+            if (isCurrentlyLiked) userLikedCatIds.add(String(catId));
+            else userLikedCatIds.delete(String(catId));
+
             if (countElem) countElem.innerText = prevCount;
-            if (heartElem) heartElem.innerText = isLiked ? "❤️" : "🤍";
+            if (heartElem) heartElem.innerText = isCurrentlyLiked ? "❤️" : "🤍";
+            if (modalHeart && String(activeModalCatId) === String(catId)) modalHeart.innerText = isCurrentlyLiked ? "❤️" : "🤍";
+            if (modalCount && String(activeModalCatId) === String(catId)) modalCount.innerText = prevCount;
             showToast(data.error || "Failed to update vote.", "error");
         }
     } catch (err) {
+        if (isCurrentlyLiked) userLikedCatIds.add(String(catId));
+        else userLikedCatIds.delete(String(catId));
+
         if (countElem) countElem.innerText = prevCount;
-        if (heartElem) heartElem.innerText = isLiked ? "❤️" : "🤍";
+        if (heartElem) heartElem.innerText = isCurrentlyLiked ? "❤️" : "🤍";
+        if (modalHeart && String(activeModalCatId) === String(catId)) modalHeart.innerText = isCurrentlyLiked ? "❤️" : "🤍";
+        if (modalCount && String(activeModalCatId) === String(catId)) modalCount.innerText = prevCount;
         showToast("Network error. Please try again.", "error");
+    } finally {
+        pendingLikes.delete(String(catId));
     }
 }
-
-// ----------------------------------------------------
-// Threaded Comments & Replies Engine (Single-Depth)
-// ----------------------------------------------------
 
 function startReply(commentId, authorName, rootCommentId = null) {
     activeReplyParentId = rootCommentId || commentId;
@@ -268,9 +312,7 @@ function cancelReply() {
     const banner = document.getElementById("modal-reply-banner");
     const input = document.getElementById("modal-comment-input");
 
-    if (banner) {
-        banner.classList.add("hidden");
-    }
+    if (banner) banner.classList.add("hidden");
     if (input) {
         input.placeholder = typeof t === "function" ? t("comment_placeholder") : "Add a comment...";
     }
@@ -280,14 +322,14 @@ async function loadCatComments(catId) {
     try {
         const res = await fetch(`/api/cats/${catId}/comments`);
         const data = await res.json();
+        if (String(activeModalCatId) !== String(catId)) return;
+        if (!res.ok) throw new Error(data.error || 'Could not load comments.');
         const comments = data.comments || [];
         const container = document.getElementById("modal-comments-list");
         const countElem = document.getElementById("modal-comments-count");
         const countBadge = document.getElementById("modal-comments-count-badge");
 
-        if (countElem) {
-            countElem.innerText = `(${comments.length})`;
-        }
+        if (countElem) countElem.innerText = `(${comments.length})`;
         if (countBadge) {
             const label = typeof t === "function" ? (currentLang === 'ru' ? "комментариев" : "comments") : "comments";
             countBadge.innerText = `${comments.length} ${label}`;
@@ -336,7 +378,7 @@ async function loadCatComments(catId) {
         container.innerHTML = rootComments.map(c => {
             const authorDisplayName = c.user_name || "Cat Lover";
             const userTarget = c.user_id || c.user_name || '';
-            const avatar = c.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(authorDisplayName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+            const avatar = escapeHtml(c.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(authorDisplayName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`);
             const isOwner = currentUserId && String(c.user_id) === String(currentUserId);
             const replies = repliesByParent[String(c.id)] || [];
             const rootId = String(c.id);
@@ -344,7 +386,7 @@ async function loadCatComments(catId) {
             const repliesHtml = replies.map(r => {
                 const rAuthorName = r.user_name || "Cat Lover";
                 const rUserTarget = r.user_id || r.user_name || '';
-                const rAvatar = r.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(rAuthorName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+                const rAvatar = escapeHtml(r.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(rAuthorName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`);
                 const rIsOwner = currentUserId && String(r.user_id) === String(currentUserId);
                 const safeRAuthorName = escapeHtml(rAuthorName);
                 const jsSafeRAuthorName = escapeJsString(rAuthorName);
@@ -369,8 +411,8 @@ async function loadCatComments(catId) {
                                         <i class="fa-solid fa-reply text-[9px]"></i>
                                     </button>
                                     ${rIsOwner ? `
-                                        <button onclick="deleteComment('${r.id}', event)" class="text-slate-400 hover:text-rose-600 transition p-1 text-xs" title="${deleteBtnText}">
-                                            <i class="fa-solid fa-trash-can"></i>
+                                        <button onclick="deleteComment('${r.id}', event)" class="w-6 h-6 rounded-lg bg-slate-100 hover:bg-rose-600 text-slate-400 hover:text-white transition flex items-center justify-center text-xs ml-1 shadow-2xs" title="${deleteBtnText}">
+                                            <i class="fa-solid fa-trash-can text-[9px]"></i>
                                         </button>
                                     ` : ''}
                                 </div>
@@ -402,8 +444,8 @@ async function loadCatComments(catId) {
                                         <span>${replyBtnText}</span>
                                     </button>
                                     ${isOwner ? `
-                                        <button onclick="deleteComment('${c.id}', event)" class="text-slate-400 hover:text-rose-600 transition p-1 text-xs ml-1" title="${deleteBtnText}">
-                                            <i class="fa-solid fa-trash-can"></i>
+                                        <button onclick="deleteComment('${c.id}', event)" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-rose-600 text-slate-400 hover:text-white transition flex items-center justify-center text-xs ml-2 shadow-2xs" title="${deleteBtnText}">
+                                            <i class="fa-solid fa-trash-can text-[10px]"></i>
                                         </button>
                                     ` : ''}
                                 </div>
@@ -421,7 +463,17 @@ async function loadCatComments(catId) {
             `;
         }).join("");
     } catch (e) {
-        console.error("Comments error:", e);
+        if (String(activeModalCatId) !== String(catId)) return;
+        const container = document.getElementById('modal-comments-list');
+        if (container) {
+            container.textContent = 'Could not load comments. ';
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'text-indigo-600 font-bold';
+            retry.textContent = 'Try again';
+            retry.addEventListener('click', () => loadCatComments(catId));
+            container.appendChild(retry);
+        }
     }
 }
 
@@ -449,7 +501,7 @@ async function submitComment(event) {
     const now = Date.now();
     if (now - lastCommentTime < COOLDOWN_MS) {
         const remaining = Math.ceil((COOLDOWN_MS - (now - lastCommentTime)) / 1000);
-        const cooldownMsg = typeof t === "function" ? t("toast_cooldown", { sec: remaining }) : `Cooldown: Please wait ${remaining}s before commenting again.`;
+        const cooldownMsg = typeof t === "function" ? t("toast_cooldown", { sec: remaining }) : `Please wait ${remaining}s...`;
         showToast(cooldownMsg, "info");
         return;
     }
@@ -460,6 +512,7 @@ async function submitComment(event) {
         submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i>';
     }
 
+    const submittedCatId = activeModalCatId;
     const isReply = !!activeReplyParentId;
     const payload = {
         comment: commentText,
@@ -468,7 +521,7 @@ async function submitComment(event) {
     };
 
     try {
-        const res = await fetch(`/api/cats/${activeModalCatId}/comments`, {
+        const res = await fetch(`/api/cats/${submittedCatId}/comments`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -478,9 +531,11 @@ async function submitComment(event) {
         });
 
         if (res.ok) {
-            input.value = "";
-            cancelReply();
-            loadCatComments(activeModalCatId);
+            if (activeModalCatId === submittedCatId) {
+                input.value = "";
+                cancelReply();
+                loadCatComments(submittedCatId);
+            }
             showToast(isReply ? "Reply posted!" : "Comment posted!", "success");
             if (typeof fetchNotifications === "function") fetchNotifications();
         } else {
@@ -530,10 +585,6 @@ async function deleteComment(commentId, event) {
     }
 }
 
-// ----------------------------------------------------
-// Notifications Bell & Dropdown
-// ----------------------------------------------------
-
 function toggleNotificationsDropdown() {
     const dropdown = document.getElementById("notifications-dropdown");
     if (!dropdown) return;
@@ -543,7 +594,6 @@ function toggleNotificationsDropdown() {
     }
 }
 
-// Close notifications dropdown on outside click
 document.addEventListener("click", (e) => {
     const wrapper = document.getElementById("notifications-dropdown-wrapper");
     const dropdown = document.getElementById("notifications-dropdown");
@@ -581,7 +631,7 @@ async function fetchNotifications() {
 
             listContainer.innerHTML = list.map(n => {
                 const isRead = n.is_read;
-                const avatar = n.actor_avatar || getFallbackAvatarSvg(n.actor_name);
+                const avatar = escapeHtml(n.actor_avatar || getFallbackAvatarSvg(n.actor_name));
                 return `
                     <div class="p-3 flex items-start gap-2.5 transition hover:bg-slate-50 ${isRead ? 'opacity-70' : 'bg-indigo-50/40'}">
                         <img src="${avatar}" alt="Avatar" class="w-8 h-8 rounded-full object-cover border border-slate-200 flex-shrink-0">
@@ -601,13 +651,14 @@ async function fetchNotifications() {
 async function markAllNotificationsRead() {
     if (!currentSession) return;
     try {
-        await fetch("/api/notifications/read-all", {
+        const res = await fetch("/api/notifications/read-all", {
             method: "POST",
             headers: { "Authorization": `Bearer ${currentSession.access_token}` }
         });
+        if (!res.ok) throw new Error('Could not mark notifications read.');
         fetchNotifications();
     } catch (e) {
-        console.error("Error marking all read:", e);
+        showToast(e.message, "error");
     }
 }
 

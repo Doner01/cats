@@ -4,14 +4,13 @@
 
 {% block content %}
 <div id="profile-container" class="max-w-4xl mx-auto space-y-8">
-    <!-- User Profile Header Card -->
+    
     <div class="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/90 shadow-sm relative overflow-hidden flex flex-col sm:flex-row items-center sm:items-start gap-6">
-        <!-- Profile Avatar with live hover edit trigger for owner -->
+        
         <div class="relative group/avatar flex-shrink-0">
             <div class="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl overflow-hidden border-2 border-indigo-100 shadow-md bg-slate-50 relative">
                 <img id="profile-avatar" src="https://api.dicebear.com/7.x/bottts/svg?seed=CatLover&backgroundColor=b6e3f4,c0aede,d1d4f9" alt="Profile avatar" class="w-full h-full object-cover">
-                
-                <!-- Owner overlay edit button -->
+
                 <button id="avatar-edit-overlay-btn" onclick="openEditProfileModal()" class="hidden absolute inset-0 bg-black/50 text-white flex-col items-center justify-center gap-1 opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-200 cursor-pointer">
                     <i class="fa-solid fa-camera text-base"></i>
                     <span class="text-[10px] font-bold" data-i18n="change_photo">Change</span>
@@ -23,14 +22,12 @@
             </button>
         </div>
 
-        <!-- Profile Details & Live Counts -->
         <div class="flex-grow text-center sm:text-left space-y-2 min-w-0">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h1 id="profile-name" class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight truncate">Loading...</h1>
                     <p id="profile-bio" class="text-xs text-slate-500 mt-1" data-i18n="profile_bio_default">CatRank Member • Cat enthusiast</p>
-                    
-                    <!-- Contact Meta: Email & Phone -->
+
                     <div id="profile-meta-info" class="flex flex-wrap items-center justify-center sm:justify-start gap-3 mt-2 text-xs text-slate-500 font-medium">
                         <span id="profile-email-badge" class="hidden items-center gap-1 text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
                             <i class="fa-solid fa-envelope text-indigo-500 text-[10px]"></i>
@@ -44,11 +41,10 @@
                 </div>
 
                 <div id="profile-actions" class="flex items-center justify-center sm:justify-end gap-2 flex-shrink-0">
-                    <!-- Action buttons dynamically inserted by auth status -->
+                    
                 </div>
             </div>
 
-            <!-- Stats Bar -->
             <div class="grid grid-cols-2 gap-3 sm:gap-4 pt-4 border-t border-slate-100 max-w-sm mx-auto sm:mx-0">
                 <div class="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 text-center">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400" data-i18n="stat_uploads">Uploads</p>
@@ -62,7 +58,6 @@
         </div>
     </div>
 
-    <!-- Uploaded Cats Gallery Grid -->
     <div class="space-y-4">
         <div class="flex items-center justify-between">
             <h2 class="text-lg font-black text-slate-900 flex items-center gap-2">
@@ -79,7 +74,6 @@
     </div>
 </div>
 
-<!-- Not Found Container (Hidden by default) -->
 <div id="user-not-found-container" class="hidden max-w-md mx-auto py-16 text-center bg-white rounded-3xl border border-slate-200 p-8 space-y-4">
     <div class="w-16 h-16 mx-auto rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center text-3xl shadow-xs">
         <i class="fa-solid fa-user-slash"></i>
@@ -94,7 +88,6 @@
     </div>
 </div>
 
-<!-- Comprehensive Edit Profile Modal (Tabs: Basic Info & Security) -->
 <div id="edit-profile-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
     <div class="bg-white rounded-3xl border border-slate-200 max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -107,17 +100,15 @@
             </button>
         </div>
 
-        <!-- Modal Tabs -->
         <div class="flex border-b border-slate-100 gap-2">
             <button id="tab-btn-basic" onclick="switchProfileModalTab('basic')" class="px-4 py-2 text-xs font-bold text-indigo-600 border-b-2 border-indigo-600 transition" data-i18n="tab_basic_info">Basic Info</button>
             <button id="tab-btn-security" onclick="switchProfileModalTab('security')" class="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition" data-i18n="tab_security">Account & Security</button>
         </div>
 
-        <!-- Tab 1: Basic Info Form -->
         <div id="tab-content-basic" class="space-y-4">
-            <!-- Avatar Upload & Preview -->
+            
             <div class="space-y-1.5">
-                <label class="block text-xs font-bold text-slate-700" data-i18n="profile_photo_label">Profile Photo</label>
+                <label for="edit-avatar-file" class="block text-xs font-bold text-slate-700" data-i18n="profile_photo_label">Profile Photo</label>
                 <div class="flex items-center gap-4">
                     <img id="edit-avatar-preview" src="" alt="Avatar Preview" class="w-16 h-16 rounded-2xl object-cover border border-slate-200 bg-slate-50 shadow-xs">
                     <div class="space-y-1.5 flex-grow">
@@ -137,27 +128,24 @@
                 </div>
             </div>
 
-            <!-- Display Name -->
             <div class="space-y-1.5">
-                <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="display_name_label">
+                <label for="edit-display-name" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="display_name_label">
                     <i class="fa-solid fa-user text-indigo-500 text-xs"></i>
                     <span>Display Name</span>
                 </label>
                 <input type="text" id="edit-display-name" required maxlength="40" class="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-2xl focus:ring-2 focus:ring-indigo-500 transition">
             </div>
 
-            <!-- Phone Number -->
             <div class="space-y-1.5">
-                <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="phone_number_label">
+                <label for="edit-user-phone" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="phone_number_label">
                     <i class="fa-solid fa-phone text-indigo-500 text-xs"></i>
                     <span>Phone Number</span>
                 </label>
                 <input type="tel" id="edit-user-phone" placeholder="+998 90 123 45 67" data-i18n-placeholder="phone_placeholder" class="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-2xl focus:ring-2 focus:ring-indigo-500 transition">
             </div>
 
-            <!-- Bio -->
             <div class="space-y-1.5">
-                <label class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="bio_label">
+                <label for="edit-user-bio" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="bio_label">
                     <i class="fa-solid fa-quote-left text-indigo-500 text-xs"></i>
                     <span>Short Bio</span>
                 </label>
@@ -173,9 +161,8 @@
             </div>
         </div>
 
-        <!-- Tab 2: Security (Change Email & Password) -->
         <div id="tab-content-security" class="hidden space-y-5">
-            <!-- Change Email (Production-Grade Secure Method with Password Confirmation) -->
+            
             <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
                 <div class="flex items-center justify-between">
                     <h4 class="text-xs font-black text-slate-800 flex items-center gap-1.5" data-i18n="change_email_label">
@@ -185,39 +172,37 @@
                     <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-white border border-slate-200 px-2 py-0.5 rounded-full">Secure</span>
                 </div>
 
-                <!-- Current Email Display -->
                 <div class="p-2.5 bg-white rounded-xl border border-slate-200 flex items-center justify-between text-xs">
                     <span class="text-slate-500 font-medium" data-i18n="current_email_label">Current Email:</span>
                     <span id="current-user-email-display" class="font-bold text-slate-900 font-mono text-[11px] truncate max-w-[200px]">user@example.com</span>
                 </div>
 
                 <div class="space-y-2">
-                    <input type="email" id="edit-new-email" required placeholder="New Email Address" data-i18n-placeholder="new_email_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+                    <input type="email" autocomplete="email" id="edit-new-email" required placeholder="New Email Address" data-i18n-placeholder="new_email_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
                     
                     <div class="relative">
-                        <input type="password" id="edit-email-current-password" required placeholder="Enter current password to authorize" data-i18n-placeholder="enter_current_password_placeholder" class="w-full pl-3.5 pr-10 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
-                        <button type="button" onclick="togglePasswordVisibility('edit-email-current-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition focus:outline-none" title="Toggle visibility">
+                        <input type="password" maxlength="128" autocomplete="new-password" id="edit-email-current-password" required placeholder="Enter current password to authorize" data-i18n-placeholder="enter_current_password_placeholder" class="w-full pl-3.5 pr-10 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+                        <button type="button" aria-label="Show or hide password" onclick="togglePasswordVisibility('edit-email-current-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition focus:outline-none" title="Toggle visibility">
                             <i class="fa-solid fa-eye text-xs"></i>
                         </button>
                     </div>
 
                     <button type="button" id="update-email-btn" onclick="handleUserEmailChange()" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5" data-i18n="change_email_btn">
-                        <i class="fa-solid fa-shield-check text-xs"></i>
+                        <i class="fa-solid fa-shield-halved text-xs"></i>
                         <span>Update Email</span>
                     </button>
                 </div>
             </div>
 
-            <!-- Change Password (Requires Current Password Verification) -->
             <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
                 <h4 class="text-xs font-black text-slate-800 flex items-center gap-1.5" data-i18n="change_password_label">
                     <i class="fa-solid fa-lock text-indigo-500"></i>
                     <span>Change Password</span>
                 </h4>
                 <div class="space-y-2">
-                    <input type="password" id="edit-old-password" required placeholder="Current Password" data-i18n-placeholder="current_password_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
-                    <input type="password" id="edit-new-password" required minlength="6" placeholder="New password (min 6 chars)" data-i18n-placeholder="new_password_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
-                    <input type="password" id="edit-confirm-new-password" required minlength="6" placeholder="Confirm new password" data-i18n-placeholder="confirm_new_password_label" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+                    <input type="password" maxlength="128" autocomplete="new-password" id="edit-old-password" required placeholder="Current Password" data-i18n-placeholder="current_password_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+                    <input type="password" maxlength="128" autocomplete="new-password" id="edit-new-password" required minlength="8" placeholder="New password (min 8 chars)" data-i18n-placeholder="new_password_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+                    <input type="password" maxlength="128" autocomplete="new-password" id="edit-confirm-new-password" required minlength="8" placeholder="Confirm new password" data-i18n-placeholder="confirm_new_password_label" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
                     <button type="button" id="update-password-btn" onclick="handleUserPasswordChange()" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2" data-i18n="change_password_btn">
                         Change Password
                     </button>
@@ -231,7 +216,7 @@
 {% block scripts %}
 
 <script>
-const targetUserId = "{{ view_user_id }}";
+const targetUserId = {{ view_user_id|tojson }};
 let isResetAvatarChosen = false;
 let customModalAvatarFile = null;
 let currentProfileAvatarUrl = "";
@@ -292,8 +277,6 @@ async function loadProfile() {
         if (session.user.user_metadata && session.user.user_metadata.bio) {
             bioElem.innerText = session.user.user_metadata.bio;
         }
-
-        // Email badge
         const emailBadge = document.getElementById("profile-email-badge");
         const emailText = document.getElementById("profile-email-text");
         if (emailBadge && emailText && session.user.email) {
@@ -301,8 +284,6 @@ async function loadProfile() {
             emailBadge.classList.remove("hidden");
             emailBadge.classList.add("inline-flex");
         }
-
-        // Phone badge
         const phoneBadge = document.getElementById("profile-phone-badge");
         const phoneText = document.getElementById("profile-phone-text");
         const phoneVal = (session.user.user_metadata && (session.user.user_metadata.phone_number || session.user.user_metadata.phone)) || session.user.phone;
@@ -343,7 +324,7 @@ async function loadProfile() {
     try {
         const res = await fetch(`/api/user/${encodeURIComponent(userIdToLoad)}/profile`);
         if (!res.ok) {
-            // User not found (404) -> render Not Found state
+            if (res.status !== 404) throw new Error("Could not load this profile. Please try again.");
             document.getElementById("profile-container").classList.add("hidden");
             document.getElementById("user-not-found-container").classList.remove("hidden");
             return;
@@ -351,27 +332,13 @@ async function loadProfile() {
 
         const data = await res.json();
         const cats = data.cats || [];
-
-        if (!isSelf) {
-            const userName = data.user_name || "Cat Lover";
-            nameElem.innerText = userName;
-            const fallbackAvatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
-            avatarElem.src = data.user_avatar || fallbackAvatar;
-            avatarElem.onerror = function() { handleAvatarError(this, userName); };
-
-            if (data.bio) {
-                bioElem.innerText = data.bio;
-            }
-            if (data.phone) {
-                const phoneBadge = document.getElementById("profile-phone-badge");
-                const phoneText = document.getElementById("profile-phone-text");
-                if (phoneBadge && phoneText) {
-                    phoneText.innerText = data.phone;
-                    phoneBadge.classList.remove("hidden");
-                    phoneBadge.classList.add("inline-flex");
-                }
-            }
-        }
+        const userName = data.user_name || "Cat Lover";
+        nameElem.innerText = userName;
+        const fallbackAvatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+        currentProfileAvatarUrl = data.user_avatar || fallbackAvatar;
+        avatarElem.src = currentProfileAvatarUrl;
+        avatarElem.onerror = function() { handleAvatarError(this, userName); };
+        bioElem.innerText = data.bio || "";
 
         document.getElementById("stat-uploaded-count").innerText = cats.length;
         document.getElementById("stat-likes-count").innerText = data.total_likes || 0;
@@ -391,25 +358,32 @@ async function loadProfile() {
         }
 
         grid.innerHTML = cats.map(cat => {
-            const dateStr = (cat.created_at || '').substring(0, 10);
+            const dateStr = escapeHtml((cat.created_at || '').substring(0, 10));
+            const safeCatId = escapeJsString(String(cat.id || ''));
+            const safeCatIdHtml = escapeHtml(String(cat.id || ''));
+            const safeCatName = escapeHtml(cat.name || 'Cat');
+            const safeCatImage = escapeHtml(cat.image_url || '');
+            const safeLikes = Number.isFinite(Number(cat.likes_count)) ? Number(cat.likes_count) : 0;
             return `
-                <div id="cat-card-${cat.id}" class="cat-card bg-white rounded-3xl overflow-hidden border border-slate-200/90 shadow-sm flex flex-col group relative">
-                    <div class="cat-img-wrapper cursor-pointer bg-slate-900" onclick="openCatModal('${cat.id}')">
-                        <img src="${cat.image_url}" alt="${cat.name}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                <div id="cat-card-${safeCatIdHtml}" class="cat-card bg-white rounded-3xl overflow-hidden border border-slate-200/90 shadow-sm flex flex-col group relative">
+                    <div class="cat-img-wrapper cursor-pointer bg-slate-900" onclick="openCatModal('${safeCatId}')">
+                        <img src="${safeCatImage}" alt="${safeCatName}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
                     </div>
-                    <div class="p-4 flex items-center justify-between gap-2">
+                    <div class="p-4 flex items-center justify-between gap-4 border-t border-slate-100/80 bg-white">
                         <div class="min-w-0">
-                            <h4 class="font-black text-slate-900 text-sm truncate">${cat.name}</h4>
-                            <p class="text-[10px] text-slate-400">${dateStr}</p>
+                            <h4 class="font-black text-slate-900 text-sm truncate">${safeCatName}</h4>
+                            <p class="text-[10px] text-slate-400 font-medium mt-0.5">${dateStr}</p>
                         </div>
-                        <div class="flex items-center gap-1.5">
-                            <span class="text-xs font-extrabold text-indigo-600 flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-xl">
-                                <i class="fa-solid fa-heart text-rose-500 text-[10px]"></i>
-                                <span>${cat.likes_count || 0}</span>
+                        <div class="flex items-center gap-3 flex-shrink-0">
+                            
+                            <span class="text-xs font-black text-rose-600 flex items-center gap-1.5 bg-rose-50 border border-rose-100 px-3 py-1.5 rounded-xl shadow-2xs">
+                                <i class="fa-solid fa-heart text-rose-500 text-xs"></i>
+                                <span>${safeLikes}</span>
                             </span>
                             ${isSelf ? `
-                                <button onclick="deleteMyCat('${cat.id}')" class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="Delete Photo">
-                                    <i class="fa-solid fa-trash-can text-xs"></i>
+                                
+                                <button onclick="deleteMyCat('${safeCatId}')" class="w-9 h-9 rounded-xl bg-slate-50 hover:bg-rose-600 text-slate-400 hover:text-white border border-slate-200 hover:border-rose-600 transition-all flex items-center justify-center shadow-xs transform active:scale-95 group/del" title="Delete Photo">
+                                    <i class="fa-solid fa-trash-can text-xs group-hover/del:scale-110 transition-transform"></i>
                                 </button>
                             ` : ''}
                         </div>
@@ -419,7 +393,7 @@ async function loadProfile() {
         }).join('');
 
     } catch (err) {
-        console.error("Failed to load user profile:", err);
+        showToast(err.message || "Could not load this profile.", "error");
     }
 }
 
@@ -501,9 +475,6 @@ async function saveUserProfileChanges() {
     saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Saving...</span>';
 
     try {
-        let avatarUrlToSave = currentProfileAvatarUrl;
-
-        // If a new avatar file was chosen, upload it to /api/user/avatar
         if (customModalAvatarFile) {
             const formData = new FormData();
             formData.append("avatar", customModalAvatarFile);
@@ -512,28 +483,13 @@ async function saveUserProfileChanges() {
                 headers: { "Authorization": `Bearer ${currentSession.access_token}` },
                 body: formData
             });
-            const uploadData = await uploadRes.json();
-            if (uploadRes.ok && uploadData.avatar_url) {
-                avatarUrlToSave = uploadData.avatar_url;
+            const uploadData = await uploadRes.json().catch(() => ({}));
+            if (!uploadRes.ok || !uploadData.avatar_url) {
+                throw new Error(uploadData.error || "Could not upload avatar.");
             }
-        } else if (isResetAvatarChosen) {
-            avatarUrlToSave = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(newName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+            currentProfileAvatarUrl = uploadData.avatar_url;
         }
-
-        // Update Supabase Auth user_metadata
-        if (supabaseClient) {
-            await supabaseClient.auth.updateUser({
-                data: {
-                    display_name: newName,
-                    phone_number: newPhone,
-                    bio: newBio,
-                    avatar_url: avatarUrlToSave
-                }
-            });
-        }
-
-        // Sync backend
-        await fetch("/api/user/profile", {
+        const syncRes = await fetch("/api/user/profile", {
             method: "PUT",
             headers: {
                 "Content-Type": "application/json",
@@ -543,9 +499,16 @@ async function saveUserProfileChanges() {
                 display_name: newName,
                 phone: newPhone,
                 bio: newBio,
-                avatar_url: avatarUrlToSave
+                reset_avatar: isResetAvatarChosen
             })
         });
+        if (!syncRes.ok) {
+            const syncErr = await syncRes.json().catch(() => ({}));
+            throw new Error(syncErr.error || 'Could not sync profile changes.');
+        }
+        if (supabaseClient) {
+            await supabaseClient.auth.refreshSession().catch(() => null);
+        }
 
         showToast(typeof t === 'function' ? t('toast_profile_updated') : "Profile updated successfully!", "success");
         closeEditProfileModal();
@@ -559,25 +522,25 @@ async function saveUserProfileChanges() {
 }
 
 async function handleUserEmailChange() {
-    if (!currentSession || !currentSession.access_token || !currentSession.user) return;
+    if (!currentSession || !currentSession.user || !supabaseClient) return;
     const emailInput = document.getElementById("edit-new-email");
     const passInput = document.getElementById("edit-email-current-password");
     const btn = document.getElementById("update-email-btn");
 
     const newEmail = emailInput.value.trim().toLowerCase();
     const currentPass = passInput ? passInput.value : "";
-    const currentEmail = currentSession.user.email.toLowerCase();
+    const currentEmail = String(currentSession.user.email || '').toLowerCase();
 
-    if (!newEmail || !newEmail.includes("@")) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Пожалуйста, введите корректный новый email." : "Please enter a valid new email address.", "error");
+    if (!newEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail)) {
+        showToast("Please enter a valid new email address.", "error");
         return;
     }
     if (newEmail === currentEmail) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Этот email уже привязан к вашему аккаунту." : "This is already your current email address.", "info");
+        showToast("This is already your current email address.", "info");
         return;
     }
     if (!currentPass) {
-        showToast(typeof t === "function" ? t("toast_wrong_pass_email") : "Current password is required to change email.", "error");
+        showToast("Current password is required to change email.", "error");
         return;
     }
 
@@ -585,51 +548,43 @@ async function handleUserEmailChange() {
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Verifying...</span>';
 
     try {
-        // Step 1: Security re-authentication using current password
-        const { error: authError } = await supabaseClient.auth.signInWithPassword({
+        const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
             email: currentEmail,
             password: currentPass
         });
-
-        if (authError) {
-            showToast(typeof t === "function" ? t("toast_wrong_pass_email") : "Incorrect password. Current password is required.", "error");
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-shield-check text-xs"></i> <span>' + (typeof t === "function" ? t("change_email_btn") : "Update Email") + '</span>';
+        if (authError || !authData || !authData.session) {
+            showToast("Incorrect current password.", "error");
             return;
         }
 
-        // Step 2: Update email securely via backend API
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Updating...</span>';
-        const res = await fetch("/api/user/email", {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${currentSession.access_token}`
-            },
-            body: JSON.stringify({ email: newEmail })
-        });
-        const data = await res.json();
-
-        if (res.ok) {
-            showToast(typeof t === "function" ? t("toast_email_updated") : "Account email updated successfully!", "success");
-            currentSession.user.email = newEmail;
-            
-            const emailText = document.getElementById("profile-email-text");
-            if (emailText) emailText.innerText = newEmail;
-            
-            const currentEmailEl = document.getElementById("current-user-email-display");
-            if (currentEmailEl) currentEmailEl.innerText = newEmail;
-            
-            emailInput.value = "";
-            if (passInput) passInput.value = "";
-        } else {
-            showToast(data.error || "Failed to update email.", "error");
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Sending confirmation...</span>';
+        const emailRedirectTo = window.location.origin + '/profile?email_confirmed=1';
+        const { data: updateData, error: updateError } = await supabaseClient.auth.updateUser(
+            { email: newEmail },
+            { emailRedirectTo }
+        );
+        if (updateError) {
+            showToast(updateError.message, "error");
+            return;
         }
+
+        if (updateData?.user?.email?.toLowerCase() === newEmail) {
+            showToast("Email updated. Email confirmation is disabled in this project's authentication settings.", "info");
+            await supabaseClient.auth.refreshSession();
+            await loadProfile();
+            return;
+        }
+        showToast(`Check ${newEmail} for the confirmation link. You may also need to confirm from your current inbox.`, "success");
+        emailInput.value = "";
+        if (passInput) passInput.value = "";
+
+        const currentEmailEl = document.getElementById("current-user-email-display");
+        if (currentEmailEl) currentEmailEl.innerText = currentEmail + ' (change pending)';
     } catch (e) {
         showToast("Error: " + e.message, "error");
     } finally {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-shield-check text-xs"></i> <span>' + (typeof t === "function" ? t("change_email_btn") : "Update Email") + '</span>';
+        btn.innerHTML = '<i class="fa-solid fa-shield-halved text-xs"></i> <span>' + (typeof t === "function" ? t("change_email_btn") : "Update Email") + '</span>';
     }
 }
 
@@ -648,8 +603,8 @@ async function handleUserPasswordChange() {
         showToast(typeof t === "function" && currentLang === "ru" ? "Пожалуйста, введите текущий пароль." : "Please enter your current password.", "error");
         return;
     }
-    if (!newPass || newPass.length < 6) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Новый пароль должен содержать минимум 6 символов." : "New password must be at least 6 characters.", "error");
+    if (!newPass || newPass.length < 8) {
+        showToast(typeof t === "function" && currentLang === "ru" ? "Новый пароль должен содержать минимум 8 символов." : "New password must be at least 8 characters.", "error");
         return;
     }
     if (newPass !== confirmPass) {
@@ -661,7 +616,6 @@ async function handleUserPasswordChange() {
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Verifying...</span>';
 
     try {
-        // Step 1: Re-authenticate to verify old password
         const userEmail = currentSession.user.email;
         const { error: signInError } = await supabaseClient.auth.signInWithPassword({
             email: userEmail,
@@ -674,8 +628,6 @@ async function handleUserPasswordChange() {
             btn.innerHTML = typeof t === "function" ? t("change_password_btn") : "Change Password";
             return;
         }
-
-        // Step 2: Set the new password
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Updating...</span>';
         const { error: updateError } = await supabaseClient.auth.updateUser({ password: newPass });
         if (updateError) {

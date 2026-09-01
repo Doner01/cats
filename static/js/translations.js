@@ -1,6 +1,3 @@
-/**
- * CatRank Comprehensive Bilingual Translation Module (English / Russian)
- */
 const translations = {
     en: {
         "current_email_label": "Current Email",
@@ -22,8 +19,6 @@ const translations = {
         "current_password_placeholder": "Enter your current password",
         "toast_wrong_current_pass": "Current password is incorrect.",
         "toast_email_rate_limit": "Email rate limit exceeded. Please wait a moment.",
-
-        // Navigation
         "nav_brand": "CatRank",
         "nav_feed": "Feed",
         "nav_leaderboard": "Leaderboard",
@@ -35,14 +30,10 @@ const translations = {
         "nav_admin": "Admin Panel",
         "nav_notifications": "Notifications",
         "nav_menu": "Menu",
-
-        // Mobile Bottom Nav
         "mobile_nav_feed": "Feed",
         "mobile_nav_leaderboard": "Rankings",
         "mobile_nav_upload": "Upload",
         "mobile_nav_profile": "Account",
-
-        // Notifications
         "notifications_title": "Notifications",
         "notif_mark_read": "Mark all read",
         "notif_empty": "No notifications yet",
@@ -52,8 +43,6 @@ const translations = {
         "notif_liked": "liked your cat photo",
         "notif_commented": "commented on",
         "notif_replied": "replied to your comment on",
-
-        // Feed & Home Page
         "feed_title": "Community Feed",
         "feed_subtitle": "Click any cat photo to preview, like, and join the conversation",
         "champion_badge": "Community Champion #1",
@@ -76,8 +65,6 @@ const translations = {
         "click_to_view": "Click to inspect & comment",
         "vote_btn": "Vote",
         "voted_btn": "Voted",
-
-        // Upload Page & Cat Bio
         "upload_page_title": "Upload Cat Photo",
         "upload_daily_limit": "Share your cat photo and join the community leaderboard!",
         "cat_name_label": "Cat Name",
@@ -90,8 +77,6 @@ const translations = {
         "preview_label": "Preview",
         "remove_preview_btn": "Remove",
         "upload_submit_btn": "Upload Photo",
-
-        // Modals & Comment System
         "modal_comments_heading": "Comments",
         "reply_btn": "Reply",
         "delete_btn": "Delete",
@@ -107,8 +92,6 @@ const translations = {
         "no_comments": "No comments yet. Be the first to say something nice!",
         "cat_details_title": "Cat Details",
         "cat_story_title": "About this cat",
-
-        // Authentication & Security
         "welcome_back_title": "Welcome Back",
         "login_subtitle": "Sign in to vote, comment, and upload cat pictures",
         "email_label": "Email Address",
@@ -137,8 +120,6 @@ const translations = {
         "toast_reset_sent": "Reset link sent to your email! Please check your inbox.",
         "toast_pass_updated": "Password updated successfully! Redirecting...",
         "toast_otp_expired": "Password reset link has expired or is invalid. Please request a new one.",
-
-        // Registration Extras
         "optional_badge": "Optional",
         "avatar_upload_label": "Profile Avatar (Optional)",
         "avatar_upload_hint": "Click to upload a custom avatar photo (PNG, JPG, WEBP)",
@@ -146,13 +127,9 @@ const translations = {
         "phone_placeholder": "+998 90 123 45 67",
         "bio_label": "Short Bio",
         "bio_placeholder": "Tell us about your love for cats...",
-
-        // User Not Found
         "user_not_found_title": "User Not Found",
         "user_not_found_desc": "This user profile does not exist or has been removed from the platform.",
         "back_to_feed_btn": "Back to Feed",
-
-        // Profile Page
         "profile_bio_default": "CatRank Member • Cat enthusiast",
         "stat_uploads": "Uploads",
         "stat_total_votes": "Total Votes",
@@ -172,11 +149,9 @@ const translations = {
         "new_email_placeholder": "new_email@example.com",
         "change_email_btn": "Update Email",
         "change_password_label": "Change Password",
-        "new_password_placeholder": "New password (min 6 chars)",
+        "new_password_placeholder": "New password (min 8 chars)",
         "change_password_btn": "Change Password",
         "phone_number_label": "Phone Number",
-
-        // Admin Dashboard
         "admin_title": "Admin Dashboard",
         "admin_subtitle": "Manage all community uploads, user profiles, comments, and platform statistics",
         "admin_total_cats": "Total Uploaded Cats",
@@ -228,8 +203,6 @@ const translations = {
         "toast_user_updated": "User profile updated successfully!",
         "toast_comment_updated": "Comment updated successfully!",
         "toast_comment_deleted": "Comment deleted successfully!",
-
-        // Leaderboard Page
         "leaderboard_title": "Leaderboard",
         "leaderboard_subtitle": "The most loved cats ranked by the global community",
         "rank_th": "Rank",
@@ -239,8 +212,6 @@ const translations = {
         "podium_first": "Champion",
         "podium_second": "Runner Up",
         "podium_third": "3rd Place",
-
-        // Toasts & General
         "toast_signin_success": "Welcome back! Redirecting...",
         "toast_signup_success": "Account created successfully! Redirecting...",
         "toast_signout_success": "Signed out successfully.",
@@ -275,8 +246,6 @@ const translations = {
         "current_password_placeholder": "Введите текущий пароль",
         "toast_wrong_current_pass": "Неверный текущий пароль.",
         "toast_email_rate_limit": "Лимит отправки превышен. Пожалуйста, подождите пару секунд.",
-
-        // Navigation
         "nav_brand": "CatRank",
         "nav_feed": "Лента",
         "nav_leaderboard": "Рейтинг",
@@ -288,14 +257,10 @@ const translations = {
         "nav_admin": "Админ-панель",
         "nav_notifications": "Уведомления",
         "nav_menu": "Меню",
-
-        // Mobile Bottom Nav
         "mobile_nav_feed": "Лента",
         "mobile_nav_leaderboard": "Рейтинг",
         "mobile_nav_upload": "Загрузка",
         "mobile_nav_profile": "Профиль",
-
-        // Notifications
         "notifications_title": "Уведомления",
         "notif_mark_read": "Прочитать все",
         "notif_empty": "Нет новых уведомлений",
@@ -305,8 +270,6 @@ const translations = {
         "notif_liked": "оценил(а) вашего котика",
         "notif_commented": "прокомментировал(а)",
         "notif_replied": "ответил(а) на ваш комментарий к",
-
-        // Feed & Home Page
         "feed_title": "Лента сообщества",
         "feed_subtitle": "Нажмите на фото котика, чтобы открыть просмотр, проголосовать и оставить комментарий",
         "champion_badge": "Чемпион сообщества #1",
@@ -329,8 +292,6 @@ const translations = {
         "click_to_view": "Нажмите для просмотра и комментариев",
         "vote_btn": "Голос",
         "voted_btn": "Вам нравится",
-
-        // Upload Page & Cat Bio
         "upload_page_title": "Загрузить фото котика",
         "upload_daily_limit": "Поделитесь фото котика и участвуйте в общем рейтинге!",
         "cat_name_label": "Кличка котика",
@@ -343,8 +304,6 @@ const translations = {
         "preview_label": "Предпросмотр",
         "remove_preview_btn": "Удалить",
         "upload_submit_btn": "Опубликовать фото",
-
-        // Modals & Comment System
         "modal_comments_heading": "Комментарии",
         "reply_btn": "Ответить",
         "delete_btn": "Удалить",
@@ -360,8 +319,6 @@ const translations = {
         "no_comments": "Комментариев пока нет. Напишите добрый отзыв первым!",
         "cat_details_title": "Информация о котике",
         "cat_story_title": "Об этом котике",
-
-        // Authentication & Security
         "welcome_back_title": "С возвращением",
         "login_subtitle": "Войдите, чтобы голосовать, комментировать и добавлять котиков",
         "email_label": "Электронная почта",
@@ -390,8 +347,6 @@ const translations = {
         "toast_reset_sent": "Ссылка для сброса отправлена на почту! Проверьте входящие.",
         "toast_pass_updated": "Пароль успешно изменен! Перенаправление...",
         "toast_otp_expired": "Ссылка для сброса пароля истекла или недействительна. Запросите новую.",
-
-        // Registration Extras
         "optional_badge": "Необязательно",
         "avatar_upload_label": "Аватар профиля (необязательно)",
         "avatar_upload_hint": "Нажмите, чтобы загрузить аватарку (PNG, JPG, WEBP)",
@@ -399,13 +354,9 @@ const translations = {
         "phone_placeholder": "+998 90 123 45 67",
         "bio_label": "О себе",
         "bio_placeholder": "Расскажите о себе и вашей любви к котикам...",
-
-        // User Not Found
         "user_not_found_title": "Пользователь не найден",
         "user_not_found_desc": "Данного профиля не существует или он был удален с платформы.",
         "back_to_feed_btn": "Вернуться в ленту",
-
-        // Profile Page
         "profile_bio_default": "Участник CatRank • Любитель кошек",
         "stat_uploads": "Публикаций",
         "stat_total_votes": "Всего голосов",
@@ -425,11 +376,9 @@ const translations = {
         "new_email_placeholder": "new_email@example.com",
         "change_email_btn": "Обновить Email",
         "change_password_label": "Изменить пароль",
-        "new_password_placeholder": "Новый пароль (мин. 6 симв.)",
+        "new_password_placeholder": "Новый пароль (мин. 8 симв.)",
         "change_password_btn": "Изменить пароль",
         "phone_number_label": "Номер телефона",
-
-        // Admin Dashboard
         "admin_title": "Панель администратора",
         "admin_subtitle": "Управление публикациями, пользователями, комментариями и статистика",
         "admin_total_cats": "Всего котиков",
@@ -481,8 +430,6 @@ const translations = {
         "toast_user_updated": "Профиль пользователя успешно обновлен!",
         "toast_comment_updated": "Комментарий успешно обновлен!",
         "toast_comment_deleted": "Комментарий удален!",
-
-        // Leaderboard Page
         "leaderboard_title": "Таблица лидеров",
         "leaderboard_subtitle": "Самые популярные котики по результатам голосования сообщества",
         "rank_th": "Место",
@@ -492,8 +439,6 @@ const translations = {
         "podium_first": "Чемпион",
         "podium_second": "2-е место",
         "podium_third": "3-е место",
-
-        // Toasts & General
         "toast_signin_success": "С возвращением! Перенаправление...",
         "toast_signup_success": "Аккаунт успешно создан! Перенаправление...",
         "toast_signout_success": "Вы успешно вышли из аккаунта.",
@@ -509,7 +454,12 @@ const translations = {
     }
 };
 
-let currentLang = localStorage.getItem("catrank_lang") || "en";
+Object.assign(translations.en, {"hero_eyebrow": "THE INTERNET'S HAPPY PLACE", "hero_line_one": "Small paws.", "hero_line_two": "Big personalities.", "hero_description": "Meet the cats making everyone's day. Share your best photo, give a little love, and find your new favorite.", "explore_cats": "Explore the cats", "hero_note": "A community made for cat people.", "community_favorite": "COMMUNITY FAVORITE", "hero_welcome": "Every cat deserves a little spotlight.", "discover_label": "A DAILY DOSE OF CUTE", "view_rankings": "View rankings", "sort_label": "Sort by", "clear_search": "Back to all cats", "feed_unavailable": "The cats will be back soon", "no_search_results": "No cats found", "feed_try_again": "We could not load the feed. Please try again shortly.", "empty_feed_hint": "Try a different search, or share a cat of your own.", "try_again": "Try again", "previous_page": "Previous", "next_page": "Next", "page_label": "Page", "footer_note": "A little more cat in your day.", "back_to_feed": "Back to the cats", "feed_title": "Meet the community", "share_cat_btn": "Share your cat", "photo_label": "Photo (JPG, PNG, WEBP, GIF · up to 5MB)", "drop_format_text": "JPG, PNG, WEBP or GIF · up to 5MB"});
+Object.assign(translations.ru, {"hero_eyebrow": "МЕСТО ДЛЯ ХОРОШЕГО НАСТРОЕНИЯ", "hero_line_one": "Маленькие лапки.", "hero_line_two": "Большие характеры.", "hero_description": "Знакомьтесь с котиками, которые дарят улыбки. Делитесь фотографиями, голосуйте и находите новых любимцев.", "explore_cats": "Посмотреть котиков", "hero_note": "Сообщество для тех, кто любит котиков.", "community_favorite": "ЛЮБИМЕЦ СООБЩЕСТВА", "hero_welcome": "Каждый котик заслуживает внимания.", "discover_label": "ЕЖЕДНЕВНАЯ ПОРЦИЯ МИЛОТЫ", "view_rankings": "Рейтинг", "sort_label": "Сортировка", "clear_search": "Все котики", "feed_unavailable": "Котики скоро вернутся", "no_search_results": "Котики не найдены", "feed_try_again": "Не удалось загрузить ленту. Попробуйте чуть позже.", "empty_feed_hint": "Попробуйте другой запрос или поделитесь своим котиком.", "try_again": "Попробовать снова", "previous_page": "Назад", "next_page": "Далее", "page_label": "Страница", "footer_note": "Чуть больше котиков в вашем дне.", "back_to_feed": "К котикам", "feed_title": "Наше сообщество", "share_cat_btn": "Поделиться котиком", "photo_label": "Фото (JPG, PNG, WEBP, GIF · до 5 МБ)", "drop_format_text": "JPG, PNG, WEBP или GIF · до 5 МБ"});
+
+let currentLang = "en";
+try { currentLang = localStorage.getItem("catrank_lang") || "en"; } catch (_) {}
+if (!["en", "ru"].includes(currentLang)) currentLang = "en";
 
 function t(key, params = {}) {
     let dict = translations[currentLang] || translations["en"];
@@ -522,32 +472,26 @@ function t(key, params = {}) {
 
 function applyTranslations() {
     document.documentElement.lang = currentLang;
-    
-    // Update plain text attributes
     document.querySelectorAll("[data-i18n]").forEach(el => {
         const key = el.getAttribute("data-i18n");
         if (key) {
-            el.innerText = t(key);
+            const textSpan = el.querySelector(':scope > span:not([aria-hidden])');
+            if (textSpan) textSpan.textContent = t(key);
+            else if (!el.querySelector('i')) el.textContent = t(key);
         }
     });
-
-    // Update placeholders
     document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
         const key = el.getAttribute("data-i18n-placeholder");
         if (key) {
             el.placeholder = t(key);
         }
     });
-
-    // Update titles
     document.querySelectorAll("[data-i18n-title]").forEach(el => {
         const key = el.getAttribute("data-i18n-title");
         if (key) {
             el.title = t(key);
         }
     });
-
-    // Update language switcher active buttons styling
     const enBtns = document.querySelectorAll(".lang-btn-en");
     const ruBtns = document.querySelectorAll(".lang-btn-ru");
     
@@ -571,7 +515,7 @@ function applyTranslations() {
 function setLanguage(lang) {
     if (!["en", "ru"].includes(lang)) return;
     currentLang = lang;
-    localStorage.setItem("catrank_lang", lang);
+    try { localStorage.setItem("catrank_lang", lang); } catch (_) {}
     document.cookie = `catrank_lang=${lang}; path=/; max-age=31536000`;
     applyTranslations();
     window.dispatchEvent(new CustomEvent("catrank_language_changed", { detail: { lang } }));

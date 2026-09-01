@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block title %}{{ status }} | CatRank{% endblock %}
+{% block content %}
+<section class="feed-empty"><span class="eyebrow">{{ status }}</span><i class="fa-solid fa-cat" aria-hidden="true"></i><h1>{{ 'This page wandered off.' if status == 404 else 'We hit a little snag.' }}</h1><p>{{ message }}</p><a href="/" class="primary-button" data-i18n="back_to_feed">Back to the cats</a></section>
+{% endblock %}

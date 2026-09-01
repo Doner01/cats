@@ -1,3 +1,4 @@
+let previewObjectUrl = null;
 const fileInput = document.getElementById("cat-file");
 const previewContainer = document.getElementById("preview-container");
 const previewImg = document.getElementById("image-preview");
@@ -45,8 +46,6 @@ if (dropZone) {
 
 function handleFileSelect(file) {
     if (!file) return;
-
-    // 1. Validate file extension
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     if (!ALLOWED_IMAGE_EXTS.includes(ext) || (!ALLOWED_IMAGE_TYPES.includes(file.type) && file.type !== '')) {
         showToast(typeof t === 'function' ? t('file_error_invalid_type') : "Invalid image format. Allowed: JPG, JPEG, PNG, WEBP, GIF.", "error");
@@ -54,8 +53,6 @@ function handleFileSelect(file) {
         if (previewContainer) previewContainer.classList.add("hidden");
         return;
     }
-
-    // 2. Validate file size
     if (file.size > MAX_IMAGE_SIZE) {
         showToast(typeof t === 'function' ? t('file_error_too_large') : "Image must be smaller than 5MB.", "error");
         fileInput.value = "";
@@ -63,7 +60,9 @@ function handleFileSelect(file) {
         return;
     }
 
-    if (previewImg) previewImg.src = URL.createObjectURL(file);
+    if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = URL.createObjectURL(file);
+    if (previewImg) previewImg.src = previewObjectUrl;
     if (previewContainer) previewContainer.classList.remove("hidden");
 }
 

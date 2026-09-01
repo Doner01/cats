@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="max-w-6xl mx-auto space-y-8">
-    <!-- Header with Admin Banner -->
+    
     <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6 border border-white/10">
         <div class="space-y-2 text-center md:text-left">
             <div class="inline-flex items-center gap-1.5 px-3.5 py-1 bg-white/10 rounded-full text-xs font-black uppercase tracking-wider backdrop-blur-sm text-indigo-300">
@@ -23,7 +23,6 @@
         </div>
     </div>
 
-    <!-- Admin Overview Stats Cards -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div class="bg-white/95 rounded-3xl p-5 border border-slate-200/90 shadow-sm flex items-center gap-3.5">
             <div class="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-lg flex-shrink-0">
@@ -66,7 +65,6 @@
         </div>
     </div>
 
-    <!-- Admin Navigation Tabs (Cats, Users, Comments) -->
     <div class="flex border-b border-slate-700/60 gap-4 overflow-x-auto">
         <button id="admin-tab-btn-cats" onclick="switchAdminTab('cats')" class="pb-3 text-xs sm:text-sm font-extrabold text-indigo-400 border-b-2 border-indigo-500 transition flex items-center gap-2 flex-shrink-0">
             <i class="fa-solid fa-cat text-xs"></i>
@@ -82,7 +80,6 @@
         </button>
     </div>
 
-    <!-- Tab 1: Cats Management -->
     <div id="admin-tab-cats" class="bg-white/95 backdrop-blur-md rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden">
         <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h3 class="font-black text-slate-900 text-base" data-i18n="admin_table_title">All Uploaded Cats</h3>
@@ -115,7 +112,6 @@
         </div>
     </div>
 
-    <!-- Tab 2: Users Management -->
     <div id="admin-tab-users" class="hidden bg-white/95 backdrop-blur-md rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden">
         <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h3 class="font-black text-slate-900 text-base" data-i18n="admin_users_title">All Registered Creators</h3>
@@ -149,7 +145,6 @@
         </div>
     </div>
 
-    <!-- Tab 3: Comments Management (New!) -->
     <div id="admin-tab-comments" class="hidden bg-white/95 backdrop-blur-md rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden">
         <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h3 class="font-black text-slate-900 text-base" data-i18n="admin_comments_title">All Community Comments</h3>
@@ -181,7 +176,6 @@
     </div>
 </div>
 
-<!-- Admin Edit User Modal -->
 <div id="admin-edit-user-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
     <div class="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -198,22 +192,22 @@
             <input type="hidden" id="admin-edit-target-uid">
             
             <div class="space-y-1">
-                <label class="block text-xs font-bold text-slate-700" data-i18n="display_name_label">Display Name</label>
+                <label for="admin-edit-username" class="block text-xs font-bold text-slate-700" data-i18n="display_name_label">Display Name</label>
                 <input type="text" id="admin-edit-username" required maxlength="40" class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
             </div>
 
             <div class="space-y-1">
-                <label class="block text-xs font-bold text-slate-700" data-i18n="admin_edit_user_email">User Email</label>
-                <input type="email" id="admin-edit-email" class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+                <label for="admin-edit-email" class="block text-xs font-bold text-slate-700" data-i18n="admin_edit_user_email">User Email</label>
+                <input type="email" autocomplete="email" id="admin-edit-email" readonly aria-readonly="true" class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
             </div>
 
             <div class="space-y-1">
-                <label class="block text-xs font-bold text-slate-700" data-i18n="admin_edit_user_phone">User Phone Number</label>
+                <label for="admin-edit-phone" class="block text-xs font-bold text-slate-700" data-i18n="admin_edit_user_phone">User Phone Number</label>
                 <input type="tel" id="admin-edit-phone" placeholder="+998 90 123 45 67" class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
             </div>
 
             <div class="space-y-1">
-                <label class="block text-xs font-bold text-slate-700" data-i18n="admin_edit_user_role">User Role</label>
+                <label for="admin-edit-role" class="block text-xs font-bold text-slate-700" data-i18n="admin_edit_user_role">User Role</label>
                 <select id="admin-edit-role" class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
                     <option value="user">Member (User)</option>
                     <option value="admin">Administrator (Admin)</option>
@@ -221,7 +215,7 @@
             </div>
 
             <div class="space-y-1">
-                <label class="block text-xs font-bold text-slate-700">Avatar URL</label>
+                <label for="admin-edit-avatar" class="block text-xs font-bold text-slate-700">Avatar URL</label>
                 <input type="url" id="admin-edit-avatar" class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
             </div>
 
@@ -233,7 +227,6 @@
     </div>
 </div>
 
-<!-- Admin Edit Cat Modal -->
 <div id="admin-edit-cat-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
     <div class="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -250,18 +243,17 @@
             <input type="hidden" id="admin-edit-cat-id">
             
             <div class="space-y-1">
-                <label class="block text-xs font-bold text-slate-700" data-i18n="cat_name_label">Cat Name</label>
-                <input type="text" id="admin-edit-catname" required maxlength="40" class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+                <label for="admin-edit-catname" class="block text-xs font-bold text-slate-700" data-i18n="cat_name_label">Cat Name</label>
+                <input type="text" id="admin-edit-catname" required maxlength="80" class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
             </div>
 
             <div class="space-y-1">
-                <label class="block text-xs font-bold text-slate-700" data-i18n="cat_bio_admin_label">Cat Bio / Story</label>
-                <textarea id="admin-edit-catbio" rows="2" maxlength="300" class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition"></textarea>
+                <label for="admin-edit-catbio" class="block text-xs font-bold text-slate-700" data-i18n="cat_bio_admin_label">Cat Bio / Story</label>
+                <textarea id="admin-edit-catbio" rows="2" maxlength="1000" class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition"></textarea>
             </div>
 
-            <div class="space-y-1">
-                <label class="block text-xs font-bold text-slate-700" data-i18n="votes_count_label">Votes Count</label>
-                <input type="number" id="admin-edit-catlikes" min="0" required class="w-full px-3 py-2 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+            <div class="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+                Vote totals are derived from the likes table and cannot be edited manually.
             </div>
 
             <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
@@ -272,7 +264,6 @@
     </div>
 </div>
 
-<!-- Admin Edit Comment Modal (New!) -->
 <div id="admin-edit-comment-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
     <div class="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -289,7 +280,7 @@
             <input type="hidden" id="admin-edit-target-comment-id">
             
             <div class="space-y-1">
-                <label class="block text-xs font-bold text-slate-700" data-i18n="comment_text_label">Comment Text</label>
+                <label for="admin-edit-comment-text" class="block text-xs font-bold text-slate-700" data-i18n="comment_text_label">Comment Text</label>
                 <textarea id="admin-edit-comment-text" rows="3" required maxlength="300" class="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition"></textarea>
             </div>
 
@@ -395,149 +386,289 @@ async function loadAdminData() {
     }
 }
 
+function safeAdminImageUrl(value, fallbackName = "Cat") {
+    const raw = String(value || "").trim();
+    try {
+        const parsed = new URL(raw, window.location.origin);
+        if (parsed.protocol === "https:") return parsed.href;
+    } catch (_) {}
+    return getFallbackAvatarSvg(fallbackName);
+}
+
+function makeAdminCell(className = "") {
+    const td = document.createElement("td");
+    td.className = className;
+    return td;
+}
+
+function makeAdminIcon(className) {
+    const icon = document.createElement("i");
+    icon.className = className;
+    return icon;
+}
+
+function makeAdminActionButton({ title, className, iconClass, onClick }) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.title = title;
+    button.className = className;
+    button.appendChild(makeAdminIcon(iconClass));
+    button.addEventListener("click", onClick);
+    return button;
+}
+
+function renderAdminEmptyRow(tbody, colspan, message) {
+    tbody.replaceChildren();
+    const row = document.createElement("tr");
+    const cell = makeAdminCell("p-8 text-center text-slate-400");
+    cell.colSpan = colspan;
+    cell.textContent = message;
+    row.appendChild(cell);
+    tbody.appendChild(row);
+}
+
 function renderAdminCats(cats) {
     const tbody = document.getElementById("admin-cats-tbody");
     if (!tbody) return;
+    tbody.replaceChildren();
 
     if (cats.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-slate-400">No cat records found.</td></tr>`;
+        renderAdminEmptyRow(tbody, 6, "No cat records found.");
         return;
     }
 
-    tbody.innerHTML = cats.map(cat => {
-        const dateStr = (cat.created_at || '').substring(0, 10);
-        const bioStr = cat.bio || cat.description || '';
-        return `
-            <tr class="hover:bg-slate-50 transition" id="admin-cat-row-${cat.id}">
-                <td class="p-4">
-                    <img src="${cat.image_url}" alt="${cat.name}" class="w-10 h-10 rounded-xl object-cover border border-slate-200 bg-slate-900">
-                </td>
-                <td class="p-4">
-                    <span class="font-bold text-slate-900 block">${cat.name}</span>
-                    ${bioStr ? `<span class="text-[10px] text-slate-400 italic line-clamp-1">${bioStr}</span>` : ''}
-                </td>
-                <td class="p-4">
-                    <div class="flex items-center gap-2">
-                        <img src="${cat.user_avatar || getFallbackAvatarSvg(cat.user_name)}" alt="Avatar" class="w-6 h-6 rounded-full object-cover border border-slate-200">
-                        <span class="font-medium text-slate-700">${cat.user_name || 'Cat Lover'}</span>
-                    </div>
-                </td>
-                <td class="p-4 font-extrabold text-indigo-600">${cat.likes_count || 0}</td>
-                <td class="p-4 text-slate-400 text-[11px]">${dateStr}</td>
-                <td class="p-4 text-right">
-                    <div class="flex items-center justify-end gap-1.5">
-                        <button onclick="openAdminEditCatModal('${cat.id}', '${(cat.name || '').replace(/'/g, "\\'")}', '${bioStr.replace(/'/g, "\\'")}', ${cat.likes_count || 0})" class="px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition" title="Edit">
-                            <i class="fa-solid fa-pen text-[10px]"></i>
-                        </button>
-                        <button onclick="forceDeleteCat('${cat.id}')" class="px-2.5 py-1 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition" title="Force Delete">
-                            <i class="fa-solid fa-trash-can text-[10px]"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }).join('');
+    cats.forEach(cat => {
+        const row = document.createElement("tr");
+        row.className = "hover:bg-slate-50 transition";
+        row.id = `admin-cat-row-${String(cat.id || "")}`;
+
+        const imageCell = makeAdminCell("p-4");
+        const image = document.createElement("img");
+        image.src = safeAdminImageUrl(cat.image_url, cat.name || "Cat");
+        image.alt = String(cat.name || "Cat");
+        image.className = "w-10 h-10 rounded-xl object-cover border border-slate-200 bg-slate-900";
+        image.addEventListener("error", () => handleAvatarError(image, cat.name || "Cat"), { once: true });
+        imageCell.appendChild(image);
+
+        const detailsCell = makeAdminCell("p-4");
+        const name = document.createElement("span");
+        name.className = "font-bold text-slate-900 block";
+        name.textContent = String(cat.name || "Cat");
+        detailsCell.appendChild(name);
+        const bioStr = String(cat.bio || cat.description || "");
+        if (bioStr) {
+            const bio = document.createElement("span");
+            bio.className = "text-[10px] text-slate-400 italic line-clamp-1";
+            bio.textContent = bioStr;
+            detailsCell.appendChild(bio);
+        }
+
+        const userCell = makeAdminCell("p-4");
+        const userWrap = document.createElement("div");
+        userWrap.className = "flex items-center gap-2";
+        const avatar = document.createElement("img");
+        avatar.src = safeAdminImageUrl(cat.user_avatar, cat.user_name || "Cat Lover");
+        avatar.alt = "Avatar";
+        avatar.className = "w-6 h-6 rounded-full object-cover border border-slate-200";
+        avatar.addEventListener("error", () => handleAvatarError(avatar, cat.user_name || "Cat Lover"), { once: true });
+        const username = document.createElement("span");
+        username.className = "font-medium text-slate-700";
+        username.textContent = String(cat.user_name || "Cat Lover");
+        userWrap.append(avatar, username);
+        userCell.appendChild(userWrap);
+
+        const likesCell = makeAdminCell("p-4 font-extrabold text-indigo-600");
+        likesCell.textContent = String(Number.isFinite(Number(cat.likes_count)) ? Number(cat.likes_count) : 0);
+
+        const dateCell = makeAdminCell("p-4 text-slate-400 text-[11px]");
+        dateCell.textContent = String(cat.created_at || "").substring(0, 10);
+
+        const actionsCell = makeAdminCell("p-4 text-right");
+        const actions = document.createElement("div");
+        actions.className = "flex items-center justify-end gap-1.5";
+        actions.append(
+            makeAdminActionButton({
+                title: "Edit",
+                className: "px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition",
+                iconClass: "fa-solid fa-pen text-[10px]",
+                onClick: () => openAdminEditCatModal(String(cat.id || ""), String(cat.name || ""), bioStr)
+            }),
+            makeAdminActionButton({
+                title: "Force Delete",
+                className: "px-2.5 py-1 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition",
+                iconClass: "fa-solid fa-trash-can text-[10px]",
+                onClick: () => forceDeleteCat(String(cat.id || ""))
+            })
+        );
+        actionsCell.appendChild(actions);
+        row.append(imageCell, detailsCell, userCell, likesCell, dateCell, actionsCell);
+        tbody.appendChild(row);
+    });
 }
 
 function renderAdminUsers(users) {
     const tbody = document.getElementById("admin-users-tbody");
     if (!tbody) return;
+    tbody.replaceChildren();
 
     if (users.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400">No user records found.</td></tr>`;
+        renderAdminEmptyRow(tbody, 7, "No user records found.");
         return;
     }
 
-    tbody.innerHTML = users.map(u => {
-        const avatar = u.user_avatar || u.avatar_url || getFallbackAvatarSvg(u.user_name);
-        const name = u.display_name || u.user_name || 'Cat Lover';
-        const email = u.email || '—';
-        const phone = u.phone || u.phone_number || '—';
-        const role = u.role === 'admin' ? 'Admin' : 'Member';
-        const roleBadge = u.role === 'admin' 
-            ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-700">Admin</span>` 
-            : `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">Member</span>`;
+    users.forEach(u => {
+        const uid = String(u.user_id || "");
+        const nameText = String(u.display_name || u.user_name || "Cat Lover");
+        const emailText = String(u.email || "—");
+        const phoneText = String(u.phone || u.phone_number || "—");
+        const avatarUrl = safeAdminImageUrl(u.user_avatar || u.avatar_url, nameText);
 
-        return `
-            <tr class="hover:bg-slate-50 transition" id="admin-user-row-${u.user_id}">
-                <td class="p-4">
-                    <div class="flex items-center gap-2.5">
-                        <img src="${avatar}" alt="Avatar" class="w-8 h-8 rounded-xl object-cover border border-slate-200 bg-slate-50">
-                        <div>
-                            <span class="font-bold text-slate-900 block">${name}</span>
-                            <span class="text-[10px] text-slate-400 font-mono">${u.user_id}</span>
-                        </div>
-                    </div>
-                </td>
-                <td class="p-4 font-medium text-slate-600">${email}</td>
-                <td class="p-4 font-medium text-slate-600">${phone}</td>
-                <td class="p-4">${roleBadge}</td>
-                <td class="p-4 font-black text-slate-800">${u.cats_count || u.cat_count || 0}</td>
-                <td class="p-4 font-extrabold text-indigo-600">${u.total_likes || 0}</td>
-                <td class="p-4 text-right">
-                    <div class="flex items-center justify-end gap-1.5">
-                        <button onclick="openAdminEditUserModal('${u.user_id}', '${name.replace(/'/g, "\\'")}', '${(u.email || '').replace(/'/g, "\\'")}', '${(phone === '—' ? '' : phone).replace(/'/g, "\\'")}', '${u.role || 'user'}', '${(avatar || '').replace(/'/g, "\\'")}')" class="px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition" title="Edit User">
-                            <i class="fa-solid fa-user-pen text-[10px]"></i>
-                        </button>
-                        <a href="/user/${u.user_id}" target="_blank" class="px-2.5 py-1 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition" title="View Profile">
-                            <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                        </a>
-                        <button onclick="forceDeleteUser('${u.user_id}')" class="px-2.5 py-1 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition" title="Force Delete User">
-                            <i class="fa-solid fa-trash-can text-[10px]"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }).join('');
+        const row = document.createElement("tr");
+        row.className = "hover:bg-slate-50 transition";
+        row.id = `admin-user-row-${uid}`;
+
+        const identityCell = makeAdminCell("p-4");
+        const identity = document.createElement("div");
+        identity.className = "flex items-center gap-2.5";
+        const avatar = document.createElement("img");
+        avatar.src = avatarUrl;
+        avatar.alt = "Avatar";
+        avatar.className = "w-8 h-8 rounded-xl object-cover border border-slate-200 bg-slate-50";
+        avatar.addEventListener("error", () => handleAvatarError(avatar, nameText), { once: true });
+        const labels = document.createElement("div");
+        const name = document.createElement("span");
+        name.className = "font-bold text-slate-900 block";
+        name.textContent = nameText;
+        const idLabel = document.createElement("span");
+        idLabel.className = "text-[10px] text-slate-400 font-mono";
+        idLabel.textContent = uid;
+        labels.append(name, idLabel);
+        identity.append(avatar, labels);
+        identityCell.appendChild(identity);
+
+        const emailCell = makeAdminCell("p-4 font-medium text-slate-600");
+        emailCell.textContent = emailText;
+        const phoneCell = makeAdminCell("p-4 font-medium text-slate-600");
+        phoneCell.textContent = phoneText;
+        const roleCell = makeAdminCell("p-4");
+        const roleBadge = document.createElement("span");
+        roleBadge.className = u.role === "admin"
+            ? "px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-700"
+            : "px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600";
+        roleBadge.textContent = u.role === "admin" ? "Admin" : "Member";
+        roleCell.appendChild(roleBadge);
+
+        const catsCell = makeAdminCell("p-4 font-black text-slate-800");
+        catsCell.textContent = String(Number(u.cats_count || u.cat_count || 0));
+        const likesCell = makeAdminCell("p-4 font-extrabold text-indigo-600");
+        likesCell.textContent = String(Number(u.total_likes || 0));
+
+        const actionsCell = makeAdminCell("p-4 text-right");
+        const actions = document.createElement("div");
+        actions.className = "flex items-center justify-end gap-1.5";
+        actions.appendChild(makeAdminActionButton({
+            title: "Edit User",
+            className: "px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition",
+            iconClass: "fa-solid fa-user-pen text-[10px]",
+            onClick: () => openAdminEditUserModal(uid, nameText, u.email || "", phoneText === "—" ? "" : phoneText, u.role || "user", avatarUrl)
+        }));
+        const viewLink = document.createElement("a");
+        viewLink.href = `/user/${encodeURIComponent(uid)}`;
+        viewLink.target = "_blank";
+        viewLink.rel = "noopener noreferrer";
+        viewLink.title = "View Profile";
+        viewLink.className = "px-2.5 py-1 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition";
+        viewLink.appendChild(makeAdminIcon("fa-solid fa-arrow-up-right-from-square text-[10px]"));
+        actions.appendChild(viewLink);
+        actions.appendChild(makeAdminActionButton({
+            title: "Force Delete User",
+            className: "px-2.5 py-1 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition",
+            iconClass: "fa-solid fa-trash-can text-[10px]",
+            onClick: () => forceDeleteUser(uid)
+        }));
+        actionsCell.appendChild(actions);
+
+        row.append(identityCell, emailCell, phoneCell, roleCell, catsCell, likesCell, actionsCell);
+        tbody.appendChild(row);
+    });
 }
 
 function renderAdminComments(comments) {
     const tbody = document.getElementById("admin-comments-tbody");
     if (!tbody) return;
+    tbody.replaceChildren();
 
     if (comments.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-slate-400">No comments found.</td></tr>`;
+        renderAdminEmptyRow(tbody, 4, "No comments found.");
         return;
     }
 
-    tbody.innerHTML = comments.map(c => {
-        const dateStr = (c.created_at || '').substring(0, 10);
-        const commenterName = c.user_name || 'Cat Lover';
-        const formatted = formatCommentText(c.comment || '');
-        const commentText = formatted.text;
-        const replyToName = c.reply_to_name || formatted.replyTo;
-        const commenterAvatar = c.user_avatar || getFallbackAvatarSvg(commenterName);
+    comments.forEach(c => {
+        const commenterName = String(c.user_name || "Cat Lover");
+        const formatted = formatCommentText(c.comment || "");
+        const commentText = String(formatted.text || "");
+        const replyToName = String(c.reply_to_name || formatted.replyTo || "");
+        const commentId = String(c.id || "");
 
-        return `
-            <tr class="hover:bg-slate-50 transition" id="admin-comment-row-${c.id}">
-                <td class="p-4">
-                    <div class="flex items-center gap-2">
-                        <img src="${commenterAvatar}" alt="Avatar" class="w-6 h-6 rounded-full object-cover border border-slate-200">
-                        <div>
-                            <span class="font-bold text-slate-900 block">${commenterName}</span>
-                            <span class="text-[10px] text-slate-400">${c.user_email || ''}</span>
-                        </div>
-                    </div>
-                </td>
-                <td class="p-4">
-                    <p class="font-medium text-slate-800 max-w-md break-words">${commentText}</p>
-                    ${replyToName ? `<span class="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md font-bold inline-block mt-0.5">Replying to @${replyToName}</span>` : ''}
-                </td>
-                <td class="p-4 text-slate-400 text-[11px]">${dateStr}</td>
-                <td class="p-4 text-right">
-                    <div class="flex items-center justify-end gap-1.5">
-                        <button onclick="openAdminEditCommentModal('${c.id}', '${commentText.replace(/'/g, "\\'")}')" class="px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition" title="Edit Comment">
-                            <i class="fa-solid fa-pen text-[10px]"></i>
-                        </button>
-                        <button onclick="deleteAdminComment('${c.id}')" class="px-2.5 py-1 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition" title="Delete Comment">
-                            <i class="fa-solid fa-trash-can text-[10px]"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }).join('');
+        const row = document.createElement("tr");
+        row.className = "hover:bg-slate-50 transition";
+        row.id = `admin-comment-row-${commentId}`;
+
+        const authorCell = makeAdminCell("p-4");
+        const authorWrap = document.createElement("div");
+        authorWrap.className = "flex items-center gap-2";
+        const avatar = document.createElement("img");
+        avatar.src = safeAdminImageUrl(c.user_avatar, commenterName);
+        avatar.alt = "Avatar";
+        avatar.className = "w-6 h-6 rounded-full object-cover border border-slate-200";
+        avatar.addEventListener("error", () => handleAvatarError(avatar, commenterName), { once: true });
+        const labels = document.createElement("div");
+        const name = document.createElement("span");
+        name.className = "font-bold text-slate-900 block";
+        name.textContent = commenterName;
+        const email = document.createElement("span");
+        email.className = "text-[10px] text-slate-400";
+        email.textContent = String(c.user_email || "");
+        labels.append(name, email);
+        authorWrap.append(avatar, labels);
+        authorCell.appendChild(authorWrap);
+
+        const commentCell = makeAdminCell("p-4");
+        const text = document.createElement("p");
+        text.className = "font-medium text-slate-800 max-w-md break-words";
+        text.textContent = commentText;
+        commentCell.appendChild(text);
+        if (replyToName) {
+            const reply = document.createElement("span");
+            reply.className = "text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md font-bold inline-block mt-0.5";
+            reply.textContent = `Replying to @${replyToName}`;
+            commentCell.appendChild(reply);
+        }
+
+        const dateCell = makeAdminCell("p-4 text-slate-400 text-[11px]");
+        dateCell.textContent = String(c.created_at || "").substring(0, 10);
+
+        const actionsCell = makeAdminCell("p-4 text-right");
+        const actions = document.createElement("div");
+        actions.className = "flex items-center justify-end gap-1.5";
+        actions.append(
+            makeAdminActionButton({
+                title: "Edit Comment",
+                className: "px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition",
+                iconClass: "fa-solid fa-pen text-[10px]",
+                onClick: () => openAdminEditCommentModal(commentId, commentText)
+            }),
+            makeAdminActionButton({
+                title: "Delete Comment",
+                className: "px-2.5 py-1 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition",
+                iconClass: "fa-solid fa-trash-can text-[10px]",
+                onClick: () => deleteAdminComment(commentId)
+            })
+        );
+        actionsCell.appendChild(actions);
+        row.append(authorCell, commentCell, dateCell, actionsCell);
+        tbody.appendChild(row);
+    });
 }
 
 function filterAdminCats(query) {
@@ -641,11 +772,10 @@ async function submitAdminUserUpdate() {
     }
 }
 
-function openAdminEditCatModal(catId, name, bio, likes) {
+function openAdminEditCatModal(catId, name, bio) {
     document.getElementById("admin-edit-cat-id").value = catId;
     document.getElementById("admin-edit-catname").value = name;
     document.getElementById("admin-edit-catbio").value = bio || "";
-    document.getElementById("admin-edit-catlikes").value = likes;
     document.getElementById("admin-edit-cat-modal").classList.remove("hidden");
 }
 
@@ -658,7 +788,6 @@ async function submitAdminCatUpdate() {
     const catId = document.getElementById("admin-edit-cat-id").value;
     const name = document.getElementById("admin-edit-catname").value.trim();
     const bio = document.getElementById("admin-edit-catbio").value.trim();
-    const likes = parseInt(document.getElementById("admin-edit-catlikes").value) || 0;
     const btn = document.getElementById("admin-save-cat-btn");
 
     btn.disabled = true;
@@ -671,7 +800,7 @@ async function submitAdminCatUpdate() {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${currentSession.access_token}`
             },
-            body: JSON.stringify({ name, bio, description: bio, likes_count: likes })
+            body: JSON.stringify({ name, bio, description: bio })
         });
 
         if (res.ok) {

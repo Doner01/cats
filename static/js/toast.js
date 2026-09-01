@@ -1,7 +1,3 @@
-/**
- * CatRank Modern Toast Notification & Custom Dialog Component
- */
-
 function showToast(message, type = "info") {
     let container = document.getElementById("toast-container");
     if (!container) {
@@ -12,28 +8,43 @@ function showToast(message, type = "info") {
     }
 
     const toast = document.createElement("div");
+    toast.setAttribute("role", type === "error" ? "alert" : "status");
     
-    let iconHtml = '<i class="fa-solid fa-circle-info text-blue-400 text-sm"></i>';
     let borderColor = "border-slate-800";
-    
     if (type === "success") {
-        iconHtml = '<i class="fa-solid fa-circle-check text-emerald-400 text-sm"></i>';
         borderColor = "border-emerald-500/30";
     } else if (type === "error") {
-        iconHtml = '<i class="fa-solid fa-circle-exclamation text-rose-400 text-sm"></i>';
         borderColor = "border-rose-500/30";
     }
 
     toast.className = `flex items-center gap-3 px-4 py-3 bg-slate-900/95 backdrop-blur-md text-white text-xs font-semibold rounded-2xl shadow-xl border ${borderColor} transition-all transform duration-300 translate-y-4 opacity-0 pointer-events-auto select-none`;
     
-    toast.innerHTML = `
-        <div class="flex-shrink-0">${iconHtml}</div>
-        <div class="flex-grow">${message}</div>
-        <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-white transition text-xs p-1 focus:outline-none">
-            <i class="fa-solid fa-xmark"></i>
-        </button>
-    `;
+    const iconWrap = document.createElement("div");
+    iconWrap.className = "flex-shrink-0";
+    const icon = document.createElement("i");
+    if (type === "success") {
+        icon.className = "fa-solid fa-circle-check text-emerald-400 text-sm";
+    } else if (type === "error") {
+        icon.className = "fa-solid fa-circle-exclamation text-rose-400 text-sm";
+    } else {
+        icon.className = "fa-solid fa-circle-info text-blue-400 text-sm";
+    }
+    iconWrap.appendChild(icon);
 
+    const messageWrap = document.createElement("div");
+    messageWrap.className = "flex-grow";
+    messageWrap.textContent = String(message ?? "");
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "text-slate-400 hover:text-white transition text-xs p-1 focus:outline-none";
+    closeBtn.setAttribute("aria-label", "Close notification");
+    const closeIcon = document.createElement("i");
+    closeIcon.className = "fa-solid fa-xmark";
+    closeBtn.appendChild(closeIcon);
+    closeBtn.addEventListener("click", () => toast.remove());
+
+    toast.append(iconWrap, messageWrap, closeBtn);
     container.appendChild(toast);
 
     requestAnimationFrame(() => {
@@ -46,11 +57,6 @@ function showToast(message, type = "info") {
     }, 4000);
 }
 
-/**
- * Custom Styled Promise-Based Confirmation Dialog (Replaces native browser confirm())
- * @param {Object} options - { title, message, confirmText, cancelText, danger, icon, hideCancel }
- * @returns {Promise<boolean>}
- */
 function showConfirmModal(options = {}) {
     return new Promise((resolve) => {
         const modal = document.getElementById("custom-confirm-modal");
@@ -63,7 +69,6 @@ function showConfirmModal(options = {}) {
         const actionBtn = document.getElementById("custom-confirm-action-btn");
 
         if (!modal || !box) {
-            // Fallback to native if elements not mounted
             resolve(window.confirm(options.message || "Are you sure?"));
             return;
         }
@@ -85,7 +90,12 @@ function showConfirmModal(options = {}) {
         if (msgEl) msgEl.textContent = options.message || "";
         
         if (cancelBtn) cancelBtn.textContent = options.cancelText || defaultCancelText;
-        if (actionBtn) actionBtn.innerHTML = `<span>${options.confirmText || defaultConfirmText}</span>`;
+        if (actionBtn) {
+            actionBtn.replaceChildren();
+            const actionLabel = document.createElement("span");
+            actionLabel.textContent = String(options.confirmText || defaultConfirmText);
+            actionBtn.appendChild(actionLabel);
+        }
 
         if (options.hideCancel && cancelBtn) {
             cancelBtn.classList.add("hidden");
@@ -102,8 +112,6 @@ function showConfirmModal(options = {}) {
             if (iconEl) iconEl.className = options.icon || "fa-solid fa-circle-question text-xl";
             if (actionBtn) actionBtn.className = "px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5";
         }
-
-        // Open modal
         modal.classList.remove("hidden", "opacity-0", "pointer-events-none");
         modal.classList.add("flex", "opacity-100", "pointer-events-auto");
         box.classList.remove("scale-95");
@@ -162,6 +170,4 @@ function showConfirmModal(options = {}) {
         if (actionBtn) actionBtn.focus();
     });
 }
-
-// Global alias
 window.showConfirmModal = showConfirmModal;
