@@ -2,6 +2,7 @@ import os
 import re
 import uuid
 import secrets
+import importlib
 from collections import OrderedDict
 from io import BytesIO
 from functools import wraps
@@ -50,9 +51,10 @@ APP_ENV: str = (os.getenv("APP_ENV") or "development").strip().lower()
 IS_PRODUCTION: bool = APP_ENV == "production"
 RATE_LIMIT_STORAGE_URI: str = (os.getenv("RATE_LIMIT_STORAGE_URI") or "memory://").strip()
 try:
-    TRUST_PROXY_HOPS: int = max(0, int(os.getenv("TRUST_PROXY_HOPS", "0")))
+    _trust_proxy_hops = max(0, int(os.getenv("TRUST_PROXY_HOPS", "0")))
 except ValueError:
-    TRUST_PROXY_HOPS = 0
+    _trust_proxy_hops = 0
+TRUST_PROXY_HOPS: int = _trust_proxy_hops
 app.config["SESSION_COOKIE_SECURE"] = IS_PRODUCTION
 if TRUST_PROXY_HOPS:
                                                                                     
@@ -158,15 +160,16 @@ R2_PUBLIC_DOMAIN: str = os.getenv("R2_PUBLIC_DOMAIN", "").strip().rstrip("/")
 r2_client: Any = None
 if R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY:
     try:
-        import boto3
-        from botocore.config import Config
-        r2_client = boto3.client(
+        boto3_module: Any = importlib.import_module("boto3")
+        botocore_config_module: Any = importlib.import_module("botocore.config")
+        config_factory: Any = getattr(botocore_config_module, "Config")
+        r2_client = boto3_module.client(
             service_name="s3",
             endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
             aws_access_key_id=R2_ACCESS_KEY_ID,
             aws_secret_access_key=R2_SECRET_ACCESS_KEY,
             region_name="auto",
-            config=Config(signature_version="s3v4")
+            config=config_factory(signature_version="s3v4")
         )
         app.logger.info("Cloudflare R2 Storage client initialized successfully")
     except Exception as r2_err:
@@ -341,6 +344,7 @@ def delete_file_from_storage(
         parsed = urlparse(url)
         key = ""
         backend = ""
+        admin = supabase_admin
 
         if r2_client and R2_PUBLIC_DOMAIN:
             r2_origin = urlparse(R2_PUBLIC_DOMAIN)
@@ -355,7 +359,7 @@ def delete_file_from_storage(
                     key = parsed.path[len(prefix_path):].lstrip("/")
                     backend = "r2"
 
-        if not backend and supabase_admin and SUPABASE_URL:
+        if not backend and admin is not None and SUPABASE_URL:
             supabase_origin = urlparse(SUPABASE_URL)
             storage_prefix = f"/storage/v1/object/public/{bucket_name}/"
             if (
@@ -374,8 +378,8 @@ def delete_file_from_storage(
 
         if backend == "r2":
             r2_client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
-        else:
-            supabase_admin.storage.from_(bucket_name).remove([key])
+        elif backend == "supabase" and admin is not None:
+            admin.storage.from_(bucket_name).remove([key])
     except Exception as exc:
         app.logger.warning("Storage cleanup failed for managed object: %s", exc)
 
@@ -476,10 +480,17 @@ def public_site_url() -> str:
 def escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
+def as_row_list(value: Any) -> List[Dict[str, Any]]:
+    """Narrow a Supabase/PostgREST JSON result to a list of object rows."""
+    if not isinstance(value, list):
+        return []
+    return [cast(Dict[str, Any], item) for item in value if isinstance(item, dict)]
+
 def fetch_all_rows(query_factory: Callable[[], Any]) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
     while True:
-        rows = query_factory().range(len(result), len(result) + 499).execute().data or []
+        response = query_factory().range(len(result), len(result) + 499).execute()
+        rows = as_row_list(getattr(response, "data", None))
         result.extend(rows)
         if len(rows) < 500:
             return result
@@ -643,10 +654,12 @@ def livez() -> Any:
 
 @app.route("/healthz")
 def healthz() -> Any:
-    ready = bool(supabase_auth and supabase_admin)
+    admin = supabase_admin
+    auth_client = supabase_auth
+    ready = admin is not None and auth_client is not None
     if ready:
         try:
-            supabase_admin.table("profiles").select("id").limit(1).execute()
+            admin.table("profiles").select("id").limit(1).execute()
         except Exception:
             ready = False
     return jsonify({"status": "ok" if ready else "unavailable"}), (200 if ready else 503)
@@ -666,17 +679,20 @@ def index() -> Any:
     query_text = clean_text(request.args.get("q"), max_length=80)
     page_size = 24
     cats: List[Dict[str, Any]] = []
-    top_cat = None
+    top_cat: Optional[Dict[str, Any]] = None
     unavailable = False
-    if supabase_admin:
+    admin = supabase_admin
+    if admin is not None:
         try:
-            query = supabase_admin.table("cats").select("*")
+            query = admin.table("cats").select("*")
             if query_text:
                 query = query.ilike("name", "%" + escape_like(query_text) + "%")
             if sort == "top":
                 query = query.order("likes_count", desc=True)
-            cats = query.order("created_at", desc=True).order("id").range((page - 1) * page_size, page * page_size).execute().data or []
-            top_rows = supabase_admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(1).execute().data or []
+            cats_response = query.order("created_at", desc=True).order("id").range((page - 1) * page_size, page * page_size).execute()
+            cats = as_row_list(getattr(cats_response, "data", None))
+            top_response = admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(1).execute()
+            top_rows = as_row_list(getattr(top_response, "data", None))
             top_cat = top_rows[0] if top_rows else None
         except Exception:
             app.logger.exception("Could not load community feed")
@@ -972,8 +988,8 @@ def toggle_like(cat_id: str) -> Any:
             "toggle_cat_like",
             {"p_cat_id": cat_id, "p_user_id": user_id},
         ).execute()
-        rpc_rows = getattr(rpc_result, "data", []) or []
-        if not isinstance(rpc_rows, list) or not rpc_rows:
+        rpc_rows = as_row_list(getattr(rpc_result, "data", None))
+        if not rpc_rows:
             return jsonify({"error": "Voting transaction did not complete."}), 503
         status = str(rpc_rows[0].get("action", ""))
         new_count = int(rpc_rows[0].get("likes_count", 0) or 0)
@@ -1380,11 +1396,12 @@ def register_user() -> Any:
             "email_redirect_to": f"{public_site_url()}/login?confirmed=1",
         }
         signup_client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False))
-        result: Any = signup_client.auth.sign_up({
+        signup_credentials: Any = {
             "email": email,
             "password": password,
             "options": options,
-        })
+        }
+        result: Any = signup_client.auth.sign_up(signup_credentials)
         user = getattr(result, "user", None)
         session = getattr(result, "session", None)
         if user and getattr(user, "identities", None) == [] and session is None:
@@ -1594,7 +1611,7 @@ def admin_edit_user_profile(user_id: str) -> Any:
 
         if auth_update:
             try:
-                supabase_admin.auth.admin.update_user_by_id(user_id, auth_update)
+                supabase_admin.auth.admin.update_user_by_id(user_id, cast(Any, auth_update))
             except Exception:
                 app.logger.exception("Admin Auth update failed for user %s", user_id)
                 return jsonify({"error": "Could not update the account. Please try again."}), 503
@@ -1626,16 +1643,18 @@ def admin_force_delete_user(user_id: str) -> Any:
     try:
         if not is_admin_user(getattr(g, "user", None)):
             return jsonify({"error": "Admin access required."}), 403
-        if not supabase_admin and not ENABLE_DEMO_DATA:
+        admin = supabase_admin
+        if admin is None and not ENABLE_DEMO_DATA:
             return jsonify({"error": "Database service is unavailable."}), 503
 
         if str(getattr(g.user, "id", "")) == user_id:
             return jsonify({"error": "You cannot delete your own administrator account."}), 409
-        if supabase_admin:
+        if admin is not None:
             try:
-                user_cats = fetch_all_rows(lambda: supabase_admin.table("cats").select("image_url").eq("user_id", user_id).order("id"))
-                profile_rows = supabase_admin.table("profiles").select("avatar_url").eq("id", user_id).limit(1).execute().data or []
-                supabase_admin.auth.admin.delete_user(user_id)
+                user_cats = fetch_all_rows(lambda: admin.table("cats").select("image_url").eq("user_id", user_id).order("id"))
+                profile_response = admin.table("profiles").select("avatar_url").eq("id", user_id).limit(1).execute()
+                profile_rows = as_row_list(getattr(profile_response, "data", None))
+                admin.auth.admin.delete_user(user_id)
                 for cat in user_cats:
                     delete_file_from_storage(str(cat.get("image_url", "")), STORAGE_BUCKET, allowed_prefix=f"{user_id}/")
                 if profile_rows:
@@ -1664,11 +1683,11 @@ def get_public_profile(user_id: str) -> Any:
     user_bio = ""
     user_found = False
 
-    if supabase_admin:
+    admin = supabase_admin
+    if admin is not None:
         try:
-
-            p_res = supabase_admin.table("profiles").select("id,display_name,bio,avatar_url").eq("id", user_id).limit(1).execute()
-            p_data = getattr(p_res, "data", []) or []
+            p_res = admin.table("profiles").select("id,display_name,bio,avatar_url").eq("id", user_id).limit(1).execute()
+            p_data = as_row_list(getattr(p_res, "data", None))
             if p_data:
                 profile = p_data[0]
                 user_found = True
@@ -1676,20 +1695,20 @@ def get_public_profile(user_id: str) -> Any:
                 user_avatar = sanitize_image_url(profile.get("avatar_url"), fallback_name=user_name)
                 user_bio = clean_text(profile.get("bio"), max_length=150)
 
-            raw_data = fetch_all_rows(lambda: supabase_admin.table("cats").select("*").eq("user_id", user_id).order("created_at", desc=True).order("id"))
-            cats = cast(List[Dict[str, Any]], raw_data) if isinstance(raw_data, list) else []
+            cats = fetch_all_rows(lambda: admin.table("cats").select("*").eq("user_id", user_id).order("created_at", desc=True).order("id"))
             if cats:
                 user_found = True
 
             if not user_found:
                 try:
-                    u_obj: Any = supabase_admin.auth.admin.get_user_by_id(user_id)
+                    u_obj: Any = admin.auth.admin.get_user_by_id(user_id)
                     u_data: Any = getattr(u_obj, "user", None) or getattr(u_obj, "data", None)
                     if u_data:
                         user_found = True
                         auth_email = str(getattr(u_data, "email", "") or "")
                         if isinstance(u_data, dict):
-                            auth_email = str(u_data.get("email") or auth_email)
+                            u_data_map = cast(Dict[str, Any], u_data)
+                            auth_email = str(u_data_map.get("email") or auth_email)
                         email_local = auth_email.split("@", 1)[0] if "@" in auth_email else "Cat Lover"
                         user_name = clean_text(email_local, max_length=40, fallback="Cat Lover")
                         user_avatar = generate_default_avatar(user_name)
@@ -1745,14 +1764,14 @@ def get_public_profile(user_id: str) -> Any:
 @require_auth
 def get_my_cats() -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
-    if not supabase_admin:
+    admin = supabase_admin
+    if admin is None:
         if ENABLE_DEMO_DATA:
             return jsonify({"cats": [c for c in MOCK_CATS if str(c.get("user_id")) == user_id]}), 200
         return jsonify({"error": "Database service is unavailable."}), 503
 
     try:
-        raw_data = fetch_all_rows(lambda: supabase_admin.table("cats").select("*").eq("user_id", user_id).order("created_at", desc=True).order("id"))
-        cats = cast(List[Dict[str, Any]], raw_data) if isinstance(raw_data, list) else []
+        cats = fetch_all_rows(lambda: admin.table("cats").select("*").eq("user_id", user_id).order("created_at", desc=True).order("id"))
         return jsonify({"cats": cats}), 200
     except Exception:
         app.logger.exception("Could not load cats for user %s", user_id)
@@ -1762,15 +1781,16 @@ def get_my_cats() -> Any:
 @require_auth
 def get_user_liked_cats() -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
-    if not supabase_admin:
+    admin = supabase_admin
+    if admin is None:
         if ENABLE_DEMO_DATA:
             liked = [str(l.get("cat_id")) for l in MOCK_LIKES if str(l.get("user_id")) == user_id]
             return jsonify({"liked_cat_ids": liked}), 200
         return jsonify({"error": "Database service is unavailable."}), 503
 
     try:
-        raw_data = fetch_all_rows(lambda: supabase_admin.table("likes").select("cat_id").eq("user_id", user_id).order("id"))
-        liked_cat_ids = [str(item.get("cat_id")) for item in raw_data if item.get("cat_id")] if isinstance(raw_data, list) else []
+        raw_data = fetch_all_rows(lambda: admin.table("likes").select("cat_id").eq("user_id", user_id).order("id"))
+        liked_cat_ids = [str(item.get("cat_id")) for item in raw_data if item.get("cat_id")]
         return jsonify({"liked_cat_ids": liked_cat_ids}), 200
     except Exception:
         app.logger.exception("Could not load liked cats for user %s", user_id)
@@ -1785,16 +1805,16 @@ def admin_overview() -> Any:
             user_email = str(getattr(getattr(g, "user", None), "email", "") or "").lower()
             return jsonify({"error": f"Admin access restricted. Your account '{user_email}' is not configured as admin."}), 403
 
-        if not supabase_admin:
+        admin = supabase_admin
+        if admin is None:
             return jsonify({"error": "Admin service is unavailable."}), 503
+
         cats: List[Dict[str, Any]] = []
-        if supabase_admin:
-            try:
-                raw_data: Any = fetch_all_rows(lambda: supabase_admin.table("cats").select("*").order("created_at", desc=True).order("id"))
-                cats = cast(List[Dict[str, Any]], raw_data) if isinstance(raw_data, list) else []
-            except Exception as ce:
-                app.logger.warning("Admin overview cats query failed: %s", ce)
-                return jsonify({"error": "Could not load the admin dashboard."}), 503
+        try:
+            cats = fetch_all_rows(lambda: admin.table("cats").select("*").order("created_at", desc=True).order("id"))
+        except Exception as ce:
+            app.logger.warning("Admin overview cats query failed: %s", ce)
+            return jsonify({"error": "Could not load the admin dashboard."}), 503
 
         if not cats and ENABLE_DEMO_DATA:
             cats = list(MOCK_CATS)
@@ -1804,55 +1824,63 @@ def admin_overview() -> Any:
 
         users_dict: Dict[str, Dict[str, Any]] = {}
 
-        if supabase_admin:
-            try:
-                raw_users_list: List[Any] = []
-                auth_page = 1
-                while True:
-                    auth_users_res = supabase_admin.auth.admin.list_users(page=auth_page, per_page=1000)
-                    batch = getattr(auth_users_res, "users", None) or getattr(auth_users_res, "data", None) or auth_users_res
-                    if not isinstance(batch, list):
-                        raise ValueError("Unexpected user response")
-                    raw_users_list.extend(batch)
-                    if len(batch) < 1000:
-                        break
-                    auth_page += 1
-                if isinstance(raw_users_list, list):
-                    for u in raw_users_list:
-                        uid = str(getattr(u, "id", "") or "")
-                        if uid:
-                            u_email = str(getattr(u, "email", "") or "")
-                            u_meta = getattr(u, "user_metadata", {}) or {}
-                            if not isinstance(u_meta, dict):
-                                u_meta = {}
-                            u_app_meta = getattr(u, "app_metadata", {}) or {}
-                            if not isinstance(u_app_meta, dict):
-                                u_app_meta = {}
-                            disp_name = str(u_meta.get("display_name", "")).strip() or u_email.split("@")[0] or "Cat Lover"
-                            avatar_url = str(u_meta.get("avatar_url", "")).strip() or resolve_user_avatar(uid, disp_name, None)
-                            phone_val = str(u_meta.get("phone_number", "") or getattr(u, "phone", "") or "").strip()
-                            role_val = "admin" if (u_email.lower() in [e.strip().lower() for e in ADMIN_EMAIL_CONFIG.split(",") if e.strip()] or str(u_app_meta.get("role", "")).lower() == "admin") else "user"
+        try:
+            raw_users_list: List[Any] = []
+            auth_page = 1
+            while True:
+                auth_users_res = admin.auth.admin.list_users(page=auth_page, per_page=1000)
+                batch_value: Any = (
+                    getattr(auth_users_res, "users", None)
+                    or getattr(auth_users_res, "data", None)
+                    or auth_users_res
+                )
+                if not isinstance(batch_value, list):
+                    raise ValueError("Unexpected user response")
+                batch = cast(List[Any], batch_value)
+                raw_users_list.extend(batch)
+                if len(batch) < 1000:
+                    break
+                auth_page += 1
 
-                            users_dict[uid] = {
-                                "user_id": uid,
-                                "user_name": disp_name,
-                                "display_name": disp_name,
-                                "user_avatar": avatar_url,
-                                "avatar_url": avatar_url,
-                                "email": u_email,
-                                "phone": phone_val,
-                                "phone_number": phone_val,
-                                "role": role_val,
-                                "created_at": str(getattr(u, "created_at", "") or ""),
-                                "cats_count": 0,
-                                "cat_count": 0,
-                                "total_likes": 0
-                            }
-            except Exception as ue:
-                app.logger.warning("Admin auth list users failed: %s", ue)
-                return jsonify({"error": "Could not load registered users."}), 503
+            for u in raw_users_list:
+                uid = str(getattr(u, "id", "") or "")
+                if not uid:
+                    continue
 
-        for profile in fetch_all_rows(lambda: supabase_admin.table("profiles").select("id,display_name,avatar_url,phone").order("id")):
+                u_email = str(getattr(u, "email", "") or "")
+                u_meta_value: Any = getattr(u, "user_metadata", {}) or {}
+                u_meta = cast(Dict[str, Any], u_meta_value) if isinstance(u_meta_value, dict) else {}
+                u_app_meta_value: Any = getattr(u, "app_metadata", {}) or {}
+                u_app_meta = cast(Dict[str, Any], u_app_meta_value) if isinstance(u_app_meta_value, dict) else {}
+
+                disp_name = str(u_meta.get("display_name", "")).strip() or u_email.split("@")[0] or "Cat Lover"
+                avatar_url = str(u_meta.get("avatar_url", "")).strip() or resolve_user_avatar(uid, disp_name, None)
+                phone_val = str(u_meta.get("phone_number", "") or getattr(u, "phone", "") or "").strip()
+                role_val = "admin" if (
+                    u_email.lower() in [e.strip().lower() for e in ADMIN_EMAIL_CONFIG.split(",") if e.strip()]
+                    or str(u_app_meta.get("role", "")).lower() == "admin"
+                ) else "user"
+
+                users_dict[uid] = {
+                    "user_id": uid,
+                    "user_name": disp_name,
+                    "display_name": disp_name,
+                    "user_avatar": avatar_url,
+                    "avatar_url": avatar_url,
+                    "email": u_email,
+                    "phone": phone_val,
+                    "phone_number": phone_val,
+                    "role": role_val,
+                    "created_at": str(getattr(u, "created_at", "") or ""),
+                    "cats_count": 0,
+                    "cat_count": 0,
+                    "total_likes": 0
+                }
+        except Exception as ue:
+            app.logger.warning("Admin auth list users failed: %s", ue)
+            return jsonify({"error": "Could not load registered users."}), 503
+
+        for profile in fetch_all_rows(lambda: admin.table("profiles").select("id,display_name,avatar_url,phone").order("id")):
             entry = users_dict.get(str(profile["id"]))
             if entry:
                 name = clean_text(profile.get("display_name"), max_length=40, fallback="Cat Lover")
@@ -1904,17 +1932,18 @@ def admin_overview() -> Any:
         user_list.sort(key=lambda u: u.get("total_likes", 0), reverse=True)
 
         all_comments: List[Dict[str, Any]] = []
-        if supabase_admin:
-            try:
-                c_res: Any = getattr(supabase_admin.table("comments").select("*").order("created_at", desc=True).limit(200).execute(), "data", [])
-                all_comments = cast(List[Dict[str, Any]], c_res) if isinstance(c_res, list) else []
-            except Exception as ce:
-                app.logger.warning("Admin overview comments query failed: %s", ce)
+        try:
+            comments_response = admin.table("comments").select("*").order("created_at", desc=True).limit(200).execute()
+            all_comments = as_row_list(getattr(comments_response, "data", None))
+        except Exception as ce:
+            app.logger.warning("Admin overview comments query failed: %s", ce)
 
         if not all_comments and ENABLE_DEMO_DATA:
             all_comments = list(MOCK_COMMENTS)
 
-        comments_count = supabase_admin.table("comments").select("id", count="exact", head=True).execute().count or 0
+        count_method: Any = "exact"
+        count_response = admin.table("comments").select("id", count=count_method, head=True).execute()
+        comments_count = int(getattr(count_response, "count", 0) or 0)
         return jsonify({
             "total_cats": len(cats),
             "total_likes": sum(int(c.get("likes_count", 0) or 0) for c in cats),
