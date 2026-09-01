@@ -1,4 +1,14 @@
 let currentSession = null;
+
+function getLoginDestination() {
+    const next = new URLSearchParams(window.location.search).get('next') || '/';
+    try {
+        const url = new URL(next, window.location.origin);
+        if (url.origin !== window.location.origin || !next.startsWith('/') || next.startsWith('//')) return '/';
+        if (['/login', '/register', '/forgot-password', '/reset-password'].includes(url.pathname)) return '/';
+        return url.pathname + url.search + url.hash;
+    } catch (_) { return '/'; }
+}
 let pendingAvatarUpload = false;
 
 function escapeHtmlText(value) {
@@ -96,6 +106,8 @@ async function checkAuth() {
     try {
         const { data: { session } } = await supabaseClient.auth.getSession();
         currentSession = session;
+        if (typeof updateModalAuth === 'function') updateModalAuth();
+        if (typeof syncUserFavorites === 'function' && session) syncUserFavorites(session);
         const authSection = document.getElementById("auth-section");
         if (!authSection) return;
         
@@ -103,7 +115,7 @@ async function checkAuth() {
             await uploadPendingRegistrationAvatar(session);
             const path = window.location.pathname;
             if (path === "/login" || path === "/register" || path === "/forgot-password") {
-                window.location.replace("/");
+                window.location.replace(getLoginDestination());
                 return;
             }
             const displayName = getUserDisplayName(session.user);
@@ -188,7 +200,7 @@ async function handleLogin() {
         } else {
             if (data && data.session) await uploadPendingRegistrationAvatar(data.session);
             showToast(typeof t === "function" ? t("toast_signin_success") : "Welcome back! Redirecting...", "success");
-            window.location.href = "/";
+            window.location.href = getLoginDestination();
         }
     } catch (err) {
         showToast("Connection error: " + err.message, "error");
@@ -321,12 +333,16 @@ document.addEventListener("DOMContentLoaded", checkAuth);
 
 if (supabaseClient) {
     supabaseClient.auth.onAuthStateChange((event, session) => {
+        const previousUserId = currentSession?.user?.id;
         currentSession = session;
+        if (previousUserId !== session?.user?.id && typeof resetFavorites === 'function') resetFavorites();
+        if (typeof updateModalAuth === 'function') updateModalAuth();
+        window.dispatchEvent(new CustomEvent('catrank_auth_changed'));
         if (event === 'SIGNED_OUT') {
             if (typeof userLikedCatIds !== 'undefined') userLikedCatIds.clear();
             document.querySelectorAll('[id^="heart-icon-"]').forEach(el => el.textContent = '🤍');
             document.getElementById('notif-badge')?.classList.add('hidden');
         }
-        if (event === 'USER_UPDATED' || event === 'SIGNED_OUT') setTimeout(checkAuth, 0);
+        if (['SIGNED_IN', 'USER_UPDATED', 'SIGNED_OUT'].includes(event)) setTimeout(checkAuth, 0);
     });
 }

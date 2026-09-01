@@ -1,51 +1,50 @@
-# CatRank
+# Cat
 
-Python 3.12 · Flask · Supabase Auth/PostgreSQL · optional Cloudflare R2.
+Final deployment package for the CatRank site.
 
-## Updating an existing installation
+## What this build includes
 
-This is the complete project. Keep your existing private `.env` or hosting environment variables, replace the application files, and restart/redeploy. This viewer update does not require a database change.
-
-The cat viewer has a fixed, viewport-fitting frame. Previous/next controls sit outside the panel (below it on narrow phones). The header and comment form remain visible while the image, bio, and comments scroll. Arrow keys navigate the cats on the current page. The leaderboard stays limited to ten cats.
+- Flask backend with Supabase Auth/PostgreSQL.
+- Cloudflare R2 image storage with Supabase Storage fallback.
+- Upstash/Redis rate limiting and short-lived application caching.
+- Fixed cat viewer with inline expandable bio: **Read full bio** expands inside the existing viewer and **Show less** collapses it. The outer viewer stays the same size.
+- Likes, comments, replies, favorites, profiles, notifications, leaderboard, admin tools, image optimization, and security headers.
 
 ## Deploy
 
-1. Run `supabase_migration.sql` in your Supabase SQL editor. Run this updated migration even if the previous version is installed.
-2. Set the variables in `.env.example` on your host. Use `APP_ENV=production`, a random `SECRET_KEY` of at least 32 characters, and your HTTPS origin as `PUBLIC_SITE_URL`. The service key stays on the server.
-3. In Supabase Auth, enable email confirmation and secure email change. Set Site URL to your HTTPS origin and allow these redirect URLs:
+1. Keep all private values in your hosting provider's environment variables. Never upload or commit a real `.env` file.
+2. Copy the values described in `.env.example` into your host. For production use:
+   - `APP_ENV=production`
+   - a random `SECRET_KEY` of at least 32 characters
+   - your HTTPS origin in `PUBLIC_SITE_URL`
+   - your Supabase keys
+   - your R2 credentials if using R2
+   - your working Upstash TCP/TLS `rediss://...` URL in `RATE_LIMIT_STORAGE_URI`
+   - optionally set `CACHE_REDIS_URL` to a separate Redis URL; if blank, the app reuses `RATE_LIMIT_STORAGE_URI`
+3. For a fresh Supabase database, run `supabase_migration.sql` in the Supabase SQL Editor. If the main schema already exists but the Favorites feature has not been installed yet, run `migrations/20260902_favorites.sql` once instead.
+4. In Supabase Auth, enable email confirmation and secure email change. Set your Site URL and allow these redirect URLs:
    - `https://YOUR-DOMAIN/login?confirmed=1`
    - `https://YOUR-DOMAIN/reset-password`
    - `https://YOUR-DOMAIN/profile?email_confirmed=1`
-4. Configure Supabase SMTP for production email delivery. Secure email change may require confirmation from both inboxes.
-5. Deploy the Dockerfile, or install `requirements.txt` and run `gunicorn --config gunicorn.conf.py app:app`. The server binds to your host's `PORT`. Railway configuration is included.
-6. Keep one worker with `memory://`. For additional workers/replicas set a shared Redis URL in `RATE_LIMIT_STORAGE_URI`. Set `TRUST_PROXY_HOPS` to the actual trusted proxy count (usually 1 on managed hosting).
-
-R2 is optional. Leave all R2 credentials blank to use the Supabase buckets created by the migration. To use R2, create its bucket, enable a public domain, and set all R2 variables.
-
-`/livez` checks the process. `/healthz` checks configuration and database connectivity; it does not test email delivery or storage writes.
-
-Before launch, verify signup confirmation, sign-in, recovery, email-change confirmation, upload, vote, and deletion with your own test account. This package was tested with isolated services; your live Supabase/email/storage configuration and browser layout still require verification.
-
-## Local development
+5. Configure SMTP in Supabase for production email delivery.
+6. Deploy with the included Dockerfile/Railway configuration, or run:
 
 ```sh
-python -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python main.py
+gunicorn --config gunicorn.conf.py app:app
 ```
 
-Set `ENABLE_DEMO_DATA=true` only for local sample data. Production rejects demo mode. Frontend assets are prebuilt; Node is not needed to deploy.
+The app binds to the host-provided `PORT`.
 
-Before starting locally, fill in your service variables and use `APP_ENV=development`, `PUBLIC_SITE_URL=http://localhost:5000`, and `TRUST_PROXY_HOPS=0`. Never publish your private `.env`.
+## Redis
 
-## Checks
+Redis is used for shared rate limits and temporary caches. Photos remain in R2/Supabase Storage and permanent app data remains in Supabase. Cached feed/profile/cat/leaderboard entries automatically expire and the application cache falls back to Supabase if Redis cache reads fail.
 
-```sh
-pip install -r requirements-dev.txt
-python -m pytest -q
-node --test tests/test_interactions.cjs
-```
+## Public files and server files
 
-To rebuild CSS: `npm --prefix assets ci && npm --prefix assets run build`.
+The Flask app only exposes routes you define and files under `/static`. Files such as `app.py`, `.env`, `gunicorn.conf.py`, and other server files are not downloadable as `/app.py`, `/.env`, and similar URLs with this deployment setup. The real `.env` is intentionally not included in this package.
+
+Frontend JavaScript/CSS/fonts under `/static` are public by design, so never place secrets in those files.
+
+## Final checks before launch
+
+Test registration, email confirmation, login/logout, password reset, email change, cat upload/edit/delete, like/unlike, comments/replies, favorites, profile/avatar updates, leaderboard, admin actions, and the site on a phone. Also check deployment logs for unexpected 500 errors.

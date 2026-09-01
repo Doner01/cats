@@ -457,6 +457,25 @@ const translations = {
 Object.assign(translations.en, {"hero_eyebrow": "THE INTERNET'S HAPPY PLACE", "hero_line_one": "Small paws.", "hero_line_two": "Big personalities.", "hero_description": "Meet the cats making everyone's day. Share your best photo, give a little love, and find your new favorite.", "explore_cats": "Explore the cats", "hero_note": "A community made for cat people.", "community_favorite": "COMMUNITY FAVORITE", "hero_welcome": "Every cat deserves a little spotlight.", "discover_label": "A DAILY DOSE OF CUTE", "view_rankings": "View rankings", "sort_label": "Sort by", "clear_search": "Back to all cats", "feed_unavailable": "The cats will be back soon", "no_search_results": "No cats found", "feed_try_again": "We could not load the feed. Please try again shortly.", "empty_feed_hint": "Try a different search, or share a cat of your own.", "try_again": "Try again", "previous_page": "Previous", "next_page": "Next", "previous_cat": "Previous cat", "next_cat": "Next cat", "page_label": "Page", "footer_note": "A little more cat in your day.", "back_to_feed": "Back to the cats", "feed_title": "Meet the community", "share_cat_btn": "Share your cat", "photo_label": "Photo (JPG, PNG, WEBP, GIF · up to 5MB)", "drop_format_text": "JPG, PNG, WEBP or GIF · up to 5MB"});
 Object.assign(translations.ru, {"hero_eyebrow": "МЕСТО ДЛЯ ХОРОШЕГО НАСТРОЕНИЯ", "hero_line_one": "Маленькие лапки.", "hero_line_two": "Большие характеры.", "hero_description": "Знакомьтесь с котиками, которые дарят улыбки. Делитесь фотографиями, голосуйте и находите новых любимцев.", "explore_cats": "Посмотреть котиков", "hero_note": "Сообщество для тех, кто любит котиков.", "community_favorite": "ЛЮБИМЕЦ СООБЩЕСТВА", "hero_welcome": "Каждый котик заслуживает внимания.", "discover_label": "ЕЖЕДНЕВНАЯ ПОРЦИЯ МИЛОТЫ", "view_rankings": "Рейтинг", "sort_label": "Сортировка", "clear_search": "Все котики", "feed_unavailable": "Котики скоро вернутся", "no_search_results": "Котики не найдены", "feed_try_again": "Не удалось загрузить ленту. Попробуйте чуть позже.", "empty_feed_hint": "Попробуйте другой запрос или поделитесь своим котиком.", "try_again": "Попробовать снова", "previous_page": "Назад", "next_page": "Далее", "previous_cat": "Предыдущий котик", "next_cat": "Следующий котик", "page_label": "Страница", "footer_note": "Чуть больше котиков в вашем дне.", "back_to_feed": "К котикам", "feed_title": "Наше сообщество", "share_cat_btn": "Поделиться котиком", "photo_label": "Фото (JPG, PNG, WEBP, GIF · до 5 МБ)", "drop_format_text": "JPG, PNG, WEBP или GIF · до 5 МБ"});
 
+Object.assign(translations.en, {
+    favorites_tab: 'Favorites', favorites_private: 'Only you can see your favorites.',
+    favorites_empty: 'A little collection of cats you love', favorites_empty_hint: 'Tap the bookmark on any cat to save it here.',
+    loading_favorites: 'Loading your favorites…', favorites_error: 'Could not load favorites',
+    login_to_favorites: 'Sign in to see your favorites.', save_cat: 'Save cat', unsave_cat: 'Remove from favorites',
+    favorite_saved: 'Saved to favorites', favorite_removed: 'Removed from favorites',
+    login_to_interact: 'to like, save or comment.', close_cat: 'Close cat', like_cat: 'Like cat', delete_cat: 'Delete cat',
+    read_full_bio: 'Read full bio', show_less_bio: 'Show less', close_bio: 'Close bio'
+});
+Object.assign(translations.ru, {
+    favorites_tab: 'Избранное', favorites_private: 'Только вы видите своё избранное.',
+    favorites_empty: 'Коллекция любимых котиков', favorites_empty_hint: 'Нажмите на закладку рядом с котиком, чтобы сохранить его здесь.',
+    loading_favorites: 'Загружаем избранное…', favorites_error: 'Не удалось загрузить избранное',
+    login_to_favorites: 'Войдите, чтобы увидеть избранное.', save_cat: 'Сохранить котика', unsave_cat: 'Убрать из избранного',
+    favorite_saved: 'Добавлено в избранное', favorite_removed: 'Убрано из избранного',
+    login_to_interact: 'чтобы ставить лайки, сохранять и комментировать.', close_cat: 'Закрыть', like_cat: 'Нравится', delete_cat: 'Удалить котика',
+    read_full_bio: 'Читать полностью', show_less_bio: 'Свернуть', close_bio: 'Закрыть описание'
+});
+
 let currentLang = "en";
 try { currentLang = localStorage.getItem("catrank_lang") || "en"; } catch (_) {}
 if (!["en", "ru"].includes(currentLang)) currentLang = "en";

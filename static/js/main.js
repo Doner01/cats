@@ -4,6 +4,7 @@ let lastCommentTime = 0;
 const COOLDOWN_MS = 2000; // 2s anti-spam cooldown
 
 let activeModalCatId = null;
+let activeModalBio = '';
 let activeReplyParentId = null;
 let activeReplyAuthorName = null;
 const userLikedCatIds = new Set();
@@ -92,11 +93,14 @@ function formatCommentText(rawComment) {
 }
 
 function resetCatModalState() {
+    activeModalBio = '';
+    closeCatBio();
+    document.getElementById('modal-bio-more')?.classList.add('hidden');
     const modalNameElem = document.getElementById("modal-cat-name");
     const modalImgElem = document.getElementById("modal-cat-img");
     const bioBox = document.getElementById("modal-cat-bio-box");
     const bioText = document.getElementById("modal-cat-bio-text");
-    const commentsList = document.getElementById("modal-comments-list");
+    const commentsList = document.getElementById("modal-comments-items");
     const commentsCount = document.getElementById("modal-comments-count");
     const countBadge = document.getElementById("modal-comments-count-badge");
     const commentInput = document.getElementById("modal-comment-input");
@@ -109,8 +113,12 @@ function resetCatModalState() {
     }
     if (bioBox) bioBox.classList.add("hidden");
     if (bioText) bioText.innerText = "";
+    const commentsScroll = document.getElementById("modal-comments-list");
+    if (commentsScroll) commentsScroll.scrollTop = 0;
+    document.getElementById("modal-owner-link")?.classList.add("hidden");
+    const date = document.getElementById("modal-cat-date");
+    if (date) date.textContent = "";
     if (commentsList) {
-        commentsList.scrollTop = 0;
         const loadingText = typeof t === 'function' ? t('loading_comments') : 'Loading comments...';
         commentsList.innerHTML = `<div class="py-10 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin text-base text-indigo-500 mb-2"></i><p class="text-xs font-medium">${loadingText}</p></div>`;
     }
@@ -140,6 +148,8 @@ async function openCatModal(catId) {
     modal.classList.remove("hidden");
     document.body.style.overflow = "hidden";
     updateModalNavigation();
+    updateModalAuth();
+    if (typeof updateFavoriteButtons === 'function') updateFavoriteButtons();
     const card = document.querySelector(`[data-cat-id="${catId}"]`);
     const countElem = document.getElementById(`like-count-${catId}`);
     const heartElem = document.getElementById(`heart-icon-${catId}`);
@@ -150,7 +160,7 @@ async function openCatModal(catId) {
 
     if (card) {
         const cardName = card.dataset.catName;
-        const cardImg = card.querySelector("img");
+        const cardImg = card.querySelector(".cat-open img") || card.querySelector("img");
         if (cardName && modalNameElem) modalNameElem.innerText = cardName;
         if (cardImg && cardImg.src && modalImgElem) modalImgElem.src = cardImg.src;
     } else {
@@ -172,17 +182,22 @@ async function openCatModal(catId) {
             const cat = data.cat || data;
             if (modalNameElem) modalNameElem.innerText = cat.name || "Whiskers";
             if (modalImgElem) modalImgElem.src = cat.image_url || "";
+            if (modalImgElem) modalImgElem.alt = cat.name || "Cat";
+            updateModalOwner(cat);
             if (modalLikeCount) modalLikeCount.innerText = cat.likes_count !== undefined ? cat.likes_count : 0;
             if (modalHeartIcon) {
                 modalHeartIcon.innerText = userLikedCatIds.has(String(catId)) ? "❤️" : "🤍";
             }
 
-            const catBio = cat.bio || cat.description || "";
+            const catBio = String(cat.bio || cat.description || "").trim();
             const bioBox = document.getElementById("modal-cat-bio-box");
             const bioText = document.getElementById("modal-cat-bio-text");
             if (catBio && bioBox && bioText) {
-                bioText.innerText = catBio;
+                activeModalBio = String(catBio).trim();
+                bioText.textContent = activeModalBio.replace(/\s+/g, ' ');
                 bioBox.classList.remove("hidden");
+                if (typeof requestAnimationFrame === 'function') requestAnimationFrame(updateCatBioPreview);
+                else updateCatBioPreview();
             }
         } else {
             if (requestVersion !== modalRequestVersion) return;
@@ -203,6 +218,95 @@ function closeCatModal() {
     modalRequestVersion++;
     resetCatModalState();
     updateModalNavigation();
+    window.dispatchEvent(new CustomEvent('catrank_viewer_closed'));
+}
+
+function setCatBioExpanded(expanded) {
+    const text = document.getElementById('modal-cat-bio-text');
+    const button = document.getElementById('modal-bio-more');
+    if (!text || !button) return;
+
+    const shouldExpand = Boolean(expanded && activeModalBio);
+    text.classList.toggle('is-expanded', shouldExpand);
+    if (!shouldExpand) text.scrollTop = 0;
+
+    button.setAttribute('aria-expanded', shouldExpand ? 'true' : 'false');
+    const key = shouldExpand ? 'show_less_bio' : 'read_full_bio';
+    button.setAttribute('data-i18n', key);
+    button.textContent = typeof t === 'function'
+        ? t(key)
+        : (shouldExpand ? 'Show less' : 'Read full bio');
+}
+
+function updateCatBioPreview() {
+    const text = document.getElementById('modal-cat-bio-text');
+    const button = document.getElementById('modal-bio-more');
+    if (!text || !button) return;
+
+    const isExpanded = text.classList.contains('is-expanded');
+    if (isExpanded) {
+        button.classList.toggle('hidden', !activeModalBio);
+        return;
+    }
+
+    button.classList.toggle('hidden', !activeModalBio || text.scrollHeight <= text.clientHeight + 1);
+}
+
+function toggleCatBio() {
+    if (!activeModalCatId || !activeModalBio) return;
+    const text = document.getElementById('modal-cat-bio-text');
+    if (!text) return;
+    setCatBioExpanded(!text.classList.contains('is-expanded'));
+}
+
+// Keep these names as compatibility helpers for any older cached markup/scripts.
+function openCatBio() {
+    if (!activeModalCatId || !activeModalBio) return;
+    setCatBioExpanded(true);
+}
+
+function closeCatBio() {
+    setCatBioExpanded(false);
+}
+
+function getCatLoginUrl(catId = activeModalCatId) {
+    const destination = new URL(window.location.href);
+    if (catId) destination.searchParams.set('cat', String(catId));
+    return '/login?next=' + encodeURIComponent(destination.pathname + destination.search + destination.hash);
+}
+
+function updateModalAuth() {
+    const signedIn = typeof currentSession !== 'undefined' && Boolean(currentSession?.user);
+    document.getElementById('modal-comment-form')?.classList.toggle('hidden', !signedIn);
+    document.getElementById('modal-login-prompt')?.classList.toggle('hidden', signedIn);
+    const login = document.getElementById('modal-login-link');
+    if (login) login.href = getCatLoginUrl();
+    if (!signedIn) cancelReply();
+}
+
+function updateModalOwner(cat) {
+    const link = document.getElementById('modal-owner-link');
+    const name = document.getElementById('modal-owner-name');
+    const avatar = document.getElementById('modal-owner-avatar');
+    if (link && cat.user_id) {
+        link.href = '/user/' + encodeURIComponent(cat.user_id);
+        link.classList.remove('hidden');
+        if (name) name.textContent = cat.user_name || 'Cat Lover';
+        if (avatar) {
+            avatar.onerror = () => handleAvatarError(avatar, cat.user_name || 'Cat Lover');
+            avatar.src = safeImageUrl(cat.user_avatar, cat.user_name || 'Cat Lover');
+        }
+    }
+    const date = document.getElementById('modal-cat-date');
+    if (date) {
+        date.textContent = String(cat.created_at || '').slice(0, 10);
+        date.dateTime = cat.created_at || '';
+    }
+}
+
+function likeModalPhoto(event) {
+    event?.stopPropagation();
+    if (activeModalCatId && !userLikedCatIds.has(String(activeModalCatId))) toggleLike(activeModalCatId, event);
 }
 
 const catDetailModalElem = document.getElementById("cat-detail-modal");
@@ -270,7 +374,7 @@ async function toggleLike(catId, event) {
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session) {
         showToast(typeof t === "function" ? t("toast_need_signin_vote") : "Please sign in to vote for cats!", "info");
-        setTimeout(() => window.location.href = "/login", 800);
+        setTimeout(() => window.location.href = getCatLoginUrl(catId), 800);
         return;
     }
 
@@ -321,6 +425,8 @@ async function toggleLike(catId, event) {
             document.getElementById(`like-btn-${catId}`)?.setAttribute('aria-pressed', String(serverLiked));
             const card = document.querySelector(`[data-cat-id="${catId}"]`);
             if (card) card.dataset.likes = String(data.likes_count);
+            document.getElementById('modal-like-btn')?.setAttribute('aria-pressed', String(userLikedCatIds.has(String(activeModalCatId))));
+            window.dispatchEvent(new CustomEvent('catrank_like_changed', {detail: {id: String(catId), likes_count: data.likes_count}}));
             showToast(serverLiked ? "Voted!" : "Vote removed", "success");
             if (typeof fetchNotifications === "function") fetchNotifications();
         } else {
@@ -348,6 +454,10 @@ async function toggleLike(catId, event) {
 }
 
 function startReply(commentId, authorName, rootCommentId = null) {
+    if (typeof currentSession === 'undefined' || !currentSession?.user) {
+        window.location.href = getCatLoginUrl();
+        return;
+    }
     activeReplyParentId = rootCommentId || commentId;
     activeReplyAuthorName = authorName;
 
@@ -387,7 +497,7 @@ async function loadCatComments(catId) {
         if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion) return;
         if (!res.ok) throw new Error(data.error || 'Could not load comments.');
         const comments = data.comments || [];
-        const container = document.getElementById("modal-comments-list");
+        const container = document.getElementById("modal-comments-items");
         const countElem = document.getElementById("modal-comments-count");
         const countBadge = document.getElementById("modal-comments-count-badge");
 
@@ -489,7 +599,7 @@ async function loadCatComments(catId) {
             const jsSafeAuthorDisplayName = escapeJsString(authorDisplayName);
 
             return `
-                <div class="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-sm hover:border-slate-300 transition">
+                <div class="comment-card p-3.5 rounded-2xl bg-white border border-slate-200 shadow-sm hover:border-slate-300 transition">
                     <div class="flex items-start gap-3">
                         <a href="/user/${encodeURIComponent(userTarget)}" class="flex-shrink-0">
                             <img src="${avatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeAuthorDisplayName}')" class="w-8 h-8 rounded-full bg-slate-50 border border-slate-200 object-cover">
@@ -526,7 +636,7 @@ async function loadCatComments(catId) {
         }).join("");
     } catch (e) {
         if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion) return;
-        const container = document.getElementById('modal-comments-list');
+        const container = document.getElementById('modal-comments-items');
         if (container) {
             container.textContent = 'Could not load comments. ';
             const retry = document.createElement('button');
@@ -551,7 +661,7 @@ async function submitComment(event) {
     if (submittedVersion !== modalRequestVersion) return;
     if (!session) {
         showToast(typeof t === "function" ? t("toast_need_signin_comment") : "Please sign in to post comments.", "info");
-        setTimeout(() => window.location.href = "/login", 800);
+        setTimeout(() => window.location.href = getCatLoginUrl(), 800);
         return;
     }
 
@@ -727,8 +837,19 @@ async function markAllNotificationsRead() {
 }
 
 window.addEventListener("catrank_language_changed", () => {
+    updateModalAuth();
     updateModalNavigation();
     if (activeModalCatId) {
         loadCatComments(activeModalCatId);
     }
 });
+
+document.addEventListener('DOMContentLoaded', () => {
+    const bioText = document.getElementById('modal-cat-bio-text');
+    if (bioText && typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(updateCatBioPreview).observe(bioText);
+    }
+    const catId = new URLSearchParams(window.location.search).get('cat');
+    if (catId && /^[a-zA-Z0-9_-]{1,64}$/.test(catId)) openCatModal(catId);
+});
+window.addEventListener('resize', updateCatBioPreview);

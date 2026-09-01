@@ -7,7 +7,9 @@
 venv
 __pycache__
 .pytest_cache
-node_modules
-assets/node_modules
-tests
+*.py[cod]
 *.zip
+tests
+assets
+requirements-dev.txt
+INSTALL_UPDATE.md

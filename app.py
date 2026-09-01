@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import re
 import uuid
@@ -8,6 +9,7 @@ from collections import OrderedDict
 from io import BytesIO
 from functools import wraps
 from datetime import datetime, timezone
+from time import monotonic
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 from urllib.parse import quote, urlparse
@@ -129,6 +131,112 @@ limiter = Limiter(
 )
 if IS_PRODUCTION and RATE_LIMIT_STORAGE_URI.startswith("memory://"):
     app.logger.warning("RATE_LIMIT_STORAGE_URI uses memory:// in production; use shared Redis for multi-worker/multi-replica deployments.")
+
+# Reuse the same Redis endpoint for application caching unless a dedicated
+# CACHE_REDIS_URL is provided. If Redis is unavailable, every helper below
+# fails open and the app continues to query Supabase normally.
+CACHE_REDIS_URL: str = (os.getenv("CACHE_REDIS_URL") or RATE_LIMIT_STORAGE_URI).strip()
+redis_cache: Any = None
+if CACHE_REDIS_URL.startswith(("redis://", "rediss://")):
+    try:
+        redis_module: Any = importlib.import_module("redis")
+        redis_cache = redis_module.from_url(
+            CACHE_REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
+            health_check_interval=30,
+        )
+        app.logger.info("Redis application cache configured")
+    except Exception as redis_err:
+        app.logger.warning("Redis application cache could not be initialized: %s", redis_err)
+
+CACHE_PREFIX = "catrank:v2"
+cache_retry_after = 0.0
+FEED_CACHE_TTL = 15
+LEADERBOARD_CACHE_TTL = 45
+CAT_CACHE_TTL = 45
+PROFILE_CACHE_TTL = 45
+IDENTITY_CACHE_TTL = 60
+
+def make_cache_key(*parts: Any) -> str:
+    cleaned = [str(part).replace(" ", "_") for part in parts]
+    return ":".join([CACHE_PREFIX, *cleaned])
+
+def cache_get(key: str) -> Any:
+    global cache_retry_after
+    client = redis_cache
+    if client is None or monotonic() < cache_retry_after:
+        return None
+    try:
+        raw = client.get(key)
+        if raw is None:
+            return None
+        return json.loads(raw)
+    except Exception as exc:
+        cache_retry_after = monotonic() + 15
+        app.logger.debug("Redis cache read failed for %s: %s", key, exc)
+        return None
+
+def cache_get_dict(key: str) -> Optional[Dict[str, Any]]:
+    value = cache_get(key)
+    return cast(Dict[str, Any], value) if isinstance(value, dict) else None
+
+def cache_set(key: str, value: Any, seconds: int) -> None:
+    global cache_retry_after
+    client = redis_cache
+    if client is None or monotonic() < cache_retry_after:
+        return
+    try:
+        client.setex(key, max(1, int(seconds)), json.dumps(value, default=str, separators=(",", ":")))
+    except Exception as exc:
+        cache_retry_after = monotonic() + 15
+        app.logger.debug("Redis cache write failed for %s: %s", key, exc)
+
+def cache_delete(*keys: str) -> None:
+    client = redis_cache
+    clean_keys = [key for key in keys if key]
+    if client is None or not clean_keys:
+        return
+    try:
+        client.delete(*clean_keys)
+    except Exception as exc:
+        app.logger.debug("Redis cache delete failed: %s", exc)
+
+def cache_counter_value(name: str) -> int:
+    value = cache_get(make_cache_key("version", name))
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+def bump_cache_counter(name: str) -> None:
+    client = redis_cache
+    if client is None:
+        return
+    try:
+        client.incr(make_cache_key("version", name))
+    except Exception as exc:
+        app.logger.debug("Redis cache version bump failed for %s: %s", name, exc)
+
+def invalidate_profile_cache(user_id: Any) -> None:
+    uid = str(user_id or "").strip()
+    if not uid:
+        return
+    cache_delete(
+        make_cache_key("profile", uid),
+        make_cache_key("identity", uid),
+    )
+
+def invalidate_cat_content(*, cat_id: Any = None, user_id: Any = None) -> None:
+    # Feed and leaderboard keys include this generation number, so bumping it
+    # makes every older cached feed/ranking entry unreachable immediately.
+    bump_cache_counter("cats")
+    cid = str(cat_id or "").strip()
+    if cid:
+        cache_delete(make_cache_key("cat", cid))
+    if user_id:
+        invalidate_profile_cache(user_id)
 
 if not os.getenv("SECRET_KEY"):
     app.logger.warning("SECRET_KEY is not set; generated an ephemeral key for this process.")
@@ -453,6 +561,7 @@ def get_canonical_user_identity(user: Any) -> Tuple[str, str, str]:
 
     Auth user_metadata is user-editable and is never trusted for attribution.
     The profiles table is canonical; deterministic email-based values are fallback only.
+    Successful canonical profile lookups are cached briefly in shared Redis.
     """
     user_id = str(getattr(user, "id", "") or "")
     email = str(getattr(user, "email", "") or "")
@@ -461,6 +570,13 @@ def get_canonical_user_identity(user: Any) -> Tuple[str, str, str]:
     fallback_avatar = generate_default_avatar(fallback_name)
 
     if supabase_admin and user_id:
+        identity_key = make_cache_key("identity", user_id)
+        cached_identity = cache_get_dict(identity_key)
+        if cached_identity is not None:
+            cached_name = clean_text(cached_identity.get("name"), max_length=40, fallback=fallback_name)
+            cached_avatar = sanitize_image_url(cached_identity.get("avatar"), fallback_name=cached_name)
+            return user_id, cached_name, cached_avatar
+
         try:
             result = supabase_admin.table("profiles").select("display_name,avatar_url").eq("id", user_id).limit(1).execute()
             rows = getattr(result, "data", []) or []
@@ -468,6 +584,7 @@ def get_canonical_user_identity(user: Any) -> Tuple[str, str, str]:
                 row = rows[0]
                 name = clean_text(row.get("display_name"), max_length=40, fallback=fallback_name)
                 avatar = sanitize_image_url(row.get("avatar_url"), fallback_name=name)
+                cache_set(identity_key, {"name": name, "avatar": avatar}, IDENTITY_CACHE_TTL)
                 return user_id, name, avatar
         except Exception as exc:
             app.logger.warning("Could not load canonical profile identity for %s: %s", user_id, exc)
@@ -692,21 +809,33 @@ def index() -> Any:
     top_cat: Optional[Dict[str, Any]] = None
     unavailable = False
     admin = supabase_admin
+
     if admin is not None:
-        try:
-            query = admin.table("cats").select("*")
-            if query_text:
-                query = query.ilike("name", "%" + escape_like(query_text) + "%")
-            if sort == "top":
-                query = query.order("likes_count", desc=True)
-            cats_response = query.order("created_at", desc=True).order("id").range((page - 1) * page_size, page * page_size).execute()
-            cats = as_row_list(getattr(cats_response, "data", None))
-            top_response = admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(1).execute()
-            top_rows = as_row_list(getattr(top_response, "data", None))
-            top_cat = top_rows[0] if top_rows else None
-        except Exception:
-            app.logger.exception("Could not load community feed")
-            unavailable = True
+        cats_version = cache_counter_value("cats")
+        query_hash = hashlib.sha256(query_text.encode("utf-8")).hexdigest()[:16] if query_text else "all"
+        feed_key = make_cache_key("feed", cats_version, page, sort, query_hash)
+        cached_feed = cache_get_dict(feed_key)
+
+        if cached_feed is not None:
+            cats = as_row_list(cached_feed.get("cats"))
+            cached_top = cached_feed.get("top_cat")
+            top_cat = cast(Dict[str, Any], cached_top) if isinstance(cached_top, dict) else None
+        else:
+            try:
+                query = admin.table("cats").select("*")
+                if query_text:
+                    query = query.ilike("name", "%" + escape_like(query_text) + "%")
+                if sort == "top":
+                    query = query.order("likes_count", desc=True)
+                cats_response = query.order("created_at", desc=True).order("id").range((page - 1) * page_size, page * page_size).execute()
+                cats = as_row_list(getattr(cats_response, "data", None))
+                top_response = admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(1).execute()
+                top_rows = as_row_list(getattr(top_response, "data", None))
+                top_cat = top_rows[0] if top_rows else None
+                cache_set(feed_key, {"cats": cats, "top_cat": top_cat}, FEED_CACHE_TTL)
+            except Exception:
+                app.logger.exception("Could not load community feed")
+                unavailable = True
     elif ENABLE_DEMO_DATA:
         all_cats = [dict(c) for c in MOCK_CATS if query_text.lower() in c["name"].lower()]
         all_cats.sort(key=lambda c: (c["likes_count"] if sort == "top" else c["created_at"], c["id"]), reverse=True)
@@ -714,6 +843,7 @@ def index() -> Any:
         top_cat = max(MOCK_CATS, key=lambda c: c["likes_count"], default=None)
     else:
         unavailable = True
+
     has_next = len(cats) > page_size
     cats = cats[:page_size]
     for cat in cats + ([top_cat] if top_cat else []):
@@ -728,12 +858,19 @@ def leaderboard_page() -> Any:
     leaderboard: List[Dict[str, Any]] = []
 
     if supabase_admin:
-        try:
-            raw_res: Any = getattr(supabase_admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(10).execute(), "data", [])
-            leaderboard = cast(List[Dict[str, Any]], raw_res) if isinstance(raw_res, list) else []
-        except Exception:
-            app.logger.exception("Could not load leaderboard")
-            return render_template("error.html", status=503, message="The rankings are temporarily unavailable. Please try again."), 503
+        cats_version = cache_counter_value("cats")
+        leaderboard_key = make_cache_key("leaderboard", cats_version)
+        cached_leaderboard = cache_get(leaderboard_key)
+        if isinstance(cached_leaderboard, list):
+            leaderboard = as_row_list(cached_leaderboard)
+        else:
+            try:
+                raw_res: Any = getattr(supabase_admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(10).execute(), "data", [])
+                leaderboard = cast(List[Dict[str, Any]], raw_res) if isinstance(raw_res, list) else []
+                cache_set(leaderboard_key, leaderboard, LEADERBOARD_CACHE_TTL)
+            except Exception:
+                app.logger.exception("Could not load leaderboard")
+                return render_template("error.html", status=503, message="The rankings are temporarily unavailable. Please try again."), 503
     elif not ENABLE_DEMO_DATA:
         return render_template("error.html", status=503, message="The rankings are temporarily unavailable. Please try again."), 503
 
@@ -833,6 +970,7 @@ def upload_cat() -> Any:
         elif ENABLE_DEMO_DATA:
             MOCK_CATS.insert(0, cat_record)
 
+        invalidate_cat_content(cat_id=cat_id, user_id=user_id)
         return jsonify({
             "message": "Cat uploaded successfully!",
             "cat": cat_record
@@ -844,25 +982,32 @@ def upload_cat() -> Any:
 
 @app.route("/api/cats/<cat_id>", methods=["GET"])
 def get_cat_details(cat_id: str) -> Any:
-    cat_record = None
+    cat_record: Optional[Dict[str, Any]] = None
+    cat_key = make_cache_key("cat", cat_id)
+    cached_cat = cache_get(cat_key)
+    if isinstance(cached_cat, dict):
+        cat_record = cast(Dict[str, Any], cached_cat)
 
-    if supabase_admin:
+    if cat_record is None and supabase_admin:
         try:
             raw_data = get_db_row(supabase_admin.table("cats").select("*").eq("id", cat_id))
             if raw_data:
                 cat_record = raw_data
+                cache_set(cat_key, cat_record, CAT_CACHE_TTL)
         except Exception:
             app.logger.exception("Could not load cat %s", cat_id)
             return jsonify({"error": "Cat service is unavailable."}), 503
-    elif not ENABLE_DEMO_DATA:
+    elif cat_record is None and not ENABLE_DEMO_DATA:
         return jsonify({"error": "Cat service is unavailable."}), 503
 
-    if not cat_record and ENABLE_DEMO_DATA:
-        cat_record = next((c for c in MOCK_CATS if str(c.get("id")) == str(cat_id)), None)
+    if cat_record is None and ENABLE_DEMO_DATA:
+        mock_match = next((c for c in MOCK_CATS if str(c.get("id")) == str(cat_id)), None)
+        cat_record = dict(mock_match) if mock_match else None
 
     if not cat_record:
         return jsonify({"error": "Cat not found."}), 404
 
+    cat_record = dict(cat_record)
     cat_record["user_avatar"] = resolve_user_avatar(cat_record.get("user_id"), cat_record.get("user_name"), cat_record.get("user_avatar"))
     return jsonify({"cat": cat_record}), 200
 
@@ -887,6 +1032,7 @@ def edit_cat(cat_id: str) -> Any:
         if not updates:
             return jsonify({"error": "No updates provided."}), 400
 
+        owner_user_id = ""
         if supabase_admin:
             try:
                 cat_row = get_db_row(supabase_admin.table("cats").select("id,user_id").eq("id", cat_id))
@@ -896,6 +1042,7 @@ def edit_cat(cat_id: str) -> Any:
                 return jsonify({"error": "Cat not found."}), 404
             if str(cat_row.get("user_id")) != user_id and not is_admin:
                 return jsonify({"error": "Permission denied. You can only edit your own cats."}), 403
+            owner_user_id = str(cat_row.get("user_id") or "")
             if safe_db_update("cats", updates, "id", cat_id) is None:
                 return jsonify({"error": "Database update failed."}), 503
         elif ENABLE_DEMO_DATA:
@@ -904,10 +1051,12 @@ def edit_cat(cat_id: str) -> Any:
                 return jsonify({"error": "Cat not found."}), 404
             if str(match.get("user_id")) != user_id and not is_admin:
                 return jsonify({"error": "Permission denied. You can only edit your own cats."}), 403
+            owner_user_id = str(match.get("user_id") or "")
             match.update(updates)
         else:
             return jsonify({"error": "Database service is not configured."}), 503
 
+        invalidate_cat_content(cat_id=cat_id, user_id=owner_user_id)
         return jsonify({"message": "Cat updated successfully."}), 200
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid update values."}), 400
@@ -929,9 +1078,11 @@ def delete_cat(cat_id: str) -> Any:
                 return jsonify({"error": "Cat not found."}), 404
             if str(match.get("user_id")) != user_id and not is_admin:
                 return jsonify({"error": "Permission denied. You can only delete your own cats."}), 403
+            owner_user_id = str(match.get("user_id") or "")
             MOCK_CATS[:] = [c for c in MOCK_CATS if str(c.get("id")) != str(cat_id)]
             MOCK_LIKES[:] = [l for l in MOCK_LIKES if str(l.get("cat_id")) != str(cat_id)]
             MOCK_COMMENTS[:] = [cm for cm in MOCK_COMMENTS if str(cm.get("cat_id")) != str(cat_id)]
+            invalidate_cat_content(cat_id=cat_id, user_id=owner_user_id)
             return jsonify({"message": "Cat deleted successfully."}), 200
         return jsonify({"error": "Database service is unavailable."}), 503
 
@@ -950,6 +1101,7 @@ def delete_cat(cat_id: str) -> Any:
         except Exception:
             app.logger.warning("Cat row deleted but image cleanup failed for %s", cat_id)
 
+        invalidate_cat_content(cat_id=cat_id, user_id=cat_row.get("user_id"))
         return jsonify({"message": "Cat deleted successfully."}), 200
     except Exception:
         app.logger.exception("Failed to delete cat %s", cat_id)
@@ -974,6 +1126,7 @@ def admin_force_delete(cat_id: str) -> Any:
             delete_file_from_storage(img_url, STORAGE_BUCKET, allowed_prefix=f"{str(cat_row.get('user_id') or '')}/")
         except Exception:
             app.logger.warning("Admin deleted cat %s but storage cleanup failed", cat_id)
+        invalidate_cat_content(cat_id=cat_id, user_id=cat_row.get("user_id"))
         return jsonify({"message": "Cat force deleted by admin successfully."}), 200
     except Exception:
         app.logger.exception("Admin force-delete failed for cat %s", cat_id)
@@ -1019,6 +1172,7 @@ def toggle_like(cat_id: str) -> Any:
                 message=f"{user_name} liked your cat {cat_row.get('name', 'Cat')}!",
             )
 
+        invalidate_cat_content(cat_id=cat_id, user_id=cat_row.get("user_id"))
         return jsonify({"status": status, "likes_count": new_count}), 200
     except Exception:
         app.logger.exception("Failed to toggle like for cat %s", cat_id)
@@ -1071,21 +1225,30 @@ def add_comment(cat_id: str) -> Any:
         if not supabase_admin and not ENABLE_DEMO_DATA:
             return jsonify({"error": "Comments service is unavailable."}), 503
 
+        cat_row_for_notification: Optional[Dict[str, Any]] = None
+        parent_row_for_notification: Optional[Dict[str, Any]] = None
         if supabase_admin:
             try:
-                cat_exists = get_db_row(supabase_admin.table("cats").select("id").eq("id", cat_id))
+                cat_row_for_notification = get_db_row(
+                    supabase_admin.table("cats").select("id,user_id,name,image_url").eq("id", cat_id)
+                )
             except Exception:
-                cat_exists = None
-            if not cat_exists:
+                cat_row_for_notification = None
+            if not cat_row_for_notification:
                 return jsonify({"error": "Cat not found."}), 404
+
             if parent_id:
                 try:
-                    parent_row = get_db_row(supabase_admin.table("comments").select("id,cat_id,user_name").eq("id", parent_id))
+                    parent_row_for_notification = get_db_row(
+                        supabase_admin.table("comments")
+                        .select("id,cat_id,user_id,user_name")
+                        .eq("id", parent_id)
+                    )
                 except Exception:
-                    parent_row = None
-                if not parent_row or str(parent_row.get("cat_id")) != str(cat_id):
+                    parent_row_for_notification = None
+                if not parent_row_for_notification or str(parent_row_for_notification.get("cat_id")) != str(cat_id):
                     return jsonify({"error": "Invalid reply target."}), 400
-                reply_to_name = clean_text(parent_row.get("user_name"), max_length=40, fallback="Cat Lover")
+                reply_to_name = clean_text(parent_row_for_notification.get("user_name"), max_length=40, fallback="Cat Lover")
 
         comment_id = str(uuid.uuid4())
         comment_payload: Dict[str, Any] = {
@@ -1106,28 +1269,26 @@ def add_comment(cat_id: str) -> Any:
                 return jsonify({"error": "Could not save comment."}), 503
 
             try:
-                cat_row = get_db_row(supabase_admin.table("cats").select("*").eq("id", cat_id))
+                cat_row = cat_row_for_notification
                 if cat_row:
                     cat_owner_id = str(cat_row.get("user_id", ""))
                     cat_name = str(cat_row.get("name", "Cat"))
                     cat_image = str(cat_row.get("image_url", ""))
 
-                    if parent_id:
-                        parent_row = get_db_row(supabase_admin.table("comments").select("*").eq("id", parent_id))
-                        if parent_row:
-                            parent_user_id = str(parent_row.get("user_id", ""))
-                            push_notification(
-                                user_id=parent_user_id,
-                                actor_id=user_id,
-                                actor_name=user_name,
-                                actor_avatar=avatar_url,
-                                notif_type="reply",
-                                cat_id=cat_id,
-                                cat_name=cat_name,
-                                cat_image=cat_image,
-                                comment_id=comment_id,
-                                message=f"{user_name} replied to your comment on {cat_name}!"
-                            )
+                    if parent_id and parent_row_for_notification:
+                        parent_user_id = str(parent_row_for_notification.get("user_id", ""))
+                        push_notification(
+                            user_id=parent_user_id,
+                            actor_id=user_id,
+                            actor_name=user_name,
+                            actor_avatar=avatar_url,
+                            notif_type="reply",
+                            cat_id=cat_id,
+                            cat_name=cat_name,
+                            cat_image=cat_image,
+                            comment_id=comment_id,
+                            message=f"{user_name} replied to your comment on {cat_name}!"
+                        )
                     else:
                         push_notification(
                             user_id=cat_owner_id,
@@ -1349,6 +1510,7 @@ def upload_user_avatar() -> Any:
             return jsonify({"error": "Could not save the avatar. The upload was rolled back."}), 503
 
         cache_user_avatar(user_id, public_url)
+        invalidate_profile_cache(user_id)
         try:
             supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": {"avatar_url": public_url}})
         except Exception as exc:
@@ -1532,6 +1694,8 @@ def sync_user_profile() -> Any:
             if has_avatar and new_avatar and old_avatar_url and old_avatar_url != new_avatar:
                 delete_file_from_storage(old_avatar_url, "avatars", allowed_prefix=f"avatars/{user_id}/")
 
+        invalidate_profile_cache(user_id)
+
         if ENABLE_DEMO_DATA and not supabase_admin:
             for c in MOCK_CATS:
                 if str(c.get("user_id")) == user_id:
@@ -1647,6 +1811,7 @@ def admin_edit_user_profile(user_id: str) -> Any:
             if old_avatar_url and old_avatar_url != new_avatar:
                 delete_file_from_storage(old_avatar_url, "avatars", allowed_prefix=f"avatars/{user_id}/")
 
+        invalidate_profile_cache(user_id)
         return jsonify({
             "message": "User profile updated by admin successfully.",
             "user_id": user_id,
@@ -1674,12 +1839,13 @@ def admin_force_delete_user(user_id: str) -> Any:
             return jsonify({"error": "You cannot delete your own administrator account."}), 409
         if admin is not None:
             try:
-                user_cats = fetch_all_rows(lambda: admin.table("cats").select("image_url").eq("user_id", user_id).order("id"))
+                user_cats = fetch_all_rows(lambda: admin.table("cats").select("id,image_url").eq("user_id", user_id).order("id"))
                 profile_response = admin.table("profiles").select("avatar_url").eq("id", user_id).limit(1).execute()
                 profile_rows = as_row_list(getattr(profile_response, "data", None))
                 admin.auth.admin.delete_user(user_id)
                 for cat in user_cats:
                     delete_file_from_storage(str(cat.get("image_url", "")), STORAGE_BUCKET, allowed_prefix=f"{user_id}/")
+                    cache_delete(make_cache_key("cat", cat.get("id", "")))
                 if profile_rows:
                     delete_file_from_storage(str(profile_rows[0].get("avatar_url", "")), "avatars", allowed_prefix=f"avatars/{user_id}/")
             except Exception:
@@ -1692,6 +1858,9 @@ def admin_force_delete_user(user_id: str) -> Any:
         MOCK_LIKES[:] = [l for l in MOCK_LIKES if str(l.get("user_id")) != str(user_id) and str(l.get("cat_id")) not in user_cat_ids]
         MOCK_NOTIFICATIONS[:] = [n for n in MOCK_NOTIFICATIONS if str(n.get("user_id")) != str(user_id) and str(n.get("actor_id")) != str(user_id) and str(n.get("cat_id")) not in user_cat_ids]
         user_avatar_cache.pop(user_id, None)
+        for deleted_cat_id in user_cat_ids:
+            cache_delete(make_cache_key("cat", deleted_cat_id))
+        invalidate_cat_content(user_id=user_id)
 
         return jsonify({"message": "User and all associated data deleted successfully.", "user_id": user_id}), 200
     except Exception:
@@ -1700,6 +1869,11 @@ def admin_force_delete_user(user_id: str) -> Any:
 
 @app.route("/api/user/<user_id>/profile", methods=["GET"])
 def get_public_profile(user_id: str) -> Any:
+    profile_key = make_cache_key("profile", user_id)
+    cached_profile = cache_get_dict(profile_key)
+    if cached_profile is not None:
+        return jsonify(cached_profile), 200
+
     cats: List[Dict[str, Any]] = []
     user_name = ""
     user_avatar = ""
@@ -1752,7 +1926,7 @@ def get_public_profile(user_id: str) -> Any:
             or str(c.get("user_name", "")).lower() == str(user_id).lower()
         ]
         if mock_cats:
-            cats = mock_cats
+            cats = [dict(c) for c in mock_cats]
             user_found = True
         elif user_id in ("user-mock-1", "user-mock-2", "user-mock-3", "WhiskersFan", "CatMaster", "FelineKing"):
             user_found = True
@@ -1773,7 +1947,7 @@ def get_public_profile(user_id: str) -> Any:
     if not user_avatar:
         user_avatar = resolve_user_avatar(user_id, user_name, None)
 
-    return jsonify({
+    payload: Dict[str, Any] = {
         "user_id": user_id,
         "cats_count": len(cats),
         "user_name": user_name,
@@ -1781,7 +1955,9 @@ def get_public_profile(user_id: str) -> Any:
         "bio": user_bio,
         "total_likes": sum(int(c.get("likes_count", 0) or 0) for c in cats),
         "cats": cats,
-    }), 200
+    }
+    cache_set(profile_key, payload, PROFILE_CACHE_TTL)
+    return jsonify(payload), 200
 
 @app.route("/api/user/my-cats", methods=["GET"])
 @require_auth
@@ -1818,6 +1994,71 @@ def get_user_liked_cats() -> Any:
     except Exception:
         app.logger.exception("Could not load liked cats for user %s", user_id)
         return jsonify({"error": "Could not load your liked cats right now."}), 503
+
+@app.route("/api/cats/<cat_id>/favorite", methods=["PUT", "DELETE"])
+@require_auth
+@limiter.limit("60 per minute", key_func=authenticated_user_rate_key)
+def set_favorite(cat_id: str) -> Any:
+    admin = supabase_admin
+    if admin is None:
+        return jsonify({"error": "Favorites service is unavailable."}), 503
+    user_id = str(getattr(g.user, "id", ""))
+    saved = request.method == "PUT"
+    try:
+        if saved:
+            cat = get_db_row(admin.table("cats").select("id").eq("id", cat_id))
+            if not cat:
+                return jsonify({"error": "Cat not found."}), 404
+            admin.table("favorites").upsert(
+                {"cat_id": cat_id, "user_id": user_id},
+                on_conflict="user_id,cat_id", ignore_duplicates=True,
+            ).execute()
+        else:
+            admin.table("favorites").delete().eq("user_id", user_id).eq("cat_id", cat_id).execute()
+        return jsonify({"cat_id": cat_id, "saved": saved}), 200
+    except Exception:
+        app.logger.exception("Could not update favorite for user %s", user_id)
+        return jsonify({"error": "Could not update your favorites. Please try again."}), 503
+
+@app.route("/api/user/favorite-ids", methods=["GET"])
+@require_auth
+def get_favorite_ids() -> Any:
+    admin = supabase_admin
+    if admin is None:
+        return jsonify({"error": "Favorites service is unavailable."}), 503
+    user_id = str(getattr(g.user, "id", ""))
+    try:
+        rows = fetch_all_rows(lambda: admin.table("favorites").select("cat_id").eq("user_id", user_id).order("cat_id"))
+        return jsonify({"favorite_cat_ids": [str(row["cat_id"]) for row in rows]}), 200
+    except Exception:
+        app.logger.exception("Could not load favorites for user %s", user_id)
+        return jsonify({"error": "Could not load your favorites. Please try again."}), 503
+
+@app.route("/api/user/favorites", methods=["GET"])
+@require_auth
+def get_favorites() -> Any:
+    admin = supabase_admin
+    if admin is None:
+        return jsonify({"error": "Favorites service is unavailable."}), 503
+    user_id = str(getattr(g.user, "id", ""))
+    page = max(1, min(request.args.get("page", 1, type=int) or 1, 10000))
+    page_size = 24
+    try:
+        result = (admin.table("favorites").select("cat_id,cats!inner(*)")
+                  .eq("user_id", user_id).order("created_at", desc=True).order("cat_id")
+                  .range((page - 1) * page_size, page * page_size).execute())
+        rows = as_row_list(getattr(result, "data", None))
+        cats: List[Dict[str, Any]] = []
+        for row in rows[:page_size]:
+            raw_cat: Any = row.get("cats")
+            if isinstance(raw_cat, dict):
+                cat = dict(cast(Dict[str, Any], raw_cat))
+                cat["user_avatar"] = resolve_user_avatar(cat.get("user_id"), cat.get("user_name"), cat.get("user_avatar"))
+                cats.append(cat)
+        return jsonify({"cats": cats, "page": page, "has_next": len(rows) > page_size}), 200
+    except Exception:
+        app.logger.exception("Could not load favorite cats for user %s", user_id)
+        return jsonify({"error": "Could not load your favorites. Please try again."}), 503
 
 @app.route("/api/admin/overview", methods=["GET"])
 @require_auth

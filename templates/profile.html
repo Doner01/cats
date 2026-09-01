@@ -47,17 +47,21 @@
         </div>
     </div>
     <div class="space-y-4">
-        <div class="flex items-center justify-between">
-            <h2 class="text-lg font-black text-slate-900 flex items-center gap-2">
-                <i class="fa-solid fa-images text-indigo-500"></i>
-                <span data-i18n="profile_uploads_heading">Uploaded Cats</span>
-            </h2>
+        <div class="profile-tabs" role="group" aria-label="Profile cats">
+            <button id="profile-uploads-tab" type="button" class="profile-tab" aria-pressed="true" aria-controls="user-cats-grid" onclick="switchProfileCatsTab('uploads')"><i class="fa-solid fa-images" aria-hidden="true"></i><span data-i18n="profile_uploads_heading">Uploaded Cats</span></button>
+            <button id="profile-favorites-tab" type="button" class="profile-tab hidden" aria-pressed="false" aria-controls="user-cats-grid" onclick="switchProfileCatsTab('favorites')"><i class="fa-regular fa-bookmark" aria-hidden="true"></i><span data-i18n="favorites_tab">Favorites</span></button>
         </div>
+        <p id="favorites-private-note" class="favorites-note hidden" data-i18n="favorites_private">Only you can see your favorites.</p>
         <div id="user-cats-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
             <div class="col-span-full py-12 text-center text-slate-400" data-i18n="loading_profile_cats">
                 Loading cats...
             </div>
         </div>
+        <nav id="favorites-pagination" class="feed-pagination hidden" aria-label="Favorites pages">
+            <button id="favorites-prev" type="button" class="secondary-button" onclick="loadFavoriteCats(profileCatsState.page - 1)" data-i18n="previous_page">Previous</button>
+            <span id="favorites-page"></span>
+            <button id="favorites-next" type="button" class="secondary-button" onclick="loadFavoriteCats(profileCatsState.page + 1)" data-i18n="next_page">Next</button>
+        </nav>
     </div>
 </div>
 <div id="user-not-found-container" class="hidden max-w-md mx-auto py-16 text-center bg-white rounded-3xl border border-slate-200 p-8 space-y-4">
@@ -184,6 +188,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/profile-cats.js') }}?v=6"></script>
 <script>
 const profileContainer = document.getElementById("profile-container");
 const targetUserId = profileContainer && profileContainer.dataset.viewUserId ? profileContainer.dataset.viewUserId : null;
@@ -298,51 +303,7 @@ async function loadProfile() {
         bioElem.innerText = data.bio || "";
         document.getElementById("stat-uploaded-count").innerText = cats.length;
         document.getElementById("stat-likes-count").innerText = data.total_likes || 0;
-        const grid = document.getElementById("user-cats-grid");
-        if (cats.length === 0) {
-            const noCatsText = typeof t === "function" ? t("no_cats_title") : "No cats uploaded yet";
-            const noCatsDesc = typeof t === "function" ? t("no_cats_desc") : "Be the first to share your feline friend!";
-            grid.innerHTML = `
-                <div class="col-span-full py-16 text-center bg-white rounded-3xl border border-dashed border-slate-300 space-y-2">
-                    <i class="fa-solid fa-cat text-4xl text-slate-300 mb-1"></i>
-                    <h3 class="text-sm font-bold text-slate-700">${noCatsText}</h3>
-                    <p class="text-xs text-slate-400">${noCatsDesc}</p>
-                </div>
-            `;
-            return;
-        }
-        grid.innerHTML = cats.map(cat => {
-            const dateStr = escapeHtml((cat.created_at || '').substring(0, 10));
-            const safeCatId = escapeJsString(String(cat.id || ''));
-            const safeCatIdHtml = escapeHtml(String(cat.id || ''));
-            const safeCatName = escapeHtml(cat.name || 'Cat');
-            const safeCatImage = escapeHtml(cat.image_url || '');
-            const safeLikes = Number.isFinite(Number(cat.likes_count)) ? Number(cat.likes_count) : 0;
-            return `
-                <div id="cat-card-${safeCatIdHtml}" data-cat-id="${safeCatIdHtml}" data-cat-modal-id="${safeCatIdHtml}" data-cat-name="${safeCatName}" class="cat-card bg-white rounded-3xl overflow-hidden border border-slate-200/90 shadow-sm flex flex-col group relative">
-                    <button type="button" class="cat-img-wrapper cursor-pointer bg-slate-900" onclick="openCatModal('${safeCatId}')" aria-label="${safeCatName}">
-                        <img src="${safeCatImage}" alt="${safeCatName}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
-                    </button>
-                    <div class="p-4 flex items-center justify-between gap-4 border-t border-slate-100/80 bg-white">
-                        <div class="min-w-0">
-                            <h4 class="font-black text-slate-900 text-sm truncate">${safeCatName}</h4>
-                            <p class="text-[10px] text-slate-400 font-medium mt-0.5">${dateStr}</p>
-                        </div>
-                        <div class="flex items-center gap-3 flex-shrink-0">
-                            <span class="text-xs font-black text-rose-600 flex items-center gap-1.5 bg-rose-50 border border-rose-100 px-3 py-1.5 rounded-xl shadow-2xs">
-                                <i class="fa-solid fa-heart text-rose-500 text-xs"></i>
-                                <span>${safeLikes}</span>
-                            </span>
-                            ${isSelf ? `
-                                <button onclick="deleteMyCat('${safeCatId}')" class="w-9 h-9 rounded-xl bg-slate-50 hover:bg-rose-600 text-slate-400 hover:text-white border border-slate-200 hover:border-rose-600 transition-all flex items-center justify-center shadow-xs transform active:scale-95 group/del" title="Delete Photo">
-                                    <i class="fa-solid fa-trash-can text-xs group-hover/del:scale-110 transition-transform"></i>
-                                </button>
-                            ` : ''}
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
+        configureProfileCats(cats, isSelf);
     } catch (err) {
         showToast(err.message || "Could not load this profile.", "error");
     }
@@ -590,6 +551,7 @@ async function deleteMyCat(catId) {
             showToast("Cat photo deleted.", "success");
             const card = document.getElementById(`cat-card-${catId}`);
             if (card) card.remove();
+            await loadProfile();
         } else {
             showToast("Failed to delete photo.", "error");
         }
