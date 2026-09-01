@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import uuid
@@ -484,7 +485,8 @@ def as_row_list(value: Any) -> List[Dict[str, Any]]:
     """Narrow a Supabase/PostgREST JSON result to a list of object rows."""
     if not isinstance(value, list):
         return []
-    return [cast(Dict[str, Any], item) for item in value if isinstance(item, dict)]
+    items: List[Any] = cast(List[Any], value)
+    return [cast(Dict[str, Any], item) for item in items if isinstance(item, dict)]
 
 def fetch_all_rows(query_factory: Callable[[], Any]) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
@@ -579,6 +581,14 @@ def require_auth(f: Callable[..., Any]) -> Callable[..., Any]:
         return f(*args, **kwargs)
     return decorated_function
 
+def authenticated_user_rate_key() -> str:
+    """Rate-limit authenticated actions by account instead of shared Wi-Fi IP."""
+    user = getattr(g, "user", None)
+    user_id = str(getattr(user, "id", "") or "").strip()
+    if user_id:
+        return f"user:{user_id}"
+    return f"ip:{get_remote_address()}"
+
 @app.before_request
 def assign_request_id() -> None:
     supplied = (request.headers.get("X-Request-ID") or "").strip()
@@ -657,7 +667,7 @@ def healthz() -> Any:
     admin = supabase_admin
     auth_client = supabase_auth
     ready = admin is not None and auth_client is not None
-    if ready:
+    if admin is not None and auth_client is not None:
         try:
             admin.table("profiles").select("id").limit(1).execute()
         except Exception:
@@ -773,8 +783,8 @@ def admin_page() -> str:
     return render_template("admin.html", supabase_url=SUPABASE_URL, supabase_anon_key=SUPABASE_ANON_KEY)
 
 @app.route("/api/cats/upload", methods=["POST"])
-@limiter.limit("10 per hour")
 @require_auth
+@limiter.limit("10 per minute", key_func=authenticated_user_rate_key)
 def upload_cat() -> Any:
     try:
         user = getattr(g, "user", None)
@@ -857,8 +867,8 @@ def get_cat_details(cat_id: str) -> Any:
     return jsonify({"cat": cat_record}), 200
 
 @app.route("/api/cats/<cat_id>", methods=["PUT"])
-@limiter.limit("30 per hour")
 @require_auth
+@limiter.limit("30 per hour", key_func=authenticated_user_rate_key)
 def edit_cat(cat_id: str) -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
@@ -906,8 +916,8 @@ def edit_cat(cat_id: str) -> Any:
         return jsonify({"error": "Unable to update cat right now."}), 500
 
 @app.route("/api/cats/<cat_id>", methods=["DELETE"])
-@limiter.limit("20 per hour")
 @require_auth
+@limiter.limit("20 per hour", key_func=authenticated_user_rate_key)
 def delete_cat(cat_id: str) -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
     is_admin = is_admin_user(getattr(g, "user", None))
@@ -946,8 +956,8 @@ def delete_cat(cat_id: str) -> Any:
         return jsonify({"error": "Unable to delete cat right now."}), 503
 
 @app.route("/api/admin/cats/<cat_id>/force-delete", methods=["DELETE", "POST"])
-@limiter.limit("30 per minute")
 @require_auth
+@limiter.limit("30 per minute", key_func=authenticated_user_rate_key)
 def admin_force_delete(cat_id: str) -> Any:
     if not is_admin_user(getattr(g, "user", None)):
         return jsonify({"error": "Admin access required."}), 403
@@ -970,8 +980,8 @@ def admin_force_delete(cat_id: str) -> Any:
         return jsonify({"error": "Unable to delete cat right now."}), 503
 
 @app.route("/api/cats/<cat_id>/like", methods=["POST"])
-@limiter.limit("120 per minute")
 @require_auth
+@limiter.limit("180 per minute", key_func=authenticated_user_rate_key)
 def toggle_like(cat_id: str) -> Any:
     user = getattr(g, "user", None)
     user_id, user_name, actor_avatar = get_canonical_user_identity(user)
@@ -1042,8 +1052,8 @@ def get_comments(cat_id: str) -> Any:
     return jsonify({"comments": comments_list}), 200
 
 @app.route("/api/cats/<cat_id>/comments", methods=["POST"])
-@limiter.limit("20 per minute")
 @require_auth
+@limiter.limit("6 per minute", key_func=authenticated_user_rate_key)
 def add_comment(cat_id: str) -> Any:
     try:
         user = getattr(g, "user", None)
@@ -1147,8 +1157,8 @@ def add_comment(cat_id: str) -> Any:
         return jsonify({"error": "Could not post comment right now."}), 500
 
 @app.route("/api/comments/<comment_id>", methods=["DELETE"])
-@limiter.limit("30 per minute")
 @require_auth
+@limiter.limit("30 per minute", key_func=authenticated_user_rate_key)
 def delete_comment(comment_id: str) -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
     is_admin = is_admin_user(getattr(g, "user", None))
@@ -1171,8 +1181,8 @@ def delete_comment(comment_id: str) -> Any:
         return jsonify({"error": "Unable to delete comment right now."}), 503
 
 @app.route("/api/admin/comments/<comment_id>", methods=["PUT"])
-@limiter.limit("60 per minute")
 @require_auth
+@limiter.limit("60 per minute", key_func=authenticated_user_rate_key)
 def admin_edit_comment(comment_id: str) -> Any:
     try:
         if not is_admin_user(getattr(g, "user", None)):
@@ -1195,8 +1205,8 @@ def admin_edit_comment(comment_id: str) -> Any:
         return jsonify({"error": "Could not update comment right now."}), 500
 
 @app.route("/api/admin/comments/<comment_id>", methods=["DELETE", "POST"])
-@limiter.limit("60 per minute")
 @require_auth
+@limiter.limit("60 per minute", key_func=authenticated_user_rate_key)
 def admin_delete_comment(comment_id: str) -> Any:
     try:
         if not is_admin_user(getattr(g, "user", None)):
@@ -1244,8 +1254,8 @@ def get_notifications() -> Any:
     return jsonify({"notifications": notifications, "unread_count": unread_count}), 200
 
 @app.route("/api/notifications/<notif_id>/read", methods=["POST"])
-@limiter.limit("120 per minute")
 @require_auth
+@limiter.limit("120 per minute", key_func=authenticated_user_rate_key)
 def mark_notification_read(notif_id: str) -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
     if supabase_admin:
@@ -1263,8 +1273,8 @@ def mark_notification_read(notif_id: str) -> Any:
     return jsonify({"message": "Marked as read."}), 200
 
 @app.route("/api/notifications/read-all", methods=["POST"])
-@limiter.limit("60 per minute")
 @require_auth
+@limiter.limit("60 per minute", key_func=authenticated_user_rate_key)
 def mark_all_notifications_read() -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
     if supabase_admin:
@@ -1279,8 +1289,8 @@ def mark_all_notifications_read() -> Any:
     return jsonify({"message": "All marked as read."}), 200
 
 @app.route("/api/notifications/clear-all", methods=["DELETE", "POST"])
-@limiter.limit("30 per minute")
 @require_auth
+@limiter.limit("30 per minute", key_func=authenticated_user_rate_key)
 def clear_all_notifications() -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
     if supabase_admin:
@@ -1296,8 +1306,8 @@ def clear_all_notifications() -> Any:
     return jsonify({"message": "Notifications cleared."}), 200
 
 @app.route("/api/user/avatar", methods=["POST"])
-@limiter.limit("10 per hour")
 @require_auth
+@limiter.limit("15 per hour", key_func=authenticated_user_rate_key)
 def upload_user_avatar() -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
@@ -1353,8 +1363,21 @@ def upload_user_avatar() -> Any:
         app.logger.exception("Avatar upload failed")
         return jsonify({"error": "Avatar upload failed unexpectedly."}), 500
 
+def signup_rate_key() -> str:
+    """Separate signup limits by email so shared university Wi-Fi is not a problem."""
+    raw_json: Any = request.get_json(silent=True)
+    data: Dict[str, Any] = cast(Dict[str, Any], raw_json) if isinstance(raw_json, dict) else {}
+    email = str(data.get("email", "") or "").strip().lower()
+
+    if email:
+        email_hash = hashlib.sha256(email.encode("utf-8")).hexdigest()
+        return f"signup-email:{email_hash}"
+
+    return f"signup-ip:{get_remote_address()}"
+
 @app.route("/api/auth/register", methods=["POST"])
-@limiter.limit("5 per hour")
+@limiter.limit("10 per hour", key_func=signup_rate_key)
+@limiter.limit("700 per hour", key_func=get_remote_address)
 def register_user() -> Any:
     try:
         if not supabase_auth:
@@ -1433,8 +1456,8 @@ def update_user_email() -> Any:
     }), 409
 
 @app.route("/api/user/profile", methods=["PUT"])
-@limiter.limit("30 per hour")
 @require_auth
+@limiter.limit("30 per hour", key_func=authenticated_user_rate_key)
 def sync_user_profile() -> Any:
     try:
         user_id = str(getattr(getattr(g, "user", None), "id", ""))
@@ -1529,8 +1552,8 @@ def sync_user_profile() -> Any:
         return jsonify({"error": "Could not save profile changes right now."}), 500
 
 @app.route("/api/admin/users/<user_id>/profile", methods=["PUT"])
-@limiter.limit("30 per minute")
 @require_auth
+@limiter.limit("30 per minute", key_func=authenticated_user_rate_key)
 def admin_edit_user_profile(user_id: str) -> Any:
     try:
         if not is_admin_user(getattr(g, "user", None)):
@@ -1637,8 +1660,8 @@ def admin_edit_user_profile(user_id: str) -> Any:
         return jsonify({"error": "Could not update this user right now."}), 500
 
 @app.route("/api/admin/users/<user_id>/force-delete", methods=["DELETE", "POST"])
-@limiter.limit("10 per hour")
 @require_auth
+@limiter.limit("10 per hour", key_func=authenticated_user_rate_key)
 def admin_force_delete_user(user_id: str) -> Any:
     try:
         if not is_admin_user(getattr(g, "user", None)):
