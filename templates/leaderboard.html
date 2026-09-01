@@ -88,8 +88,8 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 text-slate-700">
-                    {% for cat in leaderboard %}
-                    <tr class="hover:bg-slate-50/80 transition cursor-pointer" onclick="openCatModal('{{ cat.id }}')">
+                    {% for cat in leaderboard[:10] %}
+                    <tr class="hover:bg-slate-50/80 transition cursor-pointer" data-cat-modal-id="{{ cat.id }}" onclick="openCatModal('{{ cat.id }}')">
                         <td class="p-4 text-center font-black">
                             {% if loop.index == 1 %}
                             <span class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 inline-flex items-center justify-center text-xs">🥇</span>

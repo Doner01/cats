@@ -319,10 +319,10 @@ async function loadProfile() {
             const safeCatImage = escapeHtml(cat.image_url || '');
             const safeLikes = Number.isFinite(Number(cat.likes_count)) ? Number(cat.likes_count) : 0;
             return `
-                <div id="cat-card-${safeCatIdHtml}" class="cat-card bg-white rounded-3xl overflow-hidden border border-slate-200/90 shadow-sm flex flex-col group relative">
-                    <div class="cat-img-wrapper cursor-pointer bg-slate-900" onclick="openCatModal('${safeCatId}')">
+                <div id="cat-card-${safeCatIdHtml}" data-cat-id="${safeCatIdHtml}" data-cat-modal-id="${safeCatIdHtml}" data-cat-name="${safeCatName}" class="cat-card bg-white rounded-3xl overflow-hidden border border-slate-200/90 shadow-sm flex flex-col group relative">
+                    <button type="button" class="cat-img-wrapper cursor-pointer bg-slate-900" onclick="openCatModal('${safeCatId}')" aria-label="${safeCatName}">
                         <img src="${safeCatImage}" alt="${safeCatName}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
-                    </div>
+                    </button>
                     <div class="p-4 flex items-center justify-between gap-4 border-t border-slate-100/80 bg-white">
                         <div class="min-w-0">
                             <h4 class="font-black text-slate-900 text-sm truncate">${safeCatName}</h4>

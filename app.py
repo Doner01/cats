@@ -729,7 +729,7 @@ def leaderboard_page() -> Any:
 
     if supabase_admin:
         try:
-            raw_res: Any = getattr(supabase_admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(50).execute(), "data", [])
+            raw_res: Any = getattr(supabase_admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(10).execute(), "data", [])
             leaderboard = cast(List[Dict[str, Any]], raw_res) if isinstance(raw_res, list) else []
         except Exception:
             app.logger.exception("Could not load leaderboard")
@@ -738,7 +738,7 @@ def leaderboard_page() -> Any:
         return render_template("error.html", status=503, message="The rankings are temporarily unavailable. Please try again."), 503
 
     if not leaderboard and ENABLE_DEMO_DATA:
-        leaderboard = sorted(list(MOCK_CATS), key=lambda c: int(c.get("likes_count", 0) or 0), reverse=True)
+        leaderboard = sorted(list(MOCK_CATS), key=lambda c: int(c.get("likes_count", 0) or 0), reverse=True)[:10]
 
     for c in leaderboard:
         c["user_avatar"] = resolve_user_avatar(c.get("user_id"), c.get("user_name"), c.get("user_avatar"))

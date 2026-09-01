@@ -66,6 +66,15 @@ def test_pagination_and_search_reach_old_cats(client,monkeypatch):
     assert result.count('class="cat-card feed-card"')==1
     assert 'data-cat-name="Cat 0"' in result
 
+def test_leaderboard_is_limited_to_ten_cats(client,monkeypatch):
+    monkeypatch.setattr(mod,'ENABLE_DEMO_DATA',True)
+    cats=[dict(mod.MOCK_CATS[0],id=str(i),name=f'Leader {i}',likes_count=100-i) for i in range(12)]
+    monkeypatch.setattr(mod,'MOCK_CATS',cats)
+    result=client.get('/leaderboard').data.decode()
+    assert result.count('data-cat-modal-id=')==10
+    assert 'Leader 9' in result
+    assert 'Leader 10' not in result
+
 def test_stored_name_cannot_escape_event_handler(client,monkeypatch):
     monkeypatch.setattr(mod,'ENABLE_DEMO_DATA',True)
     monkeypatch.setattr(mod,'MOCK_CATS',[dict(mod.MOCK_CATS[0],user_name="O'Hara');alert(1);//")])

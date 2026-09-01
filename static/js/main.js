@@ -8,6 +8,49 @@ let activeReplyParentId = null;
 let activeReplyAuthorName = null;
 const userLikedCatIds = new Set();
 
+function getModalCatIds() {
+    const ids = [];
+    const seen = new Set();
+    document.querySelectorAll("[data-cat-modal-id]").forEach(element => {
+        const id = String(element.dataset.catModalId || "").trim();
+        if (id && !seen.has(id)) {
+            seen.add(id);
+            ids.push(id);
+        }
+    });
+    return ids;
+}
+
+function updateModalNavigation() {
+    const previousButton = document.getElementById("modal-prev-cat");
+    const nextButton = document.getElementById("modal-next-cat");
+    const ids = getModalCatIds();
+    const canNavigate = Boolean(activeModalCatId) && ids.length > 1 && ids.includes(String(activeModalCatId));
+    const previousLabel = typeof t === "function" ? t("previous_cat") : "Previous cat";
+    const nextLabel = typeof t === "function" ? t("next_cat") : "Next cat";
+
+    [previousButton, nextButton].forEach(button => {
+        if (button) button.classList.toggle("hidden", !canNavigate);
+    });
+    if (previousButton) {
+        previousButton.title = previousLabel;
+        previousButton.setAttribute("aria-label", previousLabel);
+    }
+    if (nextButton) {
+        nextButton.title = nextLabel;
+        nextButton.setAttribute("aria-label", nextLabel);
+    }
+}
+
+function navigateCatModal(direction) {
+    const ids = getModalCatIds();
+    if (!activeModalCatId || ids.length < 2) return;
+    const currentIndex = ids.indexOf(String(activeModalCatId));
+    if (currentIndex < 0) return;
+    const nextIndex = (currentIndex + direction + ids.length) % ids.length;
+    if (ids[nextIndex] !== String(activeModalCatId)) return openCatModal(ids[nextIndex]);
+}
+
 function escapeHtml(str) {
     if (!str) return '';
     return String(str)
@@ -67,6 +110,7 @@ function resetCatModalState() {
     if (bioBox) bioBox.classList.add("hidden");
     if (bioText) bioText.innerText = "";
     if (commentsList) {
+        commentsList.scrollTop = 0;
         const loadingText = typeof t === 'function' ? t('loading_comments') : 'Loading comments...';
         commentsList.innerHTML = `<div class="py-10 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin text-base text-indigo-500 mb-2"></i><p class="text-xs font-medium">${loadingText}</p></div>`;
     }
@@ -91,8 +135,11 @@ async function openCatModal(catId) {
     const modal = document.getElementById("cat-detail-modal");
     if (!modal) return;
 
+    const content = document.getElementById("cat-detail-scroll");
+    if (content) content.scrollTop = 0;
     modal.classList.remove("hidden");
     document.body.style.overflow = "hidden";
+    updateModalNavigation();
     const card = document.querySelector(`[data-cat-id="${catId}"]`);
     const countElem = document.getElementById(`like-count-${catId}`);
     const heartElem = document.getElementById(`heart-icon-${catId}`);
@@ -155,6 +202,7 @@ function closeCatModal() {
     activeModalCatId = null;
     modalRequestVersion++;
     resetCatModalState();
+    updateModalNavigation();
 }
 
 const catDetailModalElem = document.getElementById("cat-detail-modal");
@@ -163,6 +211,19 @@ if (catDetailModalElem) {
         if (e.target === catDetailModalElem) closeCatModal();
     });
 }
+
+document.addEventListener("keydown", event => {
+    if (!activeModalCatId || !catDetailModalElem || catDetailModalElem.classList.contains("hidden")) return;
+    const confirmation = document.getElementById("custom-confirm-modal");
+    if (confirmation && !confirmation.classList.contains("hidden")) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = event.target;
+    if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        navigateCatModal(event.key === "ArrowLeft" ? -1 : 1);
+    }
+});
 
 function toggleModalLike(event) {
     if (event) event.stopPropagation();
@@ -319,10 +380,11 @@ function cancelReply() {
 }
 
 async function loadCatComments(catId) {
+    const requestVersion = modalRequestVersion;
     try {
         const res = await fetch(`/api/cats/${catId}/comments`);
         const data = await res.json();
-        if (String(activeModalCatId) !== String(catId)) return;
+        if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion) return;
         if (!res.ok) throw new Error(data.error || 'Could not load comments.');
         const comments = data.comments || [];
         const container = document.getElementById("modal-comments-list");
@@ -463,7 +525,7 @@ async function loadCatComments(catId) {
             `;
         }).join("");
     } catch (e) {
-        if (String(activeModalCatId) !== String(catId)) return;
+        if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion) return;
         const container = document.getElementById('modal-comments-list');
         if (container) {
             container.textContent = 'Could not load comments. ';
@@ -479,12 +541,14 @@ async function loadCatComments(catId) {
 
 async function submitComment(event) {
     if (event) event.preventDefault();
+    const submittedVersion = modalRequestVersion;
 
     if (typeof supabaseClient === "undefined" || !supabaseClient) {
         showToast("Supabase client not initialized.", "error");
         return;
     }
     const { data: { session } } = await supabaseClient.auth.getSession();
+    if (submittedVersion !== modalRequestVersion) return;
     if (!session) {
         showToast(typeof t === "function" ? t("toast_need_signin_comment") : "Please sign in to post comments.", "info");
         setTimeout(() => window.location.href = "/login", 800);
@@ -531,7 +595,7 @@ async function submitComment(event) {
         });
 
         if (res.ok) {
-            if (activeModalCatId === submittedCatId) {
+            if (activeModalCatId === submittedCatId && submittedVersion === modalRequestVersion) {
                 input.value = "";
                 cancelReply();
                 loadCatComments(submittedCatId);
@@ -663,6 +727,7 @@ async function markAllNotificationsRead() {
 }
 
 window.addEventListener("catrank_language_changed", () => {
+    updateModalNavigation();
     if (activeModalCatId) {
         loadCatComments(activeModalCatId);
     }

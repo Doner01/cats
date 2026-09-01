@@ -2,6 +2,12 @@
 
 Python 3.12 · Flask · Supabase Auth/PostgreSQL · optional Cloudflare R2.
 
+## Updating an existing installation
+
+This is the complete project. Keep your existing private `.env` or hosting environment variables, replace the application files, and restart/redeploy. This viewer update does not require a database change.
+
+The cat viewer has a fixed, viewport-fitting frame. Previous/next controls sit outside the panel (below it on narrow phones). The header and comment form remain visible while the image, bio, and comments scroll. Arrow keys navigate the cats on the current page. The leaderboard stays limited to ten cats.
+
 ## Deploy
 
 1. Run `supabase_migration.sql` in your Supabase SQL editor. Run this updated migration even if the previous version is installed.
@@ -31,6 +37,8 @@ python main.py
 ```
 
 Set `ENABLE_DEMO_DATA=true` only for local sample data. Production rejects demo mode. Frontend assets are prebuilt; Node is not needed to deploy.
+
+Before starting locally, fill in your service variables and use `APP_ENV=development`, `PUBLIC_SITE_URL=http://localhost:5000`, and `TRUST_PROXY_HOPS=0`. Never publish your private `.env`.
 
 ## Checks
 

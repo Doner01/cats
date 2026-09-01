@@ -28,10 +28,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 modal.setAttribute('aria-modal', 'true');
                 if (!modal.hasAttribute('aria-labelledby') && !modal.hasAttribute('aria-label')) modal.setAttribute('aria-label', modal.querySelector('h2,h3')?.textContent || 'Dialog');
                 modal.tabIndex = -1;
-                (focusable(modal)[0] || modal).focus();
+                (modal.querySelector('[data-modal-initial-focus]') || focusable(modal)[0] || modal).focus({preventScroll: true});
             } else if (!visible && index >= 0) {
                 const [{previous}] = stack.splice(index, 1);
-                if (previous?.isConnected) previous.focus();
+                if (previous?.isConnected) previous.focus({preventScroll: true});
             }
         });
         document.body.style.overflow = stack.length ? 'hidden' : '';

@@ -15,7 +15,7 @@
     {% if top_cat %}
     <div class="champion-scene">
         <div class="champion-stamp"><i class="fa-solid fa-crown" aria-hidden="true"></i><span data-i18n="community_favorite">COMMUNITY FAVORITE</span></div>
-        <button class="champion-photo" type="button" onclick="openCatModal('{{ top_cat.id }}')" aria-label="{{ top_cat.name }}">
+        <button class="champion-photo" type="button" data-cat-modal-id="{{ top_cat.id }}" onclick="openCatModal('{{ top_cat.id }}')" aria-label="{{ top_cat.name }}">
             <img src="{{ top_cat.image_url }}" alt="{{ top_cat.name }}" fetchpriority="high" width="600" height="600" decoding="async">
             <span class="champion-caption"><span><strong>{{ top_cat.name }}</strong><small>{{ top_cat.user_name or 'Cat Lover' }}</small></span><span class="champion-votes"><i class="fa-solid fa-heart" aria-hidden="true"></i> {{ top_cat.likes_count }}</span></span>
         </button>
@@ -34,7 +34,7 @@
     {% if query %}<div class="search-summary"><span>{{ query }}</span><a href="{{ url_for('index', sort=sort) }}#community" data-i18n="clear_search">Clear search</a></div>{% endif %}
     <div id="cats-feed-grid" class="cat-feed-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
     {% for cat in cats %}
-        <article class="cat-card feed-card" data-cat-id="{{ cat.id }}" data-cat-name="{{ cat.name }}" data-likes="{{ cat.likes_count }}" data-date="{{ cat.created_at }}">
+        <article class="cat-card feed-card" data-cat-id="{{ cat.id }}" data-cat-modal-id="{{ cat.id }}" data-cat-name="{{ cat.name }}" data-likes="{{ cat.likes_count }}" data-date="{{ cat.created_at }}">
             <button type="button" class="cat-img-wrapper cat-open" onclick="openCatModal('{{ cat.id }}')" aria-label="{{ cat.name }}"><img src="{{ cat.image_url }}" alt="{{ cat.name }}" loading="lazy" decoding="async" width="640" height="480"><span class="photo-open-hint"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></span></button>
             <div class="feed-card-body"><div class="cat-title-row"><h3>{{ cat.name }}</h3><button id="like-btn-{{ cat.id }}" type="button" onclick="toggleLike('{{ cat.id }}', event)" class="vote-button" aria-label="Like {{ cat.name }}" aria-pressed="false"><span id="heart-icon-{{ cat.id }}" aria-hidden="true">🤍</span><span id="like-count-{{ cat.id }}">{{ cat.likes_count }}</span></button></div>
             <p class="cat-story">{{ cat.bio or cat.description or '' }}</p><div class="cat-credit"><a href="/user/{{ cat.user_id }}"><img src="{{ cat.user_avatar }}" alt="{{ cat.user_name or 'Cat Lover' }}" onerror="handleAvatarError(this, this.alt)" width="24" height="24" loading="lazy"><span>{{ cat.user_name or 'Cat Lover' }}</span></a><time datetime="{{ cat.created_at }}">{{ (cat.created_at or '')[:10] }}</time></div></div>

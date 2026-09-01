@@ -6,16 +6,25 @@ const path = require('node:path');
 
 function fixture(fetch) {
   const elements = new Map();
+  const listeners = new Map();
   function element(id, text='') {
-    const node={id,innerText:text,textContent:text,src:'',value:'',dataset:{},style:{},children:[],attributes:{},classList:{add(){},remove(){},contains(){return false}},setAttribute(k,v){this.attributes[k]=v},appendChild(el){this.children.push(el)},addEventListener(){},querySelector(){return null}};
+    const classes = new Set();
+    const node={id,innerText:text,textContent:text,src:'',value:'',scrollTop:0,dataset:{},style:{},children:[],attributes:{},classList:{
+      add(...names){names.forEach(name=>classes.add(name))},
+      remove(...names){names.forEach(name=>classes.delete(name))},
+      contains(name){return classes.has(name)},
+      toggle(name,force){const value=force===undefined?!classes.has(name):force;value?classes.add(name):classes.delete(name);return value}
+    },setAttribute(k,v){this.attributes[k]=v},appendChild(el){this.children.push(el)},addEventListener(){},querySelector(){return null}};
     elements.set(id,node); return node;
   }
   ['modal-like-count','modal-heart-icon','modal-cat-name','modal-cat-img','modal-cat-bio-box','modal-cat-bio-text','modal-comments-list','modal-comments-count','modal-comments-count-badge','modal-comment-input','cat-detail-modal'].forEach(id=>element(id,id==='modal-like-count'?'0':''));
+  ['modal-prev-cat','modal-next-cat','cat-detail-scroll','modal-comment-submit-btn','custom-confirm-modal'].forEach(id=>element(id));
+  ['cat-detail-modal','modal-prev-cat','modal-next-cat','custom-confirm-modal'].forEach(id=>elements.get(id).classList.add('hidden'));
   const context=vm.createContext({console,setTimeout:()=>0,URL,Map,Set,Date,
-    document:{getElementById:id=>elements.get(id)||null,querySelector:()=>null,querySelectorAll:()=>[],addEventListener(){},createElement:()=>element('created'),body:{style:{}}},
+    document:{getElementById:id=>elements.get(id)||null,querySelector:()=>null,querySelectorAll:()=>[],addEventListener(name,callback){if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(callback)},createElement:()=>element('created'),body:{style:{}}},
     window:{addEventListener(){}},fetch,showToast(){},supabaseClient:{auth:{getSession:async()=>({data:{session:{access_token:'test'}}})}},currentSession:{access_token:'test'}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../static/js/main.js'),'utf8'),context);
-  return {context,element,elements,run:source=>vm.runInContext(source,context)};
+  return {context,element,elements,listeners,run:source=>vm.runInContext(source,context)};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 
@@ -69,4 +78,89 @@ test('comment failures show a retry instead of an empty discussion',async()=>{
  f.run("activeModalCatId='cat-a'");await f.run("loadCatComments('cat-a')");
  assert.equal(f.elements.get('modal-comments-list').textContent,'Could not load comments. ');
  assert.equal(f.elements.get('modal-comments-list').children[0].textContent,'Try again');
+});
+
+test('modal arrows move through the visible cats and wrap around',async()=>{
+ const f=fixture(async url=>({ok:true,json:async()=>url.endsWith('/comments')?{comments:[]}:{cat:{name:url.split('/').pop(),likes_count:0}}}));
+ const first=f.element('first-card');first.dataset.catModalId='cat-a';
+ const second=f.element('second-card');second.dataset.catModalId='cat-b';
+ const third=f.element('third-card');third.dataset.catModalId='cat-c';
+ f.context.document.querySelectorAll=selector=>selector==='[data-cat-modal-id]'?[first,second,third]:[];
+ await f.run("openCatModal('cat-b')");
+ await f.run('navigateCatModal(1)');
+ assert.equal(f.run('activeModalCatId'),'cat-c');
+ await f.run('navigateCatModal(1)');
+ assert.equal(f.run('activeModalCatId'),'cat-a');
+ await f.run('navigateCatModal(-1)');
+ assert.equal(f.run('activeModalCatId'),'cat-c');
+});
+
+test('switching cats resets the comments scroll position',async()=>{
+ const f=fixture(async url=>({ok:true,json:async()=>url.endsWith('/comments')?{comments:[]}:{cat:{name:'Cat'}}}));
+ const content=f.elements.get('cat-detail-scroll');
+ const comments=f.elements.get('modal-comments-list');
+ content.scrollTop=450;
+ comments.scrollTop=300;
+ await f.run("openCatModal('cat-a')");
+ assert.equal(content.scrollTop,0);
+ assert.equal(comments.scrollTop,0);
+ assert.equal(f.elements.get('cat-detail-modal').classList.contains('hidden'),false);
+ f.run('closeCatModal()');
+ assert.equal(f.elements.get('cat-detail-modal').classList.contains('hidden'),true);
+});
+
+test('arrows appear for multiple cats and repeated cards are deduplicated',async()=>{
+ const f=fixture(async url=>({ok:true,json:async()=>url.endsWith('/comments')?{comments:[]}:{cat:{name:'Cat'}}}));
+ const a=f.element('a');a.dataset.catModalId='cat-a';
+ const b=f.element('b');b.dataset.catModalId='cat-b';
+ f.context.document.querySelectorAll=selector=>selector==='[data-cat-modal-id]'?[a,b,a]:[];
+ await f.run("openCatModal('cat-a')");
+ assert.deepEqual(Array.from(f.run('getModalCatIds()')),['cat-a','cat-b']);
+ assert.equal(f.elements.get('modal-prev-cat').classList.contains('hidden'),false);
+ assert.equal(f.elements.get('modal-next-cat').classList.contains('hidden'),false);
+ f.context.document.querySelectorAll=selector=>selector==='[data-cat-modal-id]'?[a]:[];
+ f.run('updateModalNavigation()');
+ assert.equal(f.elements.get('modal-next-cat').classList.contains('hidden'),true);
+});
+
+test('keyboard navigation ignores typing and confirmation dialogs',async()=>{
+ const f=fixture(async url=>({ok:true,json:async()=>url.endsWith('/comments')?{comments:[]}:{cat:{name:'Cat'}}}));
+ const a=f.element('a');a.dataset.catModalId='cat-a';
+ const b=f.element('b');b.dataset.catModalId='cat-b';
+ f.context.document.querySelectorAll=selector=>selector==='[data-cat-modal-id]'?[a,b]:[];
+ await f.run("openCatModal('cat-a')");
+ const press=target=>f.listeners.get('keydown').forEach(fn=>fn({key:'ArrowRight',target,preventDefault(){}}));
+ press({tagName:'INPUT'});
+ assert.equal(f.run('activeModalCatId'),'cat-a');
+ f.elements.get('custom-confirm-modal').classList.remove('hidden');
+ press({tagName:'BUTTON'});
+ assert.equal(f.run('activeModalCatId'),'cat-a');
+ f.elements.get('custom-confirm-modal').classList.add('hidden');
+ press({tagName:'BUTTON'});
+ assert.equal(f.run('activeModalCatId'),'cat-b');
+ await tick();
+});
+
+test('comments from an earlier visit cannot replace a reopened cat',async()=>{
+ let resolve;const f=fixture(()=>new Promise(r=>resolve=r));
+ f.run("activeModalCatId='cat-a';modalRequestVersion=1");
+ const pending=f.run("loadCatComments('cat-a')");
+ f.run('modalRequestVersion=3');
+ f.elements.get('modal-comments-list').innerHTML='Newest comments';
+ resolve({ok:true,json:async()=>({comments:[]})});await pending;
+ assert.equal(f.elements.get('modal-comments-list').innerHTML,'Newest comments');
+});
+
+test('switching during auth cannot submit the next cats draft',async()=>{
+ let resolveSession;let posts=0;
+ const f=fixture(async()=>{posts++;return {ok:true}});
+ f.context.supabaseClient.auth.getSession=()=>new Promise(r=>resolveSession=r);
+ f.run("activeModalCatId='cat-a'");
+ f.elements.get('modal-comment-input').value='First draft';
+ const pending=f.run('submitComment()');
+ f.run("activeModalCatId='cat-b';modalRequestVersion++");
+ f.elements.get('modal-comment-input').value='Second draft';
+ resolveSession({data:{session:{access_token:'test'}}});await pending;
+ assert.equal(posts,0);
+ assert.equal(f.elements.get('modal-comment-input').value,'Second draft');
 });
