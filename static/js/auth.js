@@ -219,7 +219,6 @@ async function handleSignUp() {
     }
     const nameElem = document.getElementById("reg-display-name");
     const emailElem = document.getElementById("reg-email");
-    const phoneElem = document.getElementById("reg-phone");
     const passElem = document.getElementById("reg-password");
     const confirmElem = document.getElementById("reg-confirm-password");
     const btn = document.getElementById("register-btn");
@@ -227,7 +226,6 @@ async function handleSignUp() {
     if (!emailElem || !passElem) return;
     const displayName = (nameElem ? nameElem.value.trim() : "") || emailElem.value.split('@')[0];
     const email = emailElem.value.trim().toLowerCase();
-    const phone = phoneElem ? phoneElem.value.trim() : "";
     const password = passElem.value;
     const confirmPassword = confirmElem ? confirmElem.value : password;
 
@@ -266,7 +264,6 @@ async function handleSignUp() {
                 email,
                 password,
                 display_name: displayName,
-                phone: phone,
                 avatar_url: avatarUrl
             })
         });

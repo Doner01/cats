@@ -3,6 +3,7 @@
 {% block title %}Upload Cat Photo | CatRank{% endblock %}
 
 {% block content %}
+<div id="upload-config" class="hidden" data-max-bytes="{{ max_upload_bytes|default(5242880) }}"></div>
 <div class="max-w-lg mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xl mt-2 space-y-6">
     <div class="text-center space-y-1.5">
         <div class="w-14 h-14 mx-auto rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center text-2xl shadow-xs">
@@ -39,14 +40,14 @@
         <div class="space-y-1.5">
             <label for="cat-file" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="photo_label">
                 <i class="fa-solid fa-image text-indigo-500 text-xs"></i>
-                <span>Photo (PNG, JPG, WEBP, max 5MB)</span>
+                <span>Photo (PNG, JPG, WEBP, max {{ (max_upload_bytes|default(5242880) // 1048576) }}MB)</span>
             </label>
             <div id="drop-zone" class="border-2 border-dashed border-slate-200 hover:border-indigo-400 rounded-2xl p-6 text-center cursor-pointer transition bg-slate-50/50 hover:bg-slate-50">
                 <input type="file" id="cat-file" aria-label="Cat photo" accept="image/png, image/jpeg, image/webp, image/gif" class="hidden">
                 <button type="button" onclick="document.getElementById('cat-file').click()" class="space-y-1.5 w-full">
                     <i class="fa-solid fa-arrow-up-from-bracket text-2xl text-slate-400"></i>
                     <p class="text-xs font-bold text-slate-700" data-i18n="drop_drag_text">Click to browse or drag & drop</p>
-                    <p class="text-[10px] text-slate-400" data-i18n="drop_format_text">JPG, PNG, WEBP or GIF up to 5MB</p>
+                    <p class="text-[10px] text-slate-400" data-i18n="drop_format_text">JPG, PNG, WEBP or GIF up to {{ (max_upload_bytes|default(5242880) // 1048576) }}MB</p>
                 </button>
             </div>
         </div>
@@ -73,7 +74,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ asset_url('js/upload.js') }}"></script>
+<script src="{{ url_for('static', filename='js/upload.js') }}?v=11"></script>
 <script>
 function clearUploadPreview() {
     const fileInput = document.getElementById("cat-file");

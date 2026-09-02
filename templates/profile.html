@@ -25,10 +25,6 @@
                             <i class="fa-solid fa-envelope text-indigo-500 text-[10px]"></i>
                             <span id="profile-email-text"></span>
                         </span>
-                        <span id="profile-phone-badge" class="hidden items-center gap-1 text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
-                            <i class="fa-solid fa-phone text-emerald-500 text-[10px]"></i>
-                            <span id="profile-phone-text"></span>
-                        </span>
                     </div>
                 </div>
                 <div id="profile-actions" class="flex items-center justify-center sm:justify-end gap-2 flex-shrink-0">
@@ -77,8 +73,8 @@
         </a>
     </div>
 </div>
-<div id="edit-profile-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
-    <div class="bg-white rounded-3xl border border-slate-200 max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+<div id="edit-profile-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop overscroll-none">
+    <div id="edit-profile-dialog" class="bg-white rounded-3xl border border-slate-200 max-w-xl w-full p-4 sm:p-5 shadow-2xl space-y-3 sm:space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[92dvh] overflow-y-auto overscroll-contain">
         <div class="flex items-center justify-between border-b border-slate-100 pb-3">
             <h3 class="text-lg font-black text-slate-900 flex items-center gap-2">
                 <i class="fa-solid fa-user-pen text-indigo-500"></i>
@@ -121,13 +117,6 @@
                 <input type="text" id="edit-display-name" required maxlength="40" class="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-2xl focus:ring-2 focus:ring-indigo-500 transition">
             </div>
             <div class="space-y-1.5">
-                <label for="edit-user-phone" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="phone_number_label">
-                    <i class="fa-solid fa-phone text-indigo-500 text-xs"></i>
-                    <span>Phone Number</span>
-                </label>
-                <input type="tel" id="edit-user-phone" placeholder="+998 90 123 45 67" data-i18n-placeholder="phone_placeholder" class="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-2xl focus:ring-2 focus:ring-indigo-500 transition">
-            </div>
-            <div class="space-y-1.5">
                 <label for="edit-user-bio" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5" data-i18n="bio_label">
                     <i class="fa-solid fa-quote-left text-indigo-500 text-xs"></i>
                     <span>Short Bio</span>
@@ -142,88 +131,143 @@
                 </button>
             </div>
         </div>
-        <div id="tab-content-security" class="hidden space-y-5">
-            <section class="account-methods">
+        <div id="tab-content-security" class="hidden space-y-3.5">
+            <div class="rounded-3xl border border-slate-200 bg-slate-50 p-3.5">
                 <div class="flex items-start gap-3">
-                    <span class="w-9 h-9 shrink-0 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
-                        <i class="fa-solid fa-shield-heart" aria-hidden="true"></i>
-                    </span>
+                    <div class="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+                        <i class="fa-solid fa-shield-halved text-sm"></i>
+                    </div>
                     <div class="min-w-0">
-                        <h4 class="text-sm font-black text-slate-800" data-i18n="connected_methods">How you sign in</h4>
-                        <p class="mt-1 text-xs leading-relaxed text-slate-500" data-i18n="connected_methods_hint">These are the sign-in methods connected to your account.</p>
+                        <h4 class="text-sm font-black text-slate-900" data-i18n="security_title">Sign-in & security</h4>
+                        <p class="mt-1 text-xs leading-relaxed text-slate-500" data-i18n="security_subtitle">Connect more than one verified sign-in method so you can still access your account if one method is unavailable.</p>
                     </div>
                 </div>
-                <p id="connected-methods" class="text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl px-3 py-2.5" role="status">Loading…</p>
-                {% if google_auth_enabled %}
-                <button id="connect-google" type="button" data-google-button onclick="startGoogleSignIn(true)" class="google-signin-button hidden">
-                    <img src="{{ asset_url('images/google-g.svg') }}" alt="" aria-hidden="true" class="google-signin-icon">
-                    <span data-i18n="connect_google_btn">Add Google sign-in</span>
-                </button>
-                {% endif %}
-                <p id="google-password-note" class="hidden text-xs leading-relaxed text-slate-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
-                    <span data-i18n="google_password_note">Use password recovery to set a password for your email. Keep Google connected until you can sign in with that password.</span>
-                    <a href="/forgot-password" class="font-bold text-indigo-600 hover:underline" data-i18n="set_password_link">Set a password</a>
-                </p>
-                <div id="unlink-google-controls" class="hidden space-y-2.5 bg-white border border-slate-200 rounded-xl p-3">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-700" for="unlink-current-password" data-i18n="disconnect_google_label">Current password</label>
-                        <p class="mt-1 text-[11px] leading-relaxed text-slate-500" data-i18n="disconnect_google_hint">Enter your password to remove Google sign-in. Keep another sign-in method connected.</p>
-                    </div>
-                    <input id="unlink-current-password" type="password" maxlength="128" autocomplete="current-password" data-i18n-placeholder="current_password_placeholder" placeholder="Current password" class="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <button id="disconnect-google" type="button" class="hidden text-xs text-rose-600 font-bold text-left hover:text-rose-700" data-i18n="disconnect_google_btn">Remove Google sign-in</button>
+            </div>
+
+            <section class="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                <div class="px-3.5 py-2.5 border-b border-slate-100">
+                    <h4 class="text-xs font-black text-slate-900" data-i18n="signin_methods_title">Sign-in methods</h4>
+                    <p id="connected-methods" class="sr-only" role="status">Loading…</p>
                 </div>
-                <div class="pt-1 border-t border-slate-200">
-                    <button type="button" onclick="signOutOtherSessions()" class="text-xs text-indigo-600 font-bold hover:text-indigo-700" data-i18n="sign_out_other_sessions_btn">Sign out other devices</button>
-                    <p class="mt-1 text-[11px] leading-relaxed text-slate-500" data-i18n="sign_out_other_sessions_hint">Use this if you signed in on a shared or old device.</p>
+
+                <div class="divide-y divide-slate-100">
+                    <div class="p-3.5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
+                                <i class="fa-solid fa-envelope text-sm"></i>
+                            </div>
+                            <div class="min-w-0 flex-grow">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h5 class="text-xs font-black text-slate-900" data-i18n="email_signin_title">Email & password</h5>
+                                    <span id="security-email-status" class="text-[10px] font-black rounded-full px-2 py-0.5 bg-slate-100 text-slate-500">…</span>
+                                </div>
+                                <p id="security-email-value" class="mt-0.5 text-xs text-slate-500 truncate" data-i18n="loading_label">Loading…</p>
+                            </div>
+                            <button id="security-email-action" type="button" data-security-toggle="email" aria-controls="security-email-panel" aria-expanded="false" class="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 transition">
+                                <span data-i18n="manage_btn">Manage</span>
+                            </button>
+                        </div>
+
+                        <div id="security-email-panel" class="hidden mt-4 p-3.5 rounded-2xl border border-slate-200 bg-slate-50 space-y-3">
+                            <p id="security-email-help" class="text-[11px] leading-relaxed text-slate-500"></p>
+                            <div id="security-email-input-wrap" class="space-y-2">
+                                <label for="security-email-input" class="text-[11px] font-bold text-slate-700" data-i18n="new_email_label">New email address</label>
+                                <input id="security-email-input" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" class="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+
+                            <div id="security-email-password-auth" class="hidden space-y-2">
+                                <label for="security-email-current-password" class="text-[11px] font-bold text-slate-700" data-i18n="current_password_label">Current password</label>
+                                <div class="relative">
+                                    <input id="security-email-current-password" type="password" maxlength="128" autocomplete="current-password" class="w-full pl-3.5 pr-10 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                    <button type="button" aria-label="Show or hide password" onclick="togglePasswordVisibility('security-email-current-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"><i class="fa-solid fa-eye text-xs"></i></button>
+                                </div>
+                            </div>
+<div id="security-email-google-only" class="hidden rounded-2xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-800">
+                                <span data-i18n="google_only_password_help">This email currently belongs to your Google sign-in. Use password recovery to create password access before changing sign-in methods.</span>
+                                <a href="/forgot-password" class="ml-1 font-black underline" data-i18n="password_recovery_link">Password recovery</a>
+                            </div>
+
+                            <div style="padding-top: 12px;">
+                                <button id="security-email-save" type="button" onclick="saveEmailSignInMethod()" class="w-full px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition" data-i18n="save_email_method_btn">Continue</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-3.5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-white border border-slate-200 flex items-center justify-center flex-shrink-0">
+                                <img src="{{ url_for('static', filename='images/google-g.svg') }}" alt="" class="w-4 h-4">
+                            </div>
+                            <div class="min-w-0 flex-grow">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h5 class="text-xs font-black text-slate-900">Google</h5>
+                                    <span id="security-google-status" class="text-[10px] font-black rounded-full px-2 py-0.5 bg-slate-100 text-slate-500">…</span>
+                                </div>
+                                <p id="security-google-value" class="mt-0.5 text-xs text-slate-500" data-i18n="google_signin_desc">Use your Google account as another sign-in method.</p>
+                            </div>
+                            {% if google_auth_enabled %}
+                            <button id="connect-google" type="button" data-google-button onclick="startGoogleSignIn(true)" class="hidden px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 transition" data-i18n="connect_btn">Connect</button>
+                            <button id="security-google-manage" type="button" data-security-toggle="google" aria-controls="security-google-panel" aria-expanded="false" class="hidden px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 transition"><span data-i18n="manage_btn">Manage</span></button>
+                            {% endif %}
+                        </div>
+                        <div id="security-google-panel" class="hidden mt-4 p-3.5 rounded-2xl border border-slate-200 bg-slate-50 space-y-3">
+                            <p id="google-password-note" class="text-[11px] leading-relaxed text-slate-500" data-i18n="disconnect_google_help">Disconnect Google only after another sign-in method is working.</p>
+                            <div id="unlink-google-controls" class="hidden space-y-2.5">
+                                <label class="text-[11px] font-bold text-slate-700" for="unlink-current-password" data-i18n="password_to_disconnect_google">Password to disconnect Google</label>
+                                <div class="relative">
+                                    <input id="unlink-current-password" type="password" maxlength="128" autocomplete="current-password" class="w-full pl-3.5 pr-10 py-2.5 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                    <button type="button" aria-label="Show or hide password" onclick="togglePasswordVisibility('unlink-current-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600">
+                                        <i class="fa-solid fa-eye text-xs"></i>
+                                    </button>
+                                </div>
+                                <div style="padding-top: 12px;">
+                                    <button id="disconnect-google" type="button" class="hidden w-full px-4 py-2.5 rounded-xl border border-rose-100 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold transition" data-i18n="disconnect_google_btn">Disconnect Google</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
-            <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
-                <div class="flex items-center justify-between">
-                    <h4 class="text-xs font-black text-slate-800 flex items-center gap-1.5" data-i18n="change_email_label">
-                        <i class="fa-solid fa-shield-halved text-indigo-500"></i>
-                        <span>Change Email Address</span>
-                    </h4>
-                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-white border border-slate-200 px-2 py-0.5 rounded-full" data-i18n="secure_badge">Protected</span>
-                </div>
-                <div class="p-2.5 bg-white rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-                    <span class="text-slate-500 font-medium" data-i18n="current_email_label">Current Email:</span>
-                    <span id="current-user-email-display" class="font-bold text-slate-900 font-mono text-[11px] truncate max-w-[200px]">user@example.com</span>
-                </div>
-                <div class="space-y-2">
-                    <input type="email" autocomplete="email" id="edit-new-email" required placeholder="Enter new email" data-i18n-placeholder="new_email_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
-                    <div class="relative">
-                        <input type="password" maxlength="128" autocomplete="current-password" id="edit-email-current-password" required placeholder="Enter current password to authorize" data-i18n-placeholder="enter_current_password_placeholder" class="w-full pl-3.5 pr-10 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
-                        <button type="button" aria-label="Show or hide password" onclick="togglePasswordVisibility('edit-email-current-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition focus:outline-none" title="Toggle visibility">
-                            <i class="fa-solid fa-eye text-xs"></i>
-                        </button>
+
+            <section id="password-security-card" class="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm space-y-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center"><i class="fa-solid fa-key text-xs"></i></div>
+                    <div>
+                        <h4 class="text-xs font-black text-slate-900" data-i18n="change_password_label">Change password</h4>
+                        <p class="text-[11px] text-slate-500" data-i18n="password_security_desc">Use a unique password you do not use on other sites.</p>
                     </div>
-                    <button type="button" id="update-email-btn" onclick="handleUserEmailChange()" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5" data-i18n="change_email_btn">
-                        <i class="fa-solid fa-shield-halved text-xs"></i>
-                        <span>Send confirmation</span>
-                    </button>
                 </div>
-            </div>
-            <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
-                <h4 class="text-xs font-black text-slate-800 flex items-center gap-1.5" data-i18n="change_password_label">
-                    <i class="fa-solid fa-lock text-indigo-500"></i>
-                    <span>Change Password</span>
-                </h4>
-                <div class="space-y-2">
-                    <input type="password" maxlength="128" autocomplete="current-password" id="edit-old-password" required placeholder="Current password" data-i18n-placeholder="current_password_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
-                    <input type="password" maxlength="128" autocomplete="new-password" id="edit-new-password" required minlength="8" placeholder="New password (8+ characters)" data-i18n-placeholder="new_password_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
-                    <input type="password" maxlength="128" autocomplete="new-password" id="edit-confirm-new-password" required minlength="8" placeholder="Repeat new password" data-i18n-placeholder="confirm_new_password_placeholder" class="w-full px-3.5 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
-                    <button type="button" id="update-password-btn" onclick="handleUserPasswordChange()" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2" data-i18n="change_password_btn">
-                        <i class="fa-solid fa-check text-xs"></i>
-                        <span>Update password</span>
-                    </button>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input type="password" maxlength="128" autocomplete="current-password" id="edit-old-password" placeholder="Current password" data-i18n-placeholder="current_password_placeholder" class="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input type="password" maxlength="128" autocomplete="new-password" id="edit-new-password" minlength="8" placeholder="New password" data-i18n-placeholder="new_password_placeholder" class="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input type="password" maxlength="128" autocomplete="new-password" id="edit-confirm-new-password" minlength="8" placeholder="Confirm password" data-i18n-placeholder="confirm_new_password_label" class="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
-            </div>
+                <p id="password-security-status" class="hidden text-[11px] font-semibold leading-relaxed"></p>
+                <div class="flex justify-end pt-1">
+                    <button type="button" id="update-password-btn" onclick="handleUserPasswordChange()" class="px-4 py-2.5 bg-slate-900  text-white text-xs font-bold rounded-xl transition" data-i18n="change_password_btn">Change Password</button>
+                </div>
+            </section>
+
+            <section id="password-security-note" class="hidden rounded-3xl border border-slate-200 bg-slate-50 p-3.5">
+                <p class="text-xs leading-relaxed text-slate-600" data-i18n="password_method_note">Password controls appear after an email & password sign-in method is connected.</p>
+            </section>
+
+            <section id="sessions-security-card" class="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center"><i class="fa-solid fa-laptop-file text-xs"></i></div>
+                    <div>
+                        <h4 class="text-xs font-black text-slate-900" data-i18n="sessions_title">Other sessions</h4>
+                        <p class="text-[11px] text-slate-500" data-i18n="sessions_desc">Sign out CatRank on your other browsers and devices.</p>
+                    </div>
+                </div>
+                <button id="signout-other-sessions-btn" type="button" onclick="signOutOtherSessions()" class="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 transition" data-i18n="signout_other_sessions_btn">Sign out other sessions</button>
+            </section>
         </div>
     </div>
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="{{ asset_url('js/profile-cats.js') }}"></script>
+<script src="{{ url_for('static', filename='js/profile-cats.js') }}?v=12"></script>
 <script>
 const profileContainer = document.getElementById("profile-container");
 const targetUserId = profileContainer && profileContainer.dataset.viewUserId ? profileContainer.dataset.viewUserId : null;
@@ -231,12 +275,14 @@ let isResetAvatarChosen = false;
 let customModalAvatarFile = null;
 let currentProfileAvatarUrl = "";
 function switchProfileModalTab(tab) {
-    if (tab === "security") loadConnectedMethods();
     const basicTab = document.getElementById("tab-content-basic");
     const secTab = document.getElementById("tab-content-security");
     const basicBtn = document.getElementById("tab-btn-basic");
     const secBtn = document.getElementById("tab-btn-security");
     if (tab === 'basic') {
+        if (typeof window.closeSecurityMethod === "function") {
+            for (const method of ["email", "google"]) window.closeSecurityMethod(method);
+        }
         if (basicTab) basicTab.classList.remove("hidden");
         if (secTab) secTab.classList.add("hidden");
         if (basicBtn) basicBtn.className = "px-4 py-2 text-xs font-bold text-indigo-600 border-b-2 border-indigo-600 transition";
@@ -246,6 +292,11 @@ function switchProfileModalTab(tab) {
         if (secTab) secTab.classList.remove("hidden");
         if (basicBtn) basicBtn.className = "px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition";
         if (secBtn) secBtn.className = "px-4 py-2 text-xs font-bold text-indigo-600 border-b-2 border-indigo-600 transition";
+        if (typeof window.loadConnectedMethods === "function") {
+            Promise.resolve(window.loadConnectedMethods()).catch((error) => {
+                console.warn("Could not load account security methods:", error);
+            });
+        }
     }
 }
 async function loadProfile() {
@@ -287,14 +338,6 @@ async function loadProfile() {
             emailBadge.classList.remove("hidden");
             emailBadge.classList.add("inline-flex");
         }
-        const phoneBadge = document.getElementById("profile-phone-badge");
-        const phoneText = document.getElementById("profile-phone-text");
-        const phoneVal = (session.user.user_metadata && (session.user.user_metadata.phone_number || session.user.user_metadata.phone)) || session.user.phone;
-        if (phoneBadge && phoneText && phoneVal) {
-            phoneText.innerText = phoneVal;
-            phoneBadge.classList.remove("hidden");
-            phoneBadge.classList.add("inline-flex");
-        }
         if (editOverlayBtn) {
             editOverlayBtn.classList.remove("hidden");
             editOverlayBtn.classList.add("flex");
@@ -321,7 +364,10 @@ async function loadProfile() {
         actionsElem.innerHTML = "";
     }
     try {
-        const res = await fetch(`/api/user/${encodeURIComponent(userIdToLoad)}/profile`);
+        if (isSelf && typeof bootstrapSignedInProfile === 'function' && currentSession) {
+            await bootstrapSignedInProfile(currentSession);
+        }
+        const res = await fetch(`/api/user/${encodeURIComponent(userIdToLoad)}/profile`, { cache: 'no-store' });
         if (!res.ok) {
             if (res.status !== 404) throw new Error("Could not load this profile. Please try again.");
             document.getElementById("profile-container").classList.add("hidden");
@@ -348,14 +394,16 @@ function openEditProfileModal() {
     const modal = document.getElementById("edit-profile-modal");
     if (!modal) return;
     modal.classList.remove("hidden");
+    document.documentElement.classList.add("overflow-hidden");
+    document.body.classList.add("overflow-hidden");
+    const dialog = document.getElementById("edit-profile-dialog");
+    if (dialog) dialog.scrollTop = 0;
     switchProfileModalTab('basic');
     const nameInput = document.getElementById("edit-display-name");
-    const phoneInput = document.getElementById("edit-user-phone");
     const bioInput = document.getElementById("edit-user-bio");
     const previewImg = document.getElementById("edit-avatar-preview");
     if (currentSession && currentSession.user) {
         nameInput.value = getUserDisplayName(currentSession.user);
-        phoneInput.value = (currentSession.user.user_metadata && (currentSession.user.user_metadata.phone_number || currentSession.user.user_metadata.phone)) || "";
         bioInput.value = (currentSession.user.user_metadata && currentSession.user.user_metadata.bio) || "";
         previewImg.src = getAvatarUrl(currentSession.user);
         const currentEmailEl = document.getElementById("current-user-email-display");
@@ -369,6 +417,11 @@ function openEditProfileModal() {
 function closeEditProfileModal() {
     const modal = document.getElementById("edit-profile-modal");
     if (modal) modal.classList.add("hidden");
+    document.documentElement.classList.remove("overflow-hidden");
+    document.body.classList.remove("overflow-hidden");
+    if (typeof window.closeSecurityMethod === "function") {
+        for (const method of ["email", "google"]) window.closeSecurityMethod(method);
+    }
 }
 function handleModalAvatarSelect(input) {
     if (!input || !input.files || input.files.length === 0) return;
@@ -404,11 +457,9 @@ async function saveUserProfileChanges() {
         return;
     }
     const nameInput = document.getElementById("edit-display-name");
-    const phoneInput = document.getElementById("edit-user-phone");
     const bioInput = document.getElementById("edit-user-bio");
     const saveBtn = document.getElementById("save-profile-btn");
     const newName = nameInput.value.trim() || "Cat Lover";
-    const newPhone = phoneInput.value.trim();
     const newBio = bioInput.value.trim();
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Saving...</span>';
@@ -435,7 +486,6 @@ async function saveUserProfileChanges() {
             },
             body: JSON.stringify({
                 display_name: newName,
-                phone: newPhone,
                 bio: newBio,
                 reset_avatar: isResetAvatarChosen
             })
@@ -456,47 +506,15 @@ async function saveUserProfileChanges() {
         saveBtn.innerHTML = '<i class="fa-solid fa-check text-xs"></i> <span>Save Changes</span>';
     }
 }
-async function handleUserEmailChange() {
-    if (!currentSession || !currentSession.user || !supabaseClient) return;
-    const emailInput = document.getElementById("edit-new-email");
-    const passInput = document.getElementById("edit-email-current-password");
-    const btn = document.getElementById("update-email-btn");
-    const newEmail = emailInput.value.trim().toLowerCase();
-    const currentPass = passInput ? passInput.value : "";
-    const currentEmail = String(currentSession.user.email || '').toLowerCase();
-    if (!newEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail)) {
-        showToast("Please enter a valid new email address.", "error");
-        return;
-    }
-    if (newEmail === currentEmail) {
-        showToast("This is already your current email address.", "info");
-        return;
-    }
-    if (!currentPass) {
-        showToast("Current password is required to change email.", "error");
-        return;
-    }
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Verifying...</span>';
-    try {
-        const updateData = await authRequest('/api/user/security', {action: 'email', value: newEmail, current_password: currentPass}, 'PUT', true);
-        if (!updateData.requires_confirmation) {
-            showToast(updateData.message, "info");
-            await supabaseClient.auth.refreshSession();
-            await loadProfile();
-            return;
-        }
-        showToast(`Check ${newEmail} for the confirmation link. You may also need to confirm from your current inbox.`, "success");
-        emailInput.value = "";
-        if (passInput) passInput.value = "";
-        const currentEmailEl = document.getElementById("current-user-email-display");
-        if (currentEmailEl) currentEmailEl.innerText = currentEmail + ' (change pending)';
-    } catch (e) {
-        showToast("Error: " + e.message, "error");
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-shield-halved text-xs"></i> <span>' + (typeof t === "function" ? t("change_email_btn") : "Update Email") + '</span>';
-    }
+function setPasswordSecurityStatus(message = "", type = "error") {
+    const status = document.getElementById("password-security-status");
+    if (!status) return;
+    const text = String(message || "").trim();
+    status.textContent = text;
+    status.classList.toggle("hidden", !text);
+    status.classList.toggle("text-rose-600", type === "error");
+    status.classList.toggle("text-emerald-600", type === "success");
+    status.classList.toggle("text-slate-500", type === "info");
 }
 async function handleUserPasswordChange() {
     if (!supabaseClient || !currentSession || !currentSession.user) return;
@@ -507,28 +525,39 @@ async function handleUserPasswordChange() {
     const oldPass = oldPassInput ? oldPassInput.value : "";
     const newPass = passInput.value;
     const confirmPass = confirmInput.value;
+    setPasswordSecurityStatus();
     if (!oldPass) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Пожалуйста, введите текущий пароль." : "Please enter your current password.", "error");
+        setPasswordSecurityStatus(typeof t === "function" && currentLang === "ru" ? "Введите текущий пароль." : "Enter your current password.", "error");
+        oldPassInput?.focus();
         return;
     }
     if (!newPass || newPass.length < 8) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Новый пароль должен содержать минимум 8 символов." : "New password must be at least 8 characters.", "error");
+        setPasswordSecurityStatus(typeof t === "function" && currentLang === "ru" ? "Новый пароль должен содержать минимум 8 символов." : "New password must be at least 8 characters.", "error");
+        passInput?.focus();
         return;
     }
     if (newPass !== confirmPass) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Новые пароли не совпадают." : "Passwords do not match.", "error");
+        setPasswordSecurityStatus(typeof t === "function" && currentLang === "ru" ? "Новые пароли не совпадают." : "Passwords do not match.", "error");
+        confirmInput?.focus();
         return;
     }
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> <span>Verifying...</span>';
     try {
         const result = await authRequest('/api/user/security', {action: 'password', value: newPass, current_password: oldPass}, 'PUT', true);
-        showToast(result.message, "success");
+        setPasswordSecurityStatus();
         if (oldPassInput) oldPassInput.value = "";
         passInput.value = "";
         confirmInput.value = "";
+        if (typeof showImportantAlert === "function") {
+            showImportantAlert(
+                result.message || (currentLang === "ru" ? "Пароль успешно изменён." : "Your password was changed successfully."),
+                "success",
+                { title: currentLang === "ru" ? "Пароль обновлён" : "Password updated" }
+            );
+        }
     } catch (e) {
-        showToast("Error: " + e.message, "error");
+        setPasswordSecurityStatus((currentLang === "ru" ? "Не удалось изменить пароль: " : "Could not change password: ") + e.message, "error");
     } finally {
         btn.disabled = false;
         btn.innerHTML = typeof t === "function" ? t("change_password_btn") : "Change Password";

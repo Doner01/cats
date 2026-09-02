@@ -7,17 +7,16 @@ import secrets
 import importlib
 from collections import OrderedDict
 from io import BytesIO
-from functools import lru_cache, wraps
+from functools import wraps, lru_cache
 from datetime import datetime, timezone, timedelta
 from time import monotonic
 from pathlib import Path
-from threading import Lock
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 from urllib.parse import quote, urlparse
 
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, jsonify, g, Response, url_for
+from flask import Flask, render_template, request, jsonify, g, Response
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -41,24 +40,24 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["RATELIMIT_HEADERS_ENABLED"] = True
 
-
-@lru_cache(maxsize=128)
-def asset_fingerprint(filename: str) -> str:
-    directory = (BASE_DIR / "static").resolve()
-    path = (directory / filename).resolve()
-    if not path.is_relative_to(directory) or not path.is_file():
-        raise ValueError("Static asset is missing or outside the static directory")
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
-
-
-def asset_url(filename: str) -> str:
-    return url_for("static", filename=filename, v=asset_fingerprint(filename))
-
 def env_flag(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+@lru_cache(maxsize=256)
+def asset_fingerprint(filename: str) -> str:
+    """Return a stable content hash for one public static asset."""
+    raw = str(filename or "").replace("\\", "/").strip()
+    candidate = Path(raw)
+    if not raw or candidate.is_absolute() or ".." in candidate.parts:
+        raise ValueError("Invalid static asset path")
+    static_root = (BASE_DIR / "static").resolve()
+    path = (static_root / candidate).resolve()
+    if path == static_root or static_root not in path.parents or not path.is_file():
+        raise ValueError("Static asset does not exist")
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 SUPABASE_URL: str = (os.getenv("SUPABASE_URL") or "").strip()
 SUPABASE_ANON_KEY: str = (os.getenv("SUPABASE_ANON_KEY") or "").strip()
@@ -69,7 +68,6 @@ ENABLE_DEMO_DATA: bool = env_flag("ENABLE_DEMO_DATA", False)
 APP_ENV: str = (os.getenv("APP_ENV") or "development").strip().lower()
 IS_PRODUCTION: bool = APP_ENV == "production"
 GOOGLE_AUTH_ENABLED: bool = env_flag("GOOGLE_AUTH_ENABLED", False)
-PHONE_AUTH_ENABLED: bool = env_flag("PHONE_AUTH_ENABLED", False)
 ALLOWED_COUNTRIES = frozenset(code.strip().upper() for code in os.getenv("ALLOWED_COUNTRIES", "").split(",") if code.strip())
 COUNTRY_ACCESS_ENABLED: bool = env_flag("COUNTRY_ACCESS_ENABLED", False)
 if COUNTRY_ACCESS_ENABLED and (not ALLOWED_COUNTRIES or any(not re.fullmatch(r"[A-Z]{2}", c) for c in ALLOWED_COUNTRIES)):
@@ -301,35 +299,22 @@ R2_BUCKET_NAME: str = os.getenv("R2_BUCKET_NAME", "cat-images").strip()
 R2_PUBLIC_DOMAIN: str = os.getenv("R2_PUBLIC_DOMAIN", "").strip().rstrip("/")
 
 r2_client: Any = None
-_r2_init_lock = Lock()
-
-
-def get_r2_client() -> Any:
-    global r2_client
-    if r2_client is not None:
-        return r2_client
-    if not (R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY):
-        return None
-    with _r2_init_lock:
-        if r2_client is not None:
-            return r2_client
-        try:
-            boto3_module: Any = importlib.import_module("boto3")
-            config_module: Any = importlib.import_module("botocore.config")
-            r2_client = boto3_module.client(
-                service_name="s3",
-                endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
-                aws_access_key_id=R2_ACCESS_KEY_ID,
-                aws_secret_access_key=R2_SECRET_ACCESS_KEY,
-                region_name="auto",
-                config=config_module.Config(
-                    signature_version="s3v4", connect_timeout=3, read_timeout=10,
-                    retries={"mode": "standard", "total_max_attempts": 2},
-                ),
-            )
-        except Exception as exc:
-            app.logger.warning("Could not initialize image storage (%s)", type(exc).__name__)
-    return r2_client
+if R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY:
+    try:
+        boto3_module: Any = importlib.import_module("boto3")
+        botocore_config_module: Any = importlib.import_module("botocore.config")
+        config_factory: Any = getattr(botocore_config_module, "Config")
+        r2_client = boto3_module.client(
+            service_name="s3",
+            endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+            aws_access_key_id=R2_ACCESS_KEY_ID,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            region_name="auto",
+            config=config_factory(signature_version="s3v4")
+        )
+        app.logger.info("Cloudflare R2 Storage client initialized successfully")
+    except Exception as r2_err:
+        app.logger.warning("Failed to init Cloudflare R2 client: %s", r2_err)
 
 STORAGE_BUCKET: str = "cat-images"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "jfif", "gif"}
@@ -453,10 +438,10 @@ def optimize_image_file(file_bytes: bytes, *, avatar: bool = False) -> Tuple[byt
         return out.getvalue(), "webp", "image/webp"
 
 def upload_file_to_storage(file_bytes: bytes, unique_path: str, content_type: str, bucket_name: str = STORAGE_BUCKET) -> str:
-    storage_client = get_r2_client() if R2_BUCKET_NAME and R2_PUBLIC_DOMAIN else None
-    if storage_client is not None:
+                                              
+    if r2_client and R2_BUCKET_NAME and R2_PUBLIC_DOMAIN:
         try:
-            storage_client.put_object(
+            r2_client.put_object(
                 Bucket=R2_BUCKET_NAME,
                 Key=unique_path,
                 Body=file_bytes,
@@ -502,7 +487,7 @@ def delete_file_from_storage(
         backend = ""
         admin = supabase_admin
 
-        if R2_PUBLIC_DOMAIN:
+        if r2_client and R2_PUBLIC_DOMAIN:
             r2_origin = urlparse(R2_PUBLIC_DOMAIN)
             if (
                 parsed.scheme == r2_origin.scheme
@@ -533,9 +518,7 @@ def delete_file_from_storage(
             return
 
         if backend == "r2":
-            storage_client = get_r2_client()
-            if storage_client is not None:
-                storage_client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+            r2_client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
         elif backend == "supabase" and admin is not None:
             admin.storage.from_(bucket_name).remove([key])
     except Exception as exc:
@@ -669,6 +652,51 @@ def safe_db_insert(table_name: str, payload: Dict[str, Any]) -> Any:
     except Exception as e:
         app.logger.warning("Database insert failed on %s: %s", table_name, e)
         return None
+
+def insert_cat_record_compat(payload: Dict[str, Any]) -> Tuple[Any, Dict[str, Any]]:
+    """Insert a cat while tolerating older deployments that lack optional columns."""
+    admin = supabase_admin
+    if admin is None:
+        return None, dict(payload)
+
+    attempt = dict(payload)
+    optional_columns = ("description", "bio", "user_avatar", "user_name")
+
+    for _ in range(len(optional_columns) + 1):
+        try:
+            return admin.table("cats").insert(attempt).execute(), attempt
+        except Exception as exc:
+            message = str(exc)
+            lowered = message.lower()
+            missing: Optional[str] = None
+
+            match = re.search(r"Could not find the '([A-Za-z0-9_]+)' column", message, re.IGNORECASE)
+            if match:
+                missing = match.group(1)
+            else:
+                match = re.search(r'column(?:\s+[A-Za-z0-9_.]+\.)?["\']?([A-Za-z0-9_]+)["\']?\s+does not exist', message, re.IGNORECASE)
+                if match:
+                    missing = match.group(1)
+
+            if missing not in optional_columns:
+                for column in optional_columns:
+                    if column in attempt and (
+                        f"'{column}'" in message
+                        or f'"{column}"' in message
+                        or f" {column} " in f" {lowered} "
+                    ) and ("pgrst204" in lowered or "schema cache" in lowered or "column" in lowered):
+                        missing = column
+                        break
+
+            if missing in optional_columns and missing in attempt:
+                app.logger.warning("Cats table has no optional %s column; retrying upload without it", missing)
+                attempt.pop(missing, None)
+                continue
+
+            app.logger.warning("Cat database insert failed: %s", exc)
+            return None, attempt
+
+    return None, attempt
 
 def safe_db_update(table_name: str, payload: Dict[str, Any], id_column: str, id_value: Any) -> Any:
     if not supabase_admin:
@@ -821,9 +849,7 @@ def server_error(error: Any) -> Any:
 
 @app.context_processor
 def shared_template_context() -> Dict[str, Any]:
-    return {"supabase_url": SUPABASE_URL, "supabase_anon_key": SUPABASE_ANON_KEY,
-            "google_auth_enabled": GOOGLE_AUTH_ENABLED, "phone_auth_enabled": PHONE_AUTH_ENABLED,
-            "asset_url": asset_url}
+    return {"supabase_url": SUPABASE_URL, "supabase_anon_key": SUPABASE_ANON_KEY, "google_auth_enabled": GOOGLE_AUTH_ENABLED, "asset_fingerprint": asset_fingerprint}
 
 @app.route("/livez")
 def livez() -> Any:
@@ -939,7 +965,12 @@ def leaderboard_page() -> Any:
 
 @app.route("/upload")
 def upload_page() -> str:
-    return render_template("upload.html", supabase_url=SUPABASE_URL, supabase_anon_key=SUPABASE_ANON_KEY)
+    return render_template(
+        "upload.html",
+        supabase_url=SUPABASE_URL,
+        supabase_anon_key=SUPABASE_ANON_KEY,
+        max_upload_bytes=MAX_FILE_SIZE,
+    )
 
 @app.route("/login")
 def login_page() -> str:
@@ -1014,9 +1045,11 @@ def upload_cat() -> Any:
         }
 
         if supabase_admin:
-            if safe_db_insert("cats", cat_record) is None:
+            insert_result, stored_cat_record = insert_cat_record_compat(cat_record)
+            if insert_result is None:
                 delete_file_from_storage(public_url, STORAGE_BUCKET, allowed_prefix=f"{user_id}/")
                 return jsonify({"error": "Database write failed. The uploaded image was rolled back."}), 503
+            cat_record = stored_cat_record
         elif ENABLE_DEMO_DATA:
             MOCK_CATS.insert(0, cat_record)
 
@@ -1278,9 +1311,16 @@ def get_comments(cat_id: str) -> Any:
         if has_more:
             last = rows[-1]
             next_cursor = serializer.dumps({"cat": cat_id, "created_at": last["created_at"], "id": last["id"]})
-        payload = {"comments": rows, "total": total, "next_cursor": next_cursor, "has_more": has_more}
+        payload: Dict[str, Any] = {
+            "comments": rows,
+            "total": total,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
+        }
         cache_set(key, payload, 15)
-        return jsonify(dict(payload, server_time=datetime.now(timezone.utc).isoformat()))
+        response_payload: Dict[str, Any] = dict(payload)
+        response_payload["server_time"] = datetime.now(timezone.utc).isoformat()
+        return jsonify(response_payload)
     except Exception:
         app.logger.exception("Could not load comments for cat %s", cat_id)
         return jsonify({"error": "Comments service is unavailable."}), 503
@@ -1426,7 +1466,7 @@ def mutate_comment(comment_id: str, *, delete: bool = False, admin_only: bool = 
     if not supabase_admin:
         return jsonify({"error": "Comments service is unavailable."}), 503
     try:
-        row = get_db_row(supabase_admin.table("comments").select("id,user_id,cat_id").eq("id", comment_id))
+        row = get_db_row(supabase_admin.table("comments").select("id,user_id,cat_id,created_at").eq("id", comment_id))
         if not row:
             return jsonify({"error": "Comment not found."}), 404
         if str(row.get("user_id")) != str(user.id) and not admin:
@@ -1439,6 +1479,23 @@ def mutate_comment(comment_id: str, *, delete: bool = False, admin_only: bool = 
         if not isinstance(raw, str) or not raw.strip() or len(raw.strip()) > 300:
             return jsonify({"error": "Comments must contain 1–300 characters."}), 400
         text = clean_text(raw, max_length=300)
+        # Enforce the two-minute edit window in the API as well as in Postgres.
+        # This protects lightweight/fallback clients too and means a missing RPC
+        # can never silently turn into an unlimited edit endpoint.
+        if not admin:
+            try:
+                created_at = datetime.fromisoformat(str(row.get("created_at") or "").replace("Z", "+00:00"))
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - created_at.astimezone(timezone.utc) > timedelta(minutes=2):
+                    return jsonify({"error": "Comments can only be edited during the first two minutes after posting.", "code": "edit_window_expired"}), 409
+            except (TypeError, ValueError):
+                app.logger.warning("Comment %s has an invalid created_at; refusing a non-admin edit", comment_id)
+                return jsonify({"error": "Could not verify the comment edit window. Please reload and try again."}), 409
+        if not hasattr(supabase_admin, "rpc"):
+            supabase_admin.table("comments").update({"comment": text, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", comment_id).execute()
+            invalidate_comments(row.get("cat_id"))
+            return jsonify({"message": "Comment updated.", "comment_id": comment_id, "comment": text, "updated_at": datetime.now(timezone.utc).isoformat()})
         result = supabase_admin.rpc("edit_comment_with_window", {"p_comment_id": comment_id, "p_user_id": str(user.id), "p_comment": text, "p_admin": admin}).execute()
         rows = as_row_list(result.data)
         if not rows:
@@ -1644,8 +1701,6 @@ def register_user() -> Any:
         if not isinstance(password, str):
             return jsonify({"error": "Invalid password."}), 400
         display_name = clean_text(data.get("display_name"), max_length=40, fallback=email.split("@")[0] if "@" in email else "Cat Lover")
-        phone = clean_text(data.get("phone"), max_length=30)
-        bio = clean_text(data.get("bio"), max_length=150)
         avatar_url = sanitize_image_url(data.get("avatar_url"), fallback_name=display_name)
 
         if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
@@ -1666,8 +1721,6 @@ def register_user() -> Any:
         options: Dict[str, Any] = {
             "data": {
                 "display_name": display_name,
-                "phone_number": phone,
-                "bio": bio,
                 "avatar_url": avatar_url,
             },
             "email_redirect_to": f"{public_site_url()}/login?confirmed=1",
@@ -1724,9 +1777,10 @@ def sync_user_profile() -> Any:
         has_name = "display_name" in data
         if "avatar_url" in data:
             return jsonify({"error": "Avatar URLs cannot be set directly. Upload an image or request a default-avatar reset."}), 400
+        if "phone" in data or "phone_number" in data:
+            return jsonify({"error": "Phone numbers are no longer used by CatRank accounts."}), 409
         reset_avatar = data.get("reset_avatar") is True
         has_avatar = reset_avatar
-        has_phone = "phone" in data or "phone_number" in data
         has_bio = "bio" in data
 
         new_name = clean_text(data.get("display_name"), max_length=40) if has_name else ""
@@ -1736,8 +1790,6 @@ def sync_user_profile() -> Any:
         auth_email = str(getattr(getattr(g, "user", None), "email", "") or "")
         default_avatar_name = new_name if has_name else (auth_email.split("@", 1)[0] if "@" in auth_email else "Cat Lover")
         new_avatar = generate_default_avatar(default_avatar_name) if has_avatar else ""
-        raw_phone = data.get("phone") if "phone" in data else data.get("phone_number")
-        new_phone = clean_text(raw_phone, max_length=30) if has_phone else ""
         new_bio = clean_text(data.get("bio"), max_length=150) if has_bio else ""
 
         old_avatar_url = ""
@@ -1760,8 +1812,6 @@ def sync_user_profile() -> Any:
                 profile_data["display_name"] = new_name
             if has_avatar and new_avatar:
                 profile_data["avatar_url"] = new_avatar
-            if has_phone:
-                profile_data["phone"] = new_phone or None
             if has_bio:
                 profile_data["bio"] = new_bio or None
             profile_result = safe_db_update("profiles", profile_data, "id", user_id)
@@ -1774,8 +1824,6 @@ def sync_user_profile() -> Any:
                     auth_meta["display_name"] = new_name
                 if has_avatar and new_avatar:
                     auth_meta["avatar_url"] = new_avatar
-                if has_phone:
-                    auth_meta["phone_number"] = new_phone
                 if has_bio:
                     auth_meta["bio"] = new_bio
                 if auth_meta:
@@ -1800,7 +1848,6 @@ def sync_user_profile() -> Any:
             "message": "User profile synchronized successfully.",
             "display_name": new_name if has_name else None,
             "avatar_url": new_avatar if has_avatar else None,
-            "phone": new_phone if has_phone else None,
             "bio": new_bio if has_bio else None,
         }), 200
     except Exception:
@@ -1971,11 +2018,14 @@ def get_public_profile(user_id: str) -> Any:
     user_avatar = ""
     user_bio = ""
     user_found = False
+    service_error = False
 
     admin = supabase_admin
     if admin is not None:
+        # Profiles created by older CatRank versions may not have every optional
+        # column. Selecting * keeps profile loading backward-compatible.
         try:
-            p_res = admin.table("profiles").select("id,display_name,bio,avatar_url").eq("id", user_id).limit(1).execute()
+            p_res = admin.table("profiles").select("*").eq("id", user_id).limit(1).execute()
             p_data = as_row_list(getattr(p_res, "data", None))
             if p_data:
                 profile = p_data[0]
@@ -1983,30 +2033,51 @@ def get_public_profile(user_id: str) -> Any:
                 user_name = clean_text(profile.get("display_name"), max_length=40, fallback="Cat Lover")
                 user_avatar = sanitize_image_url(profile.get("avatar_url"), fallback_name=user_name)
                 user_bio = clean_text(profile.get("bio"), max_length=150)
+        except Exception as exc:
+            service_error = True
+            app.logger.warning("Profile row lookup failed for %s: %s", user_id, exc)
 
+        try:
             cats = fetch_all_rows(lambda: admin.table("cats").select("*").eq("user_id", user_id).order("created_at", desc=True).order("id"))
             if cats:
                 user_found = True
+        except Exception as exc:
+            service_error = True
+            app.logger.warning("Profile cat lookup failed for %s: %s", user_id, exc)
+            cats = []
 
-            if not user_found:
-                try:
-                    u_obj: Any = admin.auth.admin.get_user_by_id(user_id)
-                    u_data: Any = getattr(u_obj, "user", None) or getattr(u_obj, "data", None)
-                    if u_data:
-                        user_found = True
-                        auth_email = str(getattr(u_data, "email", "") or "")
-                        if isinstance(u_data, dict):
-                            u_data_map = cast(Dict[str, Any], u_data)
-                            auth_email = str(u_data_map.get("email") or auth_email)
-                        email_local = auth_email.split("@", 1)[0] if "@" in auth_email else "Cat Lover"
-                        user_name = clean_text(email_local, max_length=40, fallback="Cat Lover")
-                        user_avatar = generate_default_avatar(user_name)
-                        user_bio = ""
-                except Exception:
-                    pass
-        except Exception:
-            app.logger.exception("Could not load public profile %s", user_id)
-            return jsonify({"error": "Profile service is unavailable."}), 503
+        # Auth is the final source of truth that the account exists. This also
+        # keeps Google-only and phone-only accounts visible before their profile
+        # row has been created or repaired.
+        if not user_found:
+            try:
+                u_obj: Any = admin.auth.admin.get_user_by_id(user_id)
+                u_data: Any = getattr(u_obj, "user", None) or getattr(u_obj, "data", None)
+                if u_data:
+                    user_found = True
+                    raw_meta = getattr(u_data, "user_metadata", {})
+                    meta = cast(Dict[str, Any], raw_meta) if isinstance(raw_meta, dict) else {}
+                    auth_email = str(getattr(u_data, "email", "") or "")
+                    auth_phone = str(getattr(u_data, "phone", "") or "")
+                    if isinstance(u_data, dict):
+                        u_data_map = cast(Dict[str, Any], u_data)
+                        auth_email = str(u_data_map.get("email") or auth_email)
+                        auth_phone = str(u_data_map.get("phone") or auth_phone)
+                        raw_map_meta = u_data_map.get("user_metadata")
+                        if isinstance(raw_map_meta, dict):
+                            meta = cast(Dict[str, Any], raw_map_meta)
+                    email_local = auth_email.split("@", 1)[0] if "@" in auth_email else ""
+                    fallback = email_local or (auth_phone[-4:] and f"Cat Lover {auth_phone[-4:]}" if auth_phone else "Cat Lover")
+                    user_name = clean_text(
+                        meta.get("display_name") or meta.get("full_name") or meta.get("name"),
+                        max_length=40,
+                        fallback=fallback or "Cat Lover",
+                    )
+                    user_avatar = sanitize_image_url(meta.get("avatar_url"), fallback_name=user_name)
+                    user_bio = clean_text(meta.get("bio"), max_length=150)
+            except Exception as exc:
+                service_error = True
+                app.logger.warning("Auth fallback lookup failed for profile %s: %s", user_id, exc)
 
     elif not ENABLE_DEMO_DATA:
         return jsonify({"error": "Profile service is unavailable."}), 503
@@ -2026,6 +2097,8 @@ def get_public_profile(user_id: str) -> Any:
             user_avatar = generate_default_avatar(user_name)
 
     if not user_found:
+        if service_error:
+            return jsonify({"error": "Profile service is temporarily unavailable."}), 503
         return jsonify({"error": "User not found"}), 404
 
     for c in cats:
@@ -2338,10 +2411,7 @@ def oauth_callback_page() -> str:
 @app.route("/api/auth/options")
 @limiter.limit("60 per minute")
 def auth_options() -> Any:
-    options: Dict[str, bool] = {"google_enabled": GOOGLE_AUTH_ENABLED}
-    if PHONE_AUTH_ENABLED:
-        options["phone_enabled"] = True
-    return jsonify(options)
+    return jsonify({"google_enabled": GOOGLE_AUTH_ENABLED})
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -2460,10 +2530,6 @@ def normalize_phone(value: Any) -> Optional[str]:
     return phone if re.fullmatch(r"\+[1-9]\d{7,14}", phone) else None
 
 
-def phone_rate_key() -> str:
-    phone = normalize_phone(request_json().get("phone")) or "invalid"
-    return "phone:" + hashlib.sha256(phone.encode()).hexdigest()
-
 
 def ensure_auth_profile(user: Any) -> None:
     if not supabase_admin:
@@ -2471,69 +2537,25 @@ def ensure_auth_profile(user: Any) -> None:
     raw = getattr(user, "user_metadata", {})
     meta = cast(Dict[str, Any], raw) if isinstance(raw, dict) else {}
     name = clean_text(meta.get("display_name") or meta.get("full_name") or meta.get("name"), max_length=40, fallback="Cat Lover")
+    user_id = str(user.id)
+    auth_email = clean_text(getattr(user, "email", ""), max_length=254).lower() or None
+    auth_phone = normalize_phone(str(getattr(user, "phone", "") or ""))
+
+    # Create the profile once, but keep verified Auth contact fields as the source of truth.
     supabase_admin.table("profiles").upsert({
-        "id": str(user.id), "email": str(getattr(user, "email", "") or "") or None,
+        "id": user_id, "email": auth_email,
         "display_name": name, "avatar_url": generate_default_avatar(name), "role": "user",
     }, on_conflict="id", ignore_duplicates=True).execute()
-    invalidate_profile_cache(user.id)
 
+    # Email and phone are login credentials. Sync only confirmed values from auth.users;
+    # never trust editable profile metadata for these fields.
+    if safe_db_update("profiles", {"email": auth_email}, "id", user_id) is None:
+        app.logger.debug("Could not sync profile email for %s", user_id)
+    if auth_phone and safe_db_update("profiles", {"phone": auth_phone}, "id", user_id) is None:
+        app.logger.debug("Profiles table has no writable phone field or phone sync failed for %s", user_id)
 
-@app.route("/api/auth/phone/send", methods=["POST"])
-@limiter.limit("1 per minute; 5 per hour", key_func=phone_rate_key)
-@limiter.limit("15 per hour")
-@limiter.limit("100 per day", key_func=lambda: "phone-sms-global")
-def send_phone_code() -> Any:
-    if not PHONE_AUTH_ENABLED:
-        return jsonify({"error": "Phone sign-in is not available yet."}), 503
-    data = request_json()
-    phone = normalize_phone(data.get("phone"))
-    mode = data.get("mode")
-    if not phone or mode not in {"login", "register"}:
-        return jsonify({"error": "Enter your phone number with its country code, for example +998901234567."}), 400
-    name = clean_text(data.get("display_name"), max_length=40, fallback="Cat Lover")
-    options: Dict[str, Any] = {"should_create_user": mode == "register", "channel": "sms"}
-    if mode == "register":
-        options["data"] = {"display_name": name}
-    try:
-        new_auth_client().auth.sign_in_with_otp(cast(Any, {"phone": phone, "options": options}))
-        return jsonify({"message": "Check your phone for a verification code.", "retry_after": 60})
-    except Exception as exc:
-        app.logger.warning("Phone OTP request failed (%s)", type(exc).__name__)
-        code = str(getattr(exc, "code", ""))
-        if code in {"over_sms_send_rate_limit", "over_request_rate_limit"}:
-            return jsonify({"error": "Too many code requests. Please try again later."}), 429
-        if code in {"provider_disabled", "sms_send_failed", "unexpected_failure"}:
-            return jsonify({"error": "SMS sign-in is temporarily unavailable."}), 503
-        return jsonify({"error": "Could not send a code. Check the number. New users should choose Create account."}), 400
+    invalidate_profile_cache(user_id)
 
-
-@app.route("/api/auth/phone/verify", methods=["POST"])
-@limiter.limit("5 per 10 minutes", key_func=phone_rate_key)
-@limiter.limit("30 per hour")
-def verify_phone_code() -> Any:
-    if not PHONE_AUTH_ENABLED:
-        return jsonify({"error": "Phone sign-in is not available yet."}), 503
-    data = request_json()
-    phone = normalize_phone(data.get("phone"))
-    token = data.get("token")
-    if not phone or not isinstance(token, str) or not re.fullmatch(r"\d{6}", token):
-        return jsonify({"error": "Enter a valid phone number and the six-digit SMS code."}), 400
-    try:
-        result = new_auth_client().auth.verify_otp({"phone": phone, "token": token, "type": "sms"})
-    except Exception as exc:
-        app.logger.info("Phone verification rejected (%s)", type(exc).__name__)
-        return jsonify({"error": "This code is invalid or expired. Request a new code and try again."}), 400
-    auth_session = getattr(result, "session", None)
-    user = getattr(result, "user", None)
-    verified_phone = str(getattr(user, "phone", "") or "").lstrip("+")
-    if not auth_session or not user or not getattr(user, "phone_confirmed_at", None) or verified_phone != phone.lstrip("+"):
-        return jsonify({"error": "Phone verification did not complete."}), 401
-    try:
-        ensure_auth_profile(user)
-    except Exception:
-        app.logger.exception("Verified phone profile could not be initialized")
-        return jsonify({"error": "Your number was verified, but your profile could not load. Please sign in again."}), 503
-    return jsonify({"access_token": auth_session.access_token, "refresh_token": auth_session.refresh_token})
 
 
 @app.route("/api/user/comment-likes", methods=["GET"])

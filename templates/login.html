@@ -25,48 +25,10 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
 
     {% if google_auth_enabled %}
     <button type="button" data-google-button onclick="startGoogleSignIn()" class="google-signin-button">
-        <img src="{{ asset_url('images/google-g.svg') }}" alt="" aria-hidden="true" class="google-signin-icon">
+        <img src="{{ url_for('static', filename='images/google-g.svg') }}" alt="" aria-hidden="true" class="google-signin-icon">
         <span data-i18n="continue_google">Continue with Google</span>
     </button>
     <p class="text-center text-xs text-slate-400" data-i18n="or_email">Or use your email</p>
-    {% endif %}
-
-    {% if phone_auth_enabled %}
-    <div class="auth-method-tabs" role="tablist" aria-label="Sign-in method">
-        <button type="button" class="auth-method-tab is-active" data-auth-method-button="login-email" onclick="setAuthMethod('login', 'email')" role="tab" aria-selected="true">
-            <i class="fa-solid fa-envelope" aria-hidden="true"></i><span data-i18n="email_method">Email</span>
-        </button>
-        <button type="button" class="auth-method-tab" data-auth-method-button="login-phone" onclick="setAuthMethod('login', 'phone')" role="tab" aria-selected="false">
-            <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i><span data-i18n="phone_method">Phone</span>
-        </button>
-    </div>
-
-    <p id="login-phone-disabled" data-phone-disabled-message class="hidden auth-phone-note" role="status">
-        Phone sign-in is unavailable until SMS is configured.
-    </p>
-
-    <div id="login-phone-panel" data-auth-phone-panel="login" class="hidden">
-        <form id="login-phone-form" onsubmit="sendPhoneCode('login', event);" class="space-y-4">
-            <div class="space-y-1.5">
-                <label for="login-phone" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <i class="fa-solid fa-phone text-indigo-500 text-xs" aria-hidden="true"></i><span data-i18n="phone_label">Phone Number</span>
-                </label>
-                <input type="tel" id="login-phone" autocomplete="tel" inputmode="tel" required maxlength="20" placeholder="+998 90 123 45 67" data-i18n-placeholder="phone_placeholder" class="w-full px-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
-            </div>
-            <div id="login-phone-code-step" class="hidden space-y-3">
-                <label for="login-phone-code" class="block text-xs font-bold text-slate-700" data-i18n="phone_code_label">SMS code</label>
-                <input type="text" id="login-phone-code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456" class="w-full px-4 py-2.5 text-sm tracking-[0.35em] text-center font-bold border border-slate-200 bg-slate-50 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <div class="flex items-center justify-between gap-2 text-[11px]">
-                    <button type="button" id="login-phone-change" class="text-slate-500 font-bold hover:text-indigo-600" onclick="resetPhoneFlow('login')" data-i18n="change_phone">Change number</button>
-                    <button type="button" id="login-phone-resend" class="text-indigo-600 font-bold disabled:text-slate-400" onclick="sendPhoneCode('login')" data-i18n="resend_code">Resend code</button>
-                </div>
-            </div>
-            <button type="submit" id="login-phone-send" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition shadow-md shadow-indigo-500/20" data-phone-send-button data-i18n="send_code_btn">Send code</button>
-            <button type="button" id="login-phone-verify" class="hidden w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition shadow-md shadow-indigo-500/20" onclick="verifyPhoneCode('login', event)" data-i18n="verify_code_btn">Verify and sign in</button>
-            <p id="login-phone-status" class="text-xs text-slate-500" role="status"></p>
-        </form>
-    </div>
-
     {% endif %}
 
     <form id="login-email-form" data-auth-email-panel="login" onsubmit="event.preventDefault(); handleLogin();" class="space-y-4">

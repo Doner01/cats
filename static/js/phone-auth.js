@@ -195,7 +195,6 @@
     }
 
     async function loadPhoneOptions() {
-        if (!document.querySelector('[data-auth-phone-panel]')) return;
         document.querySelectorAll('[data-phone-send-button]').forEach(button => { button.disabled = true; });
         try {
             const response = await fetch('/api/auth/options');

@@ -6,7 +6,10 @@ const dropZone = document.getElementById("drop-zone");
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'jfif', 'gif'];
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+const uploadConfig = document.getElementById('upload-config');
+const configuredMax = Number(uploadConfig?.dataset.maxBytes || 0);
+const MAX_IMAGE_SIZE = Number.isFinite(configuredMax) && configuredMax > 0 ? configuredMax : 5 * 1024 * 1024;
+const MAX_IMAGE_MB = Math.max(1, Math.floor(MAX_IMAGE_SIZE / (1024 * 1024)));
 
 if (fileInput) {
     fileInput.addEventListener("change", () => {
@@ -54,7 +57,7 @@ function handleFileSelect(file) {
         return;
     }
     if (file.size > MAX_IMAGE_SIZE) {
-        showToast(typeof t === 'function' ? t('file_error_too_large') : "Image must be smaller than 5MB.", "error");
+        showToast(`Image must be smaller than ${MAX_IMAGE_MB}MB.`, "error");
         fileInput.value = "";
         if (previewContainer) previewContainer.classList.add("hidden");
         return;
@@ -118,7 +121,13 @@ if (uploadForm) {
                 body: formData
             });
 
-            const result = await res.json();
+            const responseText = await res.text();
+            let result = {};
+            try {
+                result = responseText ? JSON.parse(responseText) : {};
+            } catch (_) {
+                result = { error: res.status >= 500 ? "The server could not complete the upload. Please try again." : responseText };
+            }
 
             if (res.ok) {
                 showToast(typeof t === 'function' ? t('toast_upload_success') : "Cat uploaded successfully! Redirecting...", "success");

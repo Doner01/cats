@@ -3,6 +3,87 @@ const translations = {
         "continue_google": "Continue with Google",
         "or_email": "Or use your email",
         "connected_methods": "Connected sign-in methods",
+        "security_title": "Sign-in & security",
+        "security_subtitle": "Manage your email/password and Google sign-in methods securely.",
+        "signin_methods_title": "Sign-in methods",
+        "email_signin_title": "Email & password",
+        "phone_signin_title": "Phone",
+        "loading_label": "Loading…",
+        "manage_btn": "Manage",
+        "add_btn": "Add",
+        "change_btn": "Change",
+        "connect_btn": "Connect",
+        "close_btn": "Close",
+        "connected_badge": "Connected",
+        "not_connected_badge": "Not connected",
+        "google_only_badge": "Google only",
+        "unavailable_badge": "Unavailable",
+        "new_phone_label": "New phone number",
+        "phone_e164_hint": "Format: +998901234567",
+        "verify_current_phone_title": "Verify your current phone",
+        "send_code_btn": "Send code",
+        "verify_btn": "Verify",
+        "verify_new_phone_title": "Enter the code sent to your new phone.",
+        "verify_connect_btn": "Verify & connect",
+        "send_new_phone_code_btn": "Send code to new phone",
+        "send_changed_phone_code_btn": "Send code to new phone",
+        "create_password_placeholder": "Create password",
+        "save_email_method_btn": "Continue",
+        "google_only_password_help": "This email currently belongs to your Google sign-in. Use password recovery to create email/password access.",
+        "password_recovery_link": "Password recovery",
+        "disconnect_google_help": "Disconnect Google only after another sign-in method is working.",
+        "password_to_disconnect_google": "Password to disconnect Google",
+        "disconnect_google_btn": "Disconnect Google",
+        "password_security_desc": "Use a unique password you do not use on other sites.",
+        "password_method_note": "Password controls appear after an email & password sign-in method is connected.",
+        "sessions_title": "Other sessions",
+        "sessions_desc": "Sign out CatRank on your other browsers and devices.",
+        "signout_other_sessions_btn": "Sign out other sessions",
+        "google_signin_desc": "Use your Google account as another sign-in method.",
+        "add_email_signin_btn": "Add email sign-in",
+        "change_email_help": "Changing your email requires your current password and email confirmation. Your old email stays active until confirmation finishes.",
+        "add_email_from_phone_help": "Verify your current phone, then add an email and create a password. After email confirmation, both phone and email can sign in to this same account.",
+        "add_email_google_help": "Use password recovery to create email/password access for this Google account.",
+        "email_not_connected_desc": "Add an email and password for another way to sign in.",
+        "phone_not_connected_desc": "Add a verified phone number for SMS sign-in.",
+        "google_connected_desc": "Google is connected to this CatRank account.",
+        "google_disconnect_phone_note": "Google stays connected until an email & password method is added. Your phone sign-in remains available.",
+        "phone_password_reauth_help": "Enter your password, then verify the SMS sent to the new phone. The number becomes a login method only after verification.",
+        "phone_otp_reauth_help": "First verify your current phone, then verify the new phone. This prevents someone with an unlocked session from replacing your number.",
+        "phone_needs_verified_method": "Connect an email & password method first, then you can add phone sign-in.",
+        "phone_code_sent_current": "Code sent to your current phone.",
+        "identity_verified": "Identity verified. You can continue.",
+        "email_method_confirmation_sent": "Email added. Confirm the link sent to your new email; after confirmation you can sign in with either email/password or phone.",
+        "password_signin_enabled": "Password sign-in is now enabled for your existing email.",
+        "new_phone_code_sent": "Verification code sent to the new phone. The number is not a login method until you verify it.",
+        "phone_connected_success": "Phone verified. You can now sign in to this same account with SMS.",
+        "current_password_required": "Enter your current password.",
+        "email_change_sent": "Check your email to confirm the change.",
+        "email_method_error": "Could not update email sign-in.",
+        "google_disconnect_requires_email": "Add a working email & password method before disconnecting Google.",
+        "google_disconnected_success": "Google disconnected. Your email/password sign-in remains available.",
+        "google_email_only": "{email} · Google only",
+        "invalid_email_error": "Enter a valid email address.",
+        "methods_load_error": "Could not load sign-in methods. Reopen settings to retry.",
+        "no_methods_found": "No methods found",
+        "other_sessions_signed_out": "Other sessions signed out. Existing access tokens expire at their normal expiry time.",
+        "password_length_error": "Password must be between 8 and 128 characters.",
+        "password_mismatch_error": "Passwords do not match.",
+        "phone_change_error": "Could not start the phone change.",
+        "phone_code_error": "Enter the six-digit SMS code.",
+        "phone_format_error": "Enter a phone number with its country code, for example +998901234567.",
+        "phone_not_ready": "Phone sign-in is unavailable until SMS is configured.",
+        "phone_reauth_unavailable": "Current phone verification is unavailable.",
+        "phone_send_error": "Could not send the SMS code.",
+        "phone_verify_error": "This code is invalid or expired.",
+        "reauth_unavailable": "Password verification is not available for this account.",
+        "request_new_phone_code_first": "Send a code to the new phone first.",
+        "same_email_info": "This is already your current email address.",
+        "same_phone_info": "This is already your current phone number.",
+        "signin_method_in_use": "That email or phone number is already connected to another account.",
+        "sms_rate_limit": "Too many verification requests. Please wait before trying again.",
+        "verified_method_required": "A verified phone method is required before adding email sign-in.",
+        "verify_current_phone_first": "Verify your current phone first.",
         "current_email_label": "Current Email",
         "new_email_label": "New Email Address",
         "confirm_with_password_label": "Confirm with Current Password",
@@ -233,6 +314,87 @@ const translations = {
         "continue_google": "Продолжить с Google",
         "or_email": "Или используйте почту",
         "connected_methods": "Способы входа",
+        "security_title": "Вход и безопасность",
+        "security_subtitle": "Безопасно управляйте входом по email/паролю и через Google.",
+        "signin_methods_title": "Способы входа",
+        "email_signin_title": "Email и пароль",
+        "phone_signin_title": "Телефон",
+        "loading_label": "Загрузка…",
+        "manage_btn": "Управлять",
+        "add_btn": "Добавить",
+        "change_btn": "Изменить",
+        "connect_btn": "Подключить",
+        "close_btn": "Закрыть",
+        "connected_badge": "Подключено",
+        "not_connected_badge": "Не подключено",
+        "google_only_badge": "Только Google",
+        "unavailable_badge": "Недоступно",
+        "new_phone_label": "Новый номер телефона",
+        "phone_e164_hint": "Формат: +998901234567",
+        "verify_current_phone_title": "Подтвердите текущий телефон",
+        "send_code_btn": "Отправить код",
+        "verify_btn": "Подтвердить",
+        "verify_new_phone_title": "Введите код, отправленный на новый номер.",
+        "verify_connect_btn": "Подтвердить и подключить",
+        "send_new_phone_code_btn": "Отправить код на новый номер",
+        "send_changed_phone_code_btn": "Отправить код на новый номер",
+        "create_password_placeholder": "Создайте пароль",
+        "save_email_method_btn": "Продолжить",
+        "google_only_password_help": "Этот email сейчас используется только для входа через Google. Создайте пароль через восстановление пароля или сначала подключите подтверждённый телефон.",
+        "password_recovery_link": "Восстановление пароля",
+        "disconnect_google_help": "Отключайте Google только после того, как другой способ входа уже работает.",
+        "password_to_disconnect_google": "Пароль для отключения Google",
+        "disconnect_google_btn": "Отключить Google",
+        "password_security_desc": "Используйте уникальный пароль, который не применяется на других сайтах.",
+        "password_method_note": "Настройки пароля появятся после подключения входа по email и паролю.",
+        "sessions_title": "Другие сеансы",
+        "sessions_desc": "Выйдите из CatRank на других браузерах и устройствах.",
+        "signout_other_sessions_btn": "Выйти из других сеансов",
+        "google_signin_desc": "Используйте Google как дополнительный способ входа.",
+        "add_email_signin_btn": "Добавить вход по email",
+        "change_email_help": "Для смены email нужен текущий пароль и подтверждение по почте. Старый адрес останется активным до завершения подтверждения.",
+        "add_email_from_phone_help": "Подтвердите текущий телефон, затем добавьте email и создайте пароль. После подтверждения email вы сможете входить в тот же аккаунт и по телефону, и по email.",
+        "add_email_google_help": "Создайте доступ по паролю через восстановление пароля или сначала подключите подтверждённый телефон.",
+        "email_not_connected_desc": "Добавьте email и пароль как дополнительный способ входа.",
+        "phone_not_connected_desc": "Добавьте подтверждённый номер для входа по SMS.",
+        "google_connected_desc": "Google подключён к этому аккаунту CatRank.",
+        "google_disconnect_phone_note": "Google останется подключённым, пока вы не добавите вход по email и паролю. Вход по телефону продолжит работать.",
+        "phone_password_reauth_help": "Введите пароль, затем подтвердите SMS-код на новом номере. Номер станет способом входа только после подтверждения.",
+        "phone_otp_reauth_help": "Сначала подтвердите текущий телефон, затем новый. Это защищает номер от замены при открытой сессии.",
+        "phone_needs_verified_method": "Сначала подключите вход по email и паролю, затем можно добавить телефон.",
+        "phone_code_sent_current": "Код отправлен на текущий телефон.",
+        "identity_verified": "Личность подтверждена. Можно продолжить.",
+        "email_method_confirmation_sent": "Email добавлен. Подтвердите ссылку в письме; после подтверждения можно будет входить и по email/паролю, и по телефону.",
+        "password_signin_enabled": "Вход по паролю теперь включён для вашего текущего email.",
+        "new_phone_code_sent": "Код отправлен на новый номер. Номер станет способом входа только после подтверждения.",
+        "phone_connected_success": "Телефон подтверждён. Теперь можно входить в этот же аккаунт по SMS.",
+        "current_password_required": "Введите текущий пароль.",
+        "email_change_sent": "Проверьте почту и подтвердите изменение.",
+        "email_method_error": "Не удалось обновить вход по email.",
+        "google_disconnect_requires_email": "Сначала добавьте рабочий вход по email и паролю, затем можно отключить Google.",
+        "google_disconnected_success": "Google отключён. Вход по email и паролю остаётся доступным.",
+        "google_email_only": "{email} · только Google",
+        "invalid_email_error": "Введите корректный email.",
+        "methods_load_error": "Не удалось загрузить способы входа. Закройте и снова откройте настройки.",
+        "no_methods_found": "Способы входа не найдены",
+        "other_sessions_signed_out": "Выполнен выход из других сеансов. Уже выданные токены завершатся по своему обычному сроку.",
+        "password_length_error": "Пароль должен содержать от 8 до 128 символов.",
+        "password_mismatch_error": "Пароли не совпадают.",
+        "phone_change_error": "Не удалось начать смену номера телефона.",
+        "phone_code_error": "Введите шестизначный SMS-код.",
+        "phone_format_error": "Введите номер с кодом страны, например +998901234567.",
+        "phone_not_ready": "Вход по телефону недоступен, пока не настроена отправка SMS.",
+        "phone_reauth_unavailable": "Подтверждение текущего телефона недоступно.",
+        "phone_send_error": "Не удалось отправить SMS-код.",
+        "phone_verify_error": "Код неверный или истёк.",
+        "reauth_unavailable": "Проверка паролем недоступна для этого аккаунта.",
+        "request_new_phone_code_first": "Сначала отправьте код на новый номер.",
+        "same_email_info": "Это уже ваш текущий email.",
+        "same_phone_info": "Это уже ваш текущий номер телефона.",
+        "signin_method_in_use": "Этот email или номер телефона уже подключён к другому аккаунту.",
+        "sms_rate_limit": "Слишком много запросов кода. Подождите и попробуйте позже.",
+        "verified_method_required": "Перед добавлением входа по email нужен подтверждённый телефон.",
+        "verify_current_phone_first": "Сначала подтвердите текущий телефон.",
         "current_email_label": "Текущий Email",
         "new_email_label": "Новый Email адрес",
         "confirm_with_password_label": "Подтвердите текущим паролем",
@@ -492,7 +654,6 @@ Object.assign(translations.en, {
     phone_send_error: 'Could not send the SMS code.', phone_verify_error: 'This code is invalid or expired.',
     phone_signed_in: 'Phone verified. Redirecting…', display_name_required: 'Choose a display name up to 40 characters.',
     like_comment: 'Like comment', unlike_comment: 'Unlike comment',
-    comment_like_error: 'Could not update comment likes. Please try again.',
     comment_edit_expired: 'Comments can only be edited during the first two minutes after posting.',
     comment_edited: 'edited'
 });
@@ -506,55 +667,8 @@ Object.assign(translations.ru, {
     phone_send_error: 'Не удалось отправить код SMS.', phone_verify_error: 'Код недействителен или истёк.',
     phone_signed_in: 'Телефон подтвержден. Перенаправление…', display_name_required: 'Укажите имя длиной до 40 символов.',
     like_comment: 'Нравится комментарий', unlike_comment: 'Убрать лайк',
-    comment_like_error: 'Не удалось обновить лайки комментария. Попробуйте ещё раз.',
     comment_edit_expired: 'Комментарий можно изменить только в первые две минуты после публикации.',
     comment_edited: 'изменен'
-});
-
-Object.assign(translations.en, {
-    connected_methods: 'How you sign in',
-    connected_methods_hint: 'These are the sign-in methods connected to your account.',
-    no_connected_methods: 'No sign-in methods found',
-    connected_methods_error: 'Could not load sign-in methods. Reopen settings to try again.',
-    connect_google_btn: 'Add Google sign-in',
-    google_password_note: 'Use password recovery to set a password for your email. Keep Google connected until you can sign in with that password.',
-    set_password_link: 'Set a password',
-    disconnect_google_label: 'Current password',
-    disconnect_google_hint: 'Enter your password to remove Google sign-in. Keep another sign-in method connected.',
-    disconnect_google_btn: 'Remove Google sign-in',
-    disconnect_google_password_required: 'Enter your current password before removing Google.',
-    google_disconnected: 'Google sign-in removed. Your password sign-in remains available.',
-    sign_out_other_sessions_btn: 'Sign out other devices',
-    sign_out_other_sessions_hint: 'Use this if you signed in on a shared or old device.',
-    other_sessions_signed_out: 'Other sessions will not be renewed. They may stay active briefly.',
-    secure_badge: 'Protected',
-    new_email_placeholder: 'Enter new email',
-    change_email_btn: 'Send confirmation',
-    change_password_btn: 'Update password',
-    confirm_new_password_placeholder: 'Repeat new password'
-});
-
-Object.assign(translations.ru, {
-    connected_methods: 'Как войти в аккаунт',
-    connected_methods_hint: 'Ниже показаны способы входа, подключённые к вашему аккаунту.',
-    no_connected_methods: 'Способы входа не найдены',
-    connected_methods_error: 'Не удалось загрузить способы входа. Откройте настройки ещё раз.',
-    connect_google_btn: 'Подключить Google',
-    google_password_note: 'Создайте пароль через восстановление доступа по почте. Не отключайте Google, пока не проверите вход с новым паролем.',
-    set_password_link: 'Создать пароль',
-    disconnect_google_label: 'Текущий пароль',
-    disconnect_google_hint: 'Введите пароль, чтобы отключить вход через Google. Оставьте другой способ входа подключённым.',
-    disconnect_google_btn: 'Отключить Google',
-    disconnect_google_password_required: 'Введите текущий пароль, прежде чем отключать Google.',
-    google_disconnected: 'Вход через Google отключён. Вход по паролю по-прежнему доступен.',
-    sign_out_other_sessions_btn: 'Выйти с других устройств',
-    sign_out_other_sessions_hint: 'Используйте эту кнопку, если входили с чужого или старого устройства.',
-    other_sessions_signed_out: 'Другие сеансы больше не будут продлеваться. Они могут оставаться активными ещё некоторое время.',
-    secure_badge: 'Защищено',
-    new_email_placeholder: 'Введите новую почту',
-    change_email_btn: 'Отправить подтверждение',
-    change_password_btn: 'Обновить пароль',
-    confirm_new_password_placeholder: 'Повторите новый пароль'
 });
 
 let currentLang = "en";
@@ -572,25 +686,49 @@ function t(key, params = {}) {
 
 function applyTranslations() {
     document.documentElement.lang = currentLang;
+
+    // Never replace readable fallback text with a raw translation key.
+    // This also protects the UI during deploys when an older cached JS file
+    // is briefly mixed with newer HTML.
     document.querySelectorAll("[data-i18n]").forEach(el => {
         const key = el.getAttribute("data-i18n");
-        if (key) {
-            const textSpan = el.querySelector(':scope > span:not([aria-hidden])');
-            if (textSpan) textSpan.textContent = t(key);
-            else if (!el.querySelector('i')) el.textContent = t(key);
+        if (!key) return;
+
+        const translated = t(key);
+        if (!translated || translated === key) return;
+
+        const textSpan = el.querySelector(':scope > span:not([aria-hidden])');
+        if (textSpan) {
+            textSpan.textContent = translated;
+            return;
         }
+
+        const hasVisualChild = el.querySelector(':scope > i, :scope > svg, :scope > img');
+        if (!hasVisualChild) {
+            el.textContent = translated;
+            return;
+        }
+
+        // For controls that have an icon plus a direct text node, preserve
+        // the icon and only replace the visible text.
+        const textNode = Array.from(el.childNodes).find(node =>
+            node.nodeType === Node.TEXT_NODE && node.textContent.trim()
+        );
+        if (textNode) textNode.textContent = ` ${translated}`;
     });
+
     document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
         const key = el.getAttribute("data-i18n-placeholder");
-        if (key) {
-            el.placeholder = t(key);
-        }
+        if (!key) return;
+        const translated = t(key);
+        if (translated && translated !== key) el.placeholder = translated;
     });
+
     document.querySelectorAll("[data-i18n-title]").forEach(el => {
         const key = el.getAttribute("data-i18n-title");
-        if (key) {
-            el.title = t(key);
-        }
+        if (!key) return;
+        const translated = t(key);
+        if (translated && translated !== key) el.title = translated;
     });
     const enBtns = document.querySelectorAll(".lang-btn-en");
     const ruBtns = document.querySelectorAll(".lang-btn-ru");

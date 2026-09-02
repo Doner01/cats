@@ -23,7 +23,7 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
             </label>
             <input type="file" id="reg-avatar-file" accept="image/png, image/jpeg, image/webp" class="hidden" onchange="handleRegAvatarSelect(this)">
             <div class="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] shadow-xs">
-                <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+                <i class="fa-solid fa-sparkles"></i>
             </div>
         </div>
         <h1 class="text-2xl font-black text-slate-900 tracking-tight" data-i18n="join_community_title">Join CatRank</h1>
@@ -34,54 +34,10 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
 
     {% if google_auth_enabled %}
     <button type="button" data-google-button onclick="startGoogleSignIn()" class="google-signin-button">
-        <img src="{{ asset_url('images/google-g.svg') }}" alt="" aria-hidden="true" class="google-signin-icon">
+        <img src="{{ url_for('static', filename='images/google-g.svg') }}" alt="" aria-hidden="true" class="google-signin-icon">
         <span data-i18n="continue_google">Continue with Google</span>
     </button>
     <p class="text-center text-xs text-slate-400" data-i18n="or_email">Or use your email</p>
-    {% endif %}
-
-    {% if phone_auth_enabled %}
-    <div class="auth-method-tabs" role="tablist" aria-label="Registration method">
-        <button type="button" class="auth-method-tab is-active" data-auth-method-button="register-email" onclick="setAuthMethod('register', 'email')" role="tab" aria-selected="true">
-            <i class="fa-solid fa-envelope" aria-hidden="true"></i><span data-i18n="email_method">Email</span>
-        </button>
-        <button type="button" class="auth-method-tab" data-auth-method-button="register-phone" onclick="setAuthMethod('register', 'phone')" role="tab" aria-selected="false">
-            <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i><span data-i18n="phone_method">Phone</span>
-        </button>
-    </div>
-
-    <p id="register-phone-disabled" data-phone-disabled-message class="hidden auth-phone-note" role="status">
-        Phone registration is unavailable until SMS is configured.
-    </p>
-
-    <div id="register-phone-panel" data-auth-phone-panel="register" class="hidden">
-        <form id="register-phone-form" onsubmit="sendPhoneCode('register', event);" class="space-y-4">
-            <div class="space-y-1.5">
-                <label for="register-phone-name" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <i class="fa-solid fa-user text-indigo-500 text-xs" aria-hidden="true"></i><span data-i18n="display_name_label">Display Name / Username</span>
-                </label>
-                <input type="text" id="register-phone-name" required maxlength="40" placeholder="e.g. CatWhisperer" data-i18n-placeholder="display_name_placeholder" class="w-full px-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
-            </div>
-            <div class="space-y-1.5">
-                <label for="register-phone" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <i class="fa-solid fa-phone text-indigo-500 text-xs" aria-hidden="true"></i><span data-i18n="phone_label">Phone Number</span>
-                </label>
-                <input type="tel" id="register-phone" autocomplete="tel" inputmode="tel" required maxlength="20" placeholder="+998 90 123 45 67" data-i18n-placeholder="phone_placeholder" class="w-full px-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
-            </div>
-            <div id="register-phone-code-step" class="hidden space-y-3">
-                <label for="register-phone-code" class="block text-xs font-bold text-slate-700" data-i18n="phone_code_label">SMS code</label>
-                <input type="text" id="register-phone-code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456" class="w-full px-4 py-2.5 text-sm tracking-[0.35em] text-center font-bold border border-slate-200 bg-slate-50 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <div class="flex items-center justify-between gap-2 text-[11px]">
-                    <button type="button" id="register-phone-change" class="text-slate-500 font-bold hover:text-indigo-600" onclick="resetPhoneFlow('register')" data-i18n="change_phone">Change number</button>
-                    <button type="button" id="register-phone-resend" class="text-indigo-600 font-bold disabled:text-slate-400" onclick="sendPhoneCode('register')" data-i18n="resend_code">Resend code</button>
-                </div>
-            </div>
-            <button type="submit" id="register-phone-send" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition shadow-md shadow-indigo-500/20" data-phone-send-button data-i18n="send_code_btn">Send code</button>
-            <button type="button" id="register-phone-verify" class="hidden w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition shadow-md shadow-indigo-500/20" onclick="verifyPhoneCode('register', event)" data-i18n="verify_code_btn">Create with phone</button>
-            <p id="register-phone-status" class="text-xs text-slate-500" role="status"></p>
-        </form>
-    </div>
-
     {% endif %}
 
     <form id="register-email-form" data-auth-email-panel="register" onsubmit="event.preventDefault(); handleSignUp();" class="space-y-4">
@@ -109,22 +65,6 @@ if (typeof supabaseClient !== "undefined" && supabaseClient) {
                     <i class="fa-solid fa-at text-xs"></i>
                 </div>
                 <input type="email" autocomplete="email" id="reg-email" required placeholder="you@example.com" class="w-full pl-9 pr-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
-            </div>
-        </div>
-
-        <div class="space-y-1.5">
-            <div class="flex items-center justify-between">
-                <label for="reg-phone" class="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <i class="fa-solid fa-phone text-indigo-500 text-xs"></i>
-                    <span data-i18n="phone_label">Phone Number</span>
-                </label>
-                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded-full" data-i18n="optional_badge">Optional</span>
-            </div>
-            <div class="relative">
-                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                    <i class="fa-solid fa-mobile-screen text-xs"></i>
-                </div>
-                <input type="tel" id="reg-phone" placeholder="+998 90 123 45 67" data-i18n-placeholder="phone_placeholder" class="w-full pl-9 pr-4 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 hover:bg-white rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner transition">
             </div>
         </div>
 

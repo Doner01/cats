@@ -446,7 +446,6 @@ async function toggleLike(catId, event) {
             if (card) card.dataset.likes = String(data.likes_count);
             document.getElementById('modal-like-btn')?.setAttribute('aria-pressed', String(userLikedCatIds.has(String(activeModalCatId))));
             window.dispatchEvent(new CustomEvent('catrank_like_changed', {detail: {id: String(catId), likes_count: data.likes_count}}));
-            showToast(serverLiked ? "Voted!" : "Vote removed", "success");
             if (typeof fetchNotifications === "function") fetchNotifications();
         } else {
             if (isCurrentlyLiked) userLikedCatIds.add(String(catId));
@@ -523,14 +522,15 @@ function renderCommentEditControl(comment) {
     const id = escapeHtml(comment?.id || '');
     const allowed = commentCanBeEdited(comment);
     const title = allowed ? '' : (typeof t === 'function' ? t('comment_edit_expired') : 'Editing is available for two minutes after posting.');
-    return `<button type="button" data-edit-comment-id="${id}" ${allowed ? `onclick="editComment('${id}')"` : 'disabled aria-disabled="true"'} class="comment-edit-button text-xs font-bold ${allowed ? 'text-indigo-600' : 'text-slate-400 cursor-not-allowed'}" title="${escapeHtml(title)}">${typeof t === 'function' ? t('edit_btn') : 'Edit'}</button>`;
+    const label = typeof t === 'function' ? t('edit_btn') : 'Edit';
+    return `<button type="button" data-edit-comment-id="${id}" ${allowed ? `onclick="editComment('${id}')"` : 'disabled aria-disabled="true"'} class="comment-action-button comment-edit-button ${allowed ? '' : 'is-disabled'}" title="${escapeHtml(title)}"><i class="fa-regular fa-pen-to-square" aria-hidden="true"></i><span>${escapeHtml(label)}</span></button>`;
 }
 
 function renderCommentLikeControl(comment) {
     const id = escapeHtml(comment?.id || '');
     const count = Math.max(0, Number(comment?.likes_count) || 0);
     const label = typeof t === 'function' ? t('like_comment') : 'Like comment';
-    return `<div class="comment-card-actions"><button type="button" class="comment-like-button" data-comment-like-id="${id}" data-comment-like-count="${count}" aria-pressed="false" aria-label="${escapeHtml(label)}" onclick="toggleCommentLike('${id}', event)"><span data-comment-like-icon aria-hidden="true">♡</span><span data-comment-like-count>${count}</span></button></div>`;
+    return `<button type="button" class="comment-action-button comment-like-button" data-comment-like-id="${id}" data-comment-like-count="${count}" aria-pressed="false" aria-label="${escapeHtml(label)}" onclick="toggleCommentLike('${id}', event)"><span data-comment-like-icon aria-hidden="true">♡</span><span data-comment-like-count>${count}</span></button>`;
 }
 
 function updateCommentEditControls() {
@@ -540,9 +540,7 @@ function updateCommentEditControls() {
         const allowed = commentCanBeEdited(comment);
         button.disabled = !allowed;
         button.setAttribute('aria-disabled', String(!allowed));
-        button.classList.toggle('text-indigo-600', allowed);
-        button.classList.toggle('text-slate-400', !allowed);
-        button.classList.toggle('cursor-not-allowed', !allowed);
+        button.classList.toggle('is-disabled', !allowed);
         button.title = allowed ? '' : (typeof t === 'function' ? t('comment_edit_expired') : 'Editing is available for two minutes after posting.');
     });
 }
@@ -661,36 +659,31 @@ async function loadCatComments(catId, append = false, posted = null) {
                 const rIsOwner = currentUserId && String(r.user_id) === String(currentUserId);
                 const safeRAuthorName = escapeHtml(rAuthorName);
                 const jsSafeRAuthorName = escapeJsString(rAuthorName);
+                const replyTarget = escapeHtml(r.reply_to_name || authorDisplayName);
+                const createdLabel = `${escapeHtml((r.created_at || '').slice(0, 10))}${r.updated_at ? ' · edited' : ''}`;
 
                 return `
-                    <div data-comment-id="${escapeHtml(r.id)}" class="comment-reply-card flex items-start gap-2.5 mt-2">
-                        <a href="/user/${encodeURIComponent(rUserTarget)}" class="flex-shrink-0">
-                            <img src="${rAvatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeRAuthorName}')" class="w-6 h-6 rounded-full bg-slate-50 border border-slate-200 object-cover">
+                    <div data-comment-id="${escapeHtml(r.id)}" class="comment-reply-card">
+                        <a href="/user/${encodeURIComponent(rUserTarget)}" class="comment-avatar-link">
+                            <img src="${rAvatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeRAuthorName}')" class="comment-avatar comment-avatar--reply">
                         </a>
-                        <div class="flex-grow min-w-0">
-                            <div class="flex items-center justify-between gap-1">
-                                <div class="flex items-center gap-1.5 flex-wrap">
-                                    <a href="/user/${encodeURIComponent(rUserTarget)}" class="text-xs font-black text-slate-900 hover:text-indigo-600 transition">${safeRAuthorName}</a>
-                                    <span class="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-100/80 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                                        <i class="fa-solid fa-reply text-[8px]"></i>
-                                        <span>${replyingToText} @${escapeHtml(r.reply_to_name || authorDisplayName)}</span>
-                                    </span>
-                                    <span class="text-[10px] text-slate-400 font-medium">${escapeHtml((r.created_at || '').slice(0, 10))}${r.updated_at ? ' · edited' : ''}</span>
-                                </div>
-                                <div class="flex items-center gap-1">
-                                    <button onclick="startReply('${r.id}', '${jsSafeRAuthorName}', '${rootId}')" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-1.5 py-0.5 rounded-md transition" title="${replyBtnText}">
-                                        <i class="fa-solid fa-reply text-[9px]"></i>
-                                    </button>
-                                    ${rIsOwner ? `
-                                        ${renderCommentEditControl(r)}
-                                        <button onclick="deleteComment('${r.id}', event)" class="w-6 h-6 rounded-lg bg-slate-100 hover:bg-rose-600 text-slate-400 hover:text-white transition flex items-center justify-center text-xs ml-1 shadow-2xs" title="${deleteBtnText}">
-                                            <i class="fa-solid fa-trash-can text-[9px]"></i>
-                                        </button>
-                                    ` : ''}
+                        <div class="comment-body">
+                            <div class="comment-meta-row">
+                                <div class="comment-author-line">
+                                    <a href="/user/${encodeURIComponent(rUserTarget)}" class="comment-author">${safeRAuthorName}</a>
+                                    <span class="comment-date">${createdLabel}</span>
                                 </div>
                             </div>
-                            <p class="text-xs text-slate-700 mt-1 leading-relaxed break-words font-medium">${escapeHtml(formatCommentText(r.comment).text)}</p>
-                            ${renderCommentLikeControl(r)}
+                            <div class="comment-reply-context"><i class="fa-solid fa-reply" aria-hidden="true"></i><span>${escapeHtml(replyingToText)} <strong>@${replyTarget}</strong></span></div>
+                            <p class="comment-text">${escapeHtml(formatCommentText(r.comment).text)}</p>
+                            <div class="comment-actions">
+                                ${renderCommentLikeControl(r)}
+                                <button type="button" onclick="startReply('${r.id}', '${jsSafeRAuthorName}', '${rootId}')" class="comment-action-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
+                                ${rIsOwner ? `
+                                    ${renderCommentEditControl(r)}
+                                    <button type="button" onclick="deleteComment('${r.id}', event)" class="comment-action-button comment-delete-button" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
+                                ` : ''}
+                            </div>
                         </div>
                     </div>
                 `;
@@ -698,43 +691,36 @@ async function loadCatComments(catId, append = false, posted = null) {
 
             const safeAuthorDisplayName = escapeHtml(authorDisplayName);
             const jsSafeAuthorDisplayName = escapeJsString(authorDisplayName);
+            const createdLabel = `${escapeHtml((c.created_at || '').slice(0, 10))}${c.updated_at ? ' · edited' : ''}`;
 
             return `
-                <div data-comment-id="${escapeHtml(c.id)}" class="comment-card p-3.5 rounded-2xl bg-white border border-slate-200 shadow-sm hover:border-slate-300 transition">
-                    <div class="flex items-start gap-3">
-                        <a href="/user/${encodeURIComponent(userTarget)}" class="flex-shrink-0">
-                            <img src="${avatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeAuthorDisplayName}')" class="w-8 h-8 rounded-full bg-slate-50 border border-slate-200 object-cover">
-                        </a>
-                        <div class="flex-grow min-w-0">
-                            <div class="flex items-center justify-between gap-2">
-                                <div class="flex items-center gap-2">
-                                    <a href="/user/${encodeURIComponent(userTarget)}" class="text-xs font-black text-slate-900 hover:text-indigo-600 transition">${safeAuthorDisplayName}</a>
-                                    <span class="text-[10px] text-slate-400 font-medium">${escapeHtml((c.created_at || '').slice(0, 10))}${c.updated_at ? ' · edited' : ''}</span>
-                                </div>
-                                <div class="flex items-center gap-1">
-                                    <button onclick="startReply('${rootId}', '${jsSafeAuthorDisplayName}', '${rootId}')" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2.5 py-1 rounded-xl transition flex items-center gap-1 border border-indigo-100">
-                                        <i class="fa-solid fa-reply text-[10px]"></i>
-                                        <span>${replyBtnText}</span>
-                                    </button>
-                                    ${isOwner ? `
-                                        ${renderCommentEditControl(c)}
-                                        <button onclick="deleteComment('${c.id}', event)" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-rose-600 text-slate-400 hover:text-white transition flex items-center justify-center text-xs ml-2 shadow-2xs" title="${deleteBtnText}">
-                                            <i class="fa-solid fa-trash-can text-[10px]"></i>
-                                        </button>
-                                    ` : ''}
-                                </div>
+                <article data-comment-id="${escapeHtml(c.id)}" class="comment-card">
+                    <a href="/user/${encodeURIComponent(userTarget)}" class="comment-avatar-link">
+                        <img src="${avatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeAuthorDisplayName}')" class="comment-avatar">
+                    </a>
+                    <div class="comment-body">
+                        <div class="comment-meta-row">
+                            <div class="comment-author-line">
+                                <a href="/user/${encodeURIComponent(userTarget)}" class="comment-author">${safeAuthorDisplayName}</a>
+                                <span class="comment-date">${createdLabel}</span>
                             </div>
-                            <p class="text-xs text-slate-800 mt-1.5 leading-relaxed break-words font-medium">${escapeHtml(formatCommentText(c.comment).text)}</p>
+                        </div>
+                        <p class="comment-text">${escapeHtml(formatCommentText(c.comment).text)}</p>
+                        <div class="comment-actions">
                             ${renderCommentLikeControl(c)}
+                            <button type="button" onclick="startReply('${rootId}', '${jsSafeAuthorDisplayName}', '${rootId}')" class="comment-action-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
+                            ${isOwner ? `
+                                ${renderCommentEditControl(c)}
+                                <button type="button" onclick="deleteComment('${c.id}', event)" class="comment-action-button comment-delete-button" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
+                            ` : ''}
                         </div>
+                        ${replies.length > 0 ? `
+                            <div class="comment-thread-line">
+                                ${repliesHtml}
+                            </div>
+                        ` : ''}
                     </div>
-
-                    ${replies.length > 0 ? `
-                        <div class="comment-thread-line space-y-1.5 mt-2.5">
-                            ${repliesHtml}
-                        </div>
-                    ` : ''}
-                </div>
+                </article>
             `;
         }).join("");
         if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
