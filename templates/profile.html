@@ -333,10 +333,26 @@ async function loadProfile() {
         }
         const emailBadge = document.getElementById("profile-email-badge");
         const emailText = document.getElementById("profile-email-text");
-        if (emailBadge && emailText && session.user.email) {
-            emailText.innerText = session.user.email;
+        let identityList = Array.isArray(session.user.identities) ? session.user.identities : [];
+        try {
+            const identityResult = await supabaseClient.auth.getUserIdentities();
+            if (!identityResult.error && Array.isArray(identityResult.data?.identities)) {
+                identityList = identityResult.data.identities;
+            }
+        } catch (_) {}
+        const visibleEmail = typeof getProfileEmailForUser === "function"
+            ? getProfileEmailForUser(session.user, identityList)
+            : String(session.user.email || "").trim().toLowerCase();
+        if (emailBadge && emailText && visibleEmail) {
+            emailText.innerText = visibleEmail;
             emailBadge.classList.remove("hidden");
             emailBadge.classList.add("inline-flex");
+            const primaryEmail = String(session.user.email || "").trim().toLowerCase();
+            if (primaryEmail && primaryEmail !== visibleEmail) {
+                emailBadge.title = `Google sign-in: ${visibleEmail} · Account email/password: ${primaryEmail}`;
+            } else {
+                emailBadge.removeAttribute("title");
+            }
         }
         if (editOverlayBtn) {
             editOverlayBtn.classList.remove("hidden");

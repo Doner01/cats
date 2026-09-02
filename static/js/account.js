@@ -136,6 +136,44 @@ function providerSetForUser(user, identities) {
     return providers;
 }
 
+function getProviderIdentityEmail(user, provider, identities = null) {
+    const wanted = String(provider || '').toLowerCase();
+    const list = Array.isArray(identities)
+        ? identities
+        : (Array.isArray(user?.identities) ? user.identities : []);
+
+    for (const identity of list) {
+        if (!identity || String(identity.provider || '').toLowerCase() !== wanted) continue;
+        const data = identity.identity_data && typeof identity.identity_data === 'object'
+            ? identity.identity_data
+            : {};
+        const email = String(data.email || identity.email || '').trim().toLowerCase();
+        if (email) return email;
+    }
+    return '';
+}
+
+function getProfileEmailForUser(user, identities = null) {
+    if (!user) return '';
+    const primaryEmail = String(user.email || '').trim().toLowerCase();
+    const list = Array.isArray(identities)
+        ? identities
+        : (Array.isArray(user.identities) ? user.identities : []);
+    const providers = providerSetForUser(user, list);
+    const primaryProvider = String(user?.app_metadata?.provider || '').toLowerCase();
+    const googleEmail = getProviderIdentityEmail(user, 'google', list);
+
+    // A Supabase account can keep its original Google identity even after the
+    // account's primary/email-password address is changed. For profiles, show
+    // the Google identity email when Google is the account's original/only
+    // sign-in provider so the UI does not pretend that Google is using the
+    // newer password email.
+    if (googleEmail && (primaryProvider === 'google' || (providers.has('google') && !providers.has('email')))) {
+        return googleEmail;
+    }
+    return primaryEmail || googleEmail;
+}
+
 async function refreshAccountSecuritySession() {
     if (!supabaseClient) throw new Error('Authentication is unavailable.');
     const sessionResult = await supabaseClient.auth.getSession();
@@ -174,11 +212,14 @@ async function loadConnectedMethods() {
         if (accountSecurityState.hasGoogle) methods.push('Google');
         container.textContent = methods.join(' · ') || securityText('no_methods_found', 'No methods found');
 
+        const googleIdentityEmail = getProviderIdentityEmail(user, 'google', identities);
         const emailValue = document.getElementById('security-email-value');
         if (emailValue) {
             if (accountSecurityState.hasEmailPassword) emailValue.textContent = user.email;
-            else if (user.email && accountSecurityState.hasGoogle) emailValue.textContent = securityText('google_email_only', `${user.email} · Google only`).replace('{email}', user.email);
-            else emailValue.textContent = securityText('email_not_connected_desc', 'Email/password sign-in is not connected.');
+            else if (accountSecurityState.hasGoogle && (googleIdentityEmail || user.email)) {
+                const googleOnlyEmail = googleIdentityEmail || user.email;
+                emailValue.textContent = securityText('google_email_only', `${googleOnlyEmail} · Google only`).replace('{email}', googleOnlyEmail);
+            } else emailValue.textContent = securityText('email_not_connected_desc', 'Email/password sign-in is not connected.');
         }
         setMethodBadge('security-email-status', accountSecurityState.hasEmailPassword, !accountSecurityState.hasEmailPassword && user.email && accountSecurityState.hasGoogle ? securityText('google_only_badge', 'Google only') : '');
         const emailAction = document.getElementById('security-email-action');
@@ -186,9 +227,13 @@ async function loadConnectedMethods() {
 
         setMethodBadge('security-google-status', accountSecurityState.hasGoogle);
         const googleValue = document.getElementById('security-google-value');
-        if (googleValue) googleValue.textContent = accountSecurityState.hasGoogle
-            ? securityText('google_connected_desc', 'Google is connected to this CatRank account.')
-            : securityText('google_signin_desc', 'Use your Google account as another sign-in method.');
+        if (googleValue) {
+            googleValue.textContent = accountSecurityState.hasGoogle
+                ? (googleIdentityEmail
+                    ? `${googleIdentityEmail} · Google`
+                    : securityText('google_connected_desc', 'Google is connected to this CatRank account.'))
+                : securityText('google_signin_desc', 'Use your Google account as another sign-in method.');
+        }
         setSecurityHidden('connect-google', accountSecurityState.hasGoogle);
         setSecurityHidden('security-google-manage', !accountSecurityState.hasGoogle);
         setSecurityHidden('unlink-google-controls', !(accountSecurityState.hasGoogle && accountSecurityState.hasEmailPassword));
