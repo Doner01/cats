@@ -4,9 +4,16 @@ let lastCommentTime = 0;
 const COOLDOWN_MS = 2000; // 2s anti-spam cooldown
 
 let activeModalCatId = null;
+let commentsRequestVersion = 0;
+let loadedComments = [];
+let nextCommentsCursor = null;
+let commentsTotal = 0;
+let commentsLoading = false;
 let activeModalBio = '';
 let activeReplyParentId = null;
 let activeReplyAuthorName = null;
+let serverClockOffsetMs = 0;
+let commentEditExpiryTimer = null;
 const userLikedCatIds = new Set();
 
 function getModalCatIds() {
@@ -93,6 +100,13 @@ function formatCommentText(rawComment) {
 }
 
 function resetCatModalState() {
+    commentsRequestVersion++;
+    if (commentEditExpiryTimer) clearTimeout(commentEditExpiryTimer);
+    commentEditExpiryTimer = null;
+    loadedComments = [];
+    nextCommentsCursor = null;
+    commentsTotal = 0;
+    commentsLoading = false;
     activeModalBio = '';
     closeCatBio();
     document.getElementById('modal-bio-more')?.classList.add('hidden');
@@ -227,7 +241,10 @@ function setCatBioExpanded(expanded) {
     if (!text || !button) return;
 
     const shouldExpand = Boolean(expanded && activeModalBio);
+    text.textContent = shouldExpand ? activeModalBio : activeModalBio.replace(/\s+/g, ' ');
     text.classList.toggle('is-expanded', shouldExpand);
+    text.setAttribute('tabindex', shouldExpand && text.scrollHeight > text.clientHeight + 1 ? '0' : '-1');
+    document.getElementById('modal-cat-bio-box')?.classList.toggle('is-expanded', shouldExpand);
     if (!shouldExpand) text.scrollTop = 0;
 
     button.setAttribute('aria-expanded', shouldExpand ? 'true' : 'false');
@@ -245,6 +262,7 @@ function updateCatBioPreview() {
 
     const isExpanded = text.classList.contains('is-expanded');
     if (isExpanded) {
+        text.setAttribute('tabindex', text.scrollHeight > text.clientHeight + 1 ? '0' : '-1');
         button.classList.toggle('hidden', !activeModalBio);
         return;
     }
@@ -257,6 +275,7 @@ function toggleCatBio() {
     const text = document.getElementById('modal-cat-bio-text');
     if (!text) return;
     setCatBioExpanded(!text.classList.contains('is-expanded'));
+    updateCatBioPreview();
 }
 
 // Keep these names as compatibility helpers for any older cached markup/scripts.
@@ -458,7 +477,7 @@ function startReply(commentId, authorName, rootCommentId = null) {
         window.location.href = getCatLoginUrl();
         return;
     }
-    activeReplyParentId = rootCommentId || commentId;
+    activeReplyParentId = commentId;
     activeReplyAuthorName = authorName;
 
     const banner = document.getElementById("modal-reply-banner");
@@ -489,22 +508,89 @@ function cancelReply() {
     }
 }
 
-async function loadCatComments(catId) {
+const COMMENT_EDIT_WINDOW_MS = 2 * 60 * 1000;
+
+function commentEditDeadline(comment) {
+    const created = Date.parse(String(comment?.created_at || ''));
+    return Number.isFinite(created) ? created + COMMENT_EDIT_WINDOW_MS : Number.POSITIVE_INFINITY;
+}
+
+function commentCanBeEdited(comment) {
+    return commentEditDeadline(comment) > Date.now() + serverClockOffsetMs;
+}
+
+function renderCommentEditControl(comment) {
+    const id = escapeHtml(comment?.id || '');
+    const allowed = commentCanBeEdited(comment);
+    const title = allowed ? '' : (typeof t === 'function' ? t('comment_edit_expired') : 'Editing is available for two minutes after posting.');
+    return `<button type="button" data-edit-comment-id="${id}" ${allowed ? `onclick="editComment('${id}')"` : 'disabled aria-disabled="true"'} class="comment-edit-button text-xs font-bold ${allowed ? 'text-indigo-600' : 'text-slate-400 cursor-not-allowed'}" title="${escapeHtml(title)}">${typeof t === 'function' ? t('edit_btn') : 'Edit'}</button>`;
+}
+
+function renderCommentLikeControl(comment) {
+    const id = escapeHtml(comment?.id || '');
+    const count = Math.max(0, Number(comment?.likes_count) || 0);
+    const label = typeof t === 'function' ? t('like_comment') : 'Like comment';
+    return `<div class="comment-card-actions"><button type="button" class="comment-like-button" data-comment-like-id="${id}" data-comment-like-count="${count}" aria-pressed="false" aria-label="${escapeHtml(label)}" onclick="toggleCommentLike('${id}', event)"><span data-comment-like-icon aria-hidden="true">♡</span><span data-comment-like-count>${count}</span></button></div>`;
+}
+
+function updateCommentEditControls() {
+    document.querySelectorAll('[data-edit-comment-id]').forEach(button => {
+        const comment = loadedComments.find(c => String(c.id) === String(button.dataset.editCommentId));
+        if (!comment) return;
+        const allowed = commentCanBeEdited(comment);
+        button.disabled = !allowed;
+        button.setAttribute('aria-disabled', String(!allowed));
+        button.classList.toggle('text-indigo-600', allowed);
+        button.classList.toggle('text-slate-400', !allowed);
+        button.classList.toggle('cursor-not-allowed', !allowed);
+        button.title = allowed ? '' : (typeof t === 'function' ? t('comment_edit_expired') : 'Editing is available for two minutes after posting.');
+    });
+}
+
+function scheduleCommentEditExpiry() {
+    if (commentEditExpiryTimer) clearTimeout(commentEditExpiryTimer);
+    const now = Date.now() + serverClockOffsetMs;
+    const deadlines = loadedComments.map(commentEditDeadline).filter(Number.isFinite).filter(deadline => deadline > now);
+    if (!deadlines.length) {
+        updateCommentEditControls();
+        return;
+    }
+    const delay = Math.max(50, Math.min(60 * 1000, Math.min(...deadlines) - now + 25));
+    commentEditExpiryTimer = setTimeout(() => {
+        updateCommentEditControls();
+        scheduleCommentEditExpiry();
+    }, delay);
+}
+
+async function loadCatComments(catId, append = false, posted = null) {
+    if (append && (commentsLoading || !nextCommentsCursor)) return;
     const requestVersion = modalRequestVersion;
+    const commentsVersion = ++commentsRequestVersion;
+    commentsLoading = true;
+    const cursor = append ? nextCommentsCursor : null;
     try {
-        const res = await fetch(`/api/cats/${catId}/comments`);
+        const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+        const res = await fetch(`/api/cats/${catId}/comments${query}`);
         const data = await res.json();
-        if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion) return;
+        if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion || commentsVersion !== commentsRequestVersion) return;
         if (!res.ok) throw new Error(data.error || 'Could not load comments.');
-        const comments = data.comments || [];
+        const serverTime = Date.parse(String(data.server_time || ''));
+        if (Number.isFinite(serverTime)) serverClockOffsetMs = serverTime - Date.now();
+        const incoming = data.comments || [];
+        const combined = append ? [...loadedComments, ...incoming] : (posted ? [posted, ...incoming] : incoming);
+        loadedComments = Array.from(new Map(combined.map(c => [String(c.id), c])).values());
+        nextCommentsCursor = data.next_cursor || null;
+        if (Number.isFinite(data.total)) commentsTotal = data.total;
+        else if (!append) commentsTotal = loadedComments.length;
+        const comments = loadedComments;
         const container = document.getElementById("modal-comments-items");
         const countElem = document.getElementById("modal-comments-count");
         const countBadge = document.getElementById("modal-comments-count-badge");
 
-        if (countElem) countElem.innerText = `(${comments.length})`;
+        if (countElem) countElem.innerText = `(${commentsTotal})`;
         if (countBadge) {
             const label = typeof t === "function" ? (currentLang === 'ru' ? "комментариев" : "comments") : "comments";
-            countBadge.innerText = `${comments.length} ${label}`;
+            countBadge.innerText = `${commentsTotal} ${label}`;
         }
 
         if (!container) return;
@@ -517,6 +603,10 @@ async function loadCatComments(catId) {
                     <p class="text-xs font-medium">${noCommentsText}</p>
                 </div>
             `;
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+                window.dispatchEvent(new CustomEvent('catrank_comments_rendered', {detail: {catId: String(catId), commentIds: []}}));
+            }
+            scheduleCommentEditExpiry();
             return;
         }
 
@@ -528,12 +618,21 @@ async function loadCatComments(catId) {
         const rootComments = [];
         const repliesByParent = {};
         const allCommentIds = new Set(comments.map(c => String(c.id)));
+        const commentsById = new Map(comments.map(c => [String(c.id), c]));
 
         comments.forEach(c => {
             const rawPid = c.parent_id;
-            const pid = (rawPid && String(rawPid).trim() !== "" && String(rawPid).trim().toLowerCase() !== "null" && String(rawPid).trim().toLowerCase() !== "none" && String(rawPid).trim().toLowerCase() !== "undefined") ? String(rawPid).trim() : null;
+            let pid = (rawPid && String(rawPid).trim() !== "" && String(rawPid).trim().toLowerCase() !== "null" && String(rawPid).trim().toLowerCase() !== "none" && String(rawPid).trim().toLowerCase() !== "undefined") ? String(rawPid).trim() : null;
             
-            if (pid && allCommentIds.has(pid)) {
+            const seen = new Set([String(c.id)]);
+            while (pid && commentsById.has(pid) && commentsById.get(pid).parent_id) {
+                if (seen.has(pid)) { pid = null; break; }
+                seen.add(pid);
+                const ancestor = String(commentsById.get(pid).parent_id);
+                if (!commentsById.has(ancestor)) break;
+                pid = ancestor;
+            }
+            if (pid && allCommentIds.has(pid) && pid !== String(c.id)) {
                 if (!repliesByParent[pid]) {
                     repliesByParent[pid] = [];
                 }
@@ -564,7 +663,7 @@ async function loadCatComments(catId) {
                 const jsSafeRAuthorName = escapeJsString(rAuthorName);
 
                 return `
-                    <div class="comment-reply-card flex items-start gap-2.5 mt-2">
+                    <div data-comment-id="${escapeHtml(r.id)}" class="comment-reply-card flex items-start gap-2.5 mt-2">
                         <a href="/user/${encodeURIComponent(rUserTarget)}" class="flex-shrink-0">
                             <img src="${rAvatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeRAuthorName}')" class="w-6 h-6 rounded-full bg-slate-50 border border-slate-200 object-cover">
                         </a>
@@ -576,13 +675,14 @@ async function loadCatComments(catId) {
                                         <i class="fa-solid fa-reply text-[8px]"></i>
                                         <span>${replyingToText} @${escapeHtml(r.reply_to_name || authorDisplayName)}</span>
                                     </span>
-                                    <span class="text-[10px] text-slate-400 font-medium">${(r.created_at || '').slice(0, 10)}</span>
+                                    <span class="text-[10px] text-slate-400 font-medium">${escapeHtml((r.created_at || '').slice(0, 10))}${r.updated_at ? ' · edited' : ''}</span>
                                 </div>
                                 <div class="flex items-center gap-1">
-                                    <button onclick="startReply('${rootId}', '${jsSafeRAuthorName}', '${rootId}')" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-1.5 py-0.5 rounded-md transition" title="${replyBtnText}">
+                                    <button onclick="startReply('${r.id}', '${jsSafeRAuthorName}', '${rootId}')" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-1.5 py-0.5 rounded-md transition" title="${replyBtnText}">
                                         <i class="fa-solid fa-reply text-[9px]"></i>
                                     </button>
                                     ${rIsOwner ? `
+                                        ${renderCommentEditControl(r)}
                                         <button onclick="deleteComment('${r.id}', event)" class="w-6 h-6 rounded-lg bg-slate-100 hover:bg-rose-600 text-slate-400 hover:text-white transition flex items-center justify-center text-xs ml-1 shadow-2xs" title="${deleteBtnText}">
                                             <i class="fa-solid fa-trash-can text-[9px]"></i>
                                         </button>
@@ -590,6 +690,7 @@ async function loadCatComments(catId) {
                                 </div>
                             </div>
                             <p class="text-xs text-slate-700 mt-1 leading-relaxed break-words font-medium">${escapeHtml(formatCommentText(r.comment).text)}</p>
+                            ${renderCommentLikeControl(r)}
                         </div>
                     </div>
                 `;
@@ -599,7 +700,7 @@ async function loadCatComments(catId) {
             const jsSafeAuthorDisplayName = escapeJsString(authorDisplayName);
 
             return `
-                <div class="comment-card p-3.5 rounded-2xl bg-white border border-slate-200 shadow-sm hover:border-slate-300 transition">
+                <div data-comment-id="${escapeHtml(c.id)}" class="comment-card p-3.5 rounded-2xl bg-white border border-slate-200 shadow-sm hover:border-slate-300 transition">
                     <div class="flex items-start gap-3">
                         <a href="/user/${encodeURIComponent(userTarget)}" class="flex-shrink-0">
                             <img src="${avatar}" alt="Avatar" onerror="handleAvatarError(this, '${jsSafeAuthorDisplayName}')" class="w-8 h-8 rounded-full bg-slate-50 border border-slate-200 object-cover">
@@ -608,7 +709,7 @@ async function loadCatComments(catId) {
                             <div class="flex items-center justify-between gap-2">
                                 <div class="flex items-center gap-2">
                                     <a href="/user/${encodeURIComponent(userTarget)}" class="text-xs font-black text-slate-900 hover:text-indigo-600 transition">${safeAuthorDisplayName}</a>
-                                    <span class="text-[10px] text-slate-400 font-medium">${(c.created_at || '').slice(0, 10)}</span>
+                                    <span class="text-[10px] text-slate-400 font-medium">${escapeHtml((c.created_at || '').slice(0, 10))}${c.updated_at ? ' · edited' : ''}</span>
                                 </div>
                                 <div class="flex items-center gap-1">
                                     <button onclick="startReply('${rootId}', '${jsSafeAuthorDisplayName}', '${rootId}')" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2.5 py-1 rounded-xl transition flex items-center gap-1 border border-indigo-100">
@@ -616,6 +717,7 @@ async function loadCatComments(catId) {
                                         <span>${replyBtnText}</span>
                                     </button>
                                     ${isOwner ? `
+                                        ${renderCommentEditControl(c)}
                                         <button onclick="deleteComment('${c.id}', event)" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-rose-600 text-slate-400 hover:text-white transition flex items-center justify-center text-xs ml-2 shadow-2xs" title="${deleteBtnText}">
                                             <i class="fa-solid fa-trash-can text-[10px]"></i>
                                         </button>
@@ -623,6 +725,7 @@ async function loadCatComments(catId) {
                                 </div>
                             </div>
                             <p class="text-xs text-slate-800 mt-1.5 leading-relaxed break-words font-medium">${escapeHtml(formatCommentText(c.comment).text)}</p>
+                            ${renderCommentLikeControl(c)}
                         </div>
                     </div>
 
@@ -634,18 +737,37 @@ async function loadCatComments(catId) {
                 </div>
             `;
         }).join("");
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('catrank_comments_rendered', {detail: {catId: String(catId), commentIds: comments.map(c => String(c.id))}}));
+        }
+        scheduleCommentEditExpiry();
+        if (nextCommentsCursor) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'comments-load-more';
+            more.textContent = 'Load more comments';
+            more.addEventListener('click', async () => {
+                more.disabled = true;
+                await loadCatComments(catId, true);
+                more.disabled = false;
+            });
+            container.appendChild(more);
+        }
     } catch (e) {
-        if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion) return;
+        if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion || commentsVersion !== commentsRequestVersion) return;
         const container = document.getElementById('modal-comments-items');
         if (container) {
-            container.textContent = 'Could not load comments. ';
+            if (!append) container.textContent = 'Could not load comments. ';
+            else showToast('Could not load more comments. Please retry.', 'error');
             const retry = document.createElement('button');
             retry.type = 'button';
             retry.className = 'text-indigo-600 font-bold';
             retry.textContent = 'Try again';
-            retry.addEventListener('click', () => loadCatComments(catId));
+            retry.addEventListener('click', () => loadCatComments(catId, append));
             container.appendChild(retry);
         }
+    } finally {
+        if (commentsVersion === commentsRequestVersion) commentsLoading = false;
     }
 }
 
@@ -705,10 +827,11 @@ async function submitComment(event) {
         });
 
         if (res.ok) {
+            const posted = await res.json();
             if (activeModalCatId === submittedCatId && submittedVersion === modalRequestVersion) {
                 input.value = "";
                 cancelReply();
-                loadCatComments(submittedCatId);
+                await loadCatComments(submittedCatId, false, posted.comment);
             }
             showToast(isReply ? "Reply posted!" : "Comment posted!", "success");
             if (typeof fetchNotifications === "function") fetchNotifications();
@@ -853,3 +976,52 @@ document.addEventListener('DOMContentLoaded', () => {
     if (catId && /^[a-zA-Z0-9_-]{1,64}$/.test(catId)) openCatModal(catId);
 });
 window.addEventListener('resize', updateCatBioPreview);
+
+function editComment(commentId) {
+    const comment = loadedComments.find(c => String(c.id) === String(commentId));
+    const card = Array.from(document.querySelectorAll('[data-comment-id]')).find(c => c.dataset.commentId === String(commentId));
+    if (!comment || !card || card.querySelector('.comment-edit-form')) return;
+    if (!commentCanBeEdited(comment)) {
+        showToast(typeof t === 'function' ? t('comment_edit_expired') : 'Editing is available for two minutes after posting.', 'info');
+        updateCommentEditControls();
+        return;
+    }
+    const form = document.createElement('form');
+    form.className = 'comment-edit-form';
+    const text = document.createElement('textarea');
+    text.value = comment.comment;
+    text.maxLength = 300;
+    text.required = true;
+    text.setAttribute('aria-label', 'Edit comment');
+    const save = document.createElement('button');
+    save.type = 'submit';
+    save.textContent = 'Save changes';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => form.remove());
+    form.append(text, save, cancel);
+    card.appendChild(form);
+    text.focus();
+    const catId = activeModalCatId;
+    const version = modalRequestVersion;
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (!text.value.trim() || save.disabled) return;
+        save.disabled = true;
+        try {
+            const result = await authRequest(`/api/comments/${encodeURIComponent(commentId)}`, {comment: text.value.trim()}, 'PUT', true);
+            if (activeModalCatId === catId && modalRequestVersion === version) {
+                await loadCatComments(catId, false, {...comment, comment: result.comment, updated_at: result.updated_at || new Date().toISOString()});
+            }
+            showToast('Comment updated.', 'success');
+        } catch (error) {
+            if (error?.code === 'edit_window_expired') {
+                form.remove();
+                updateCommentEditControls();
+            }
+            showToast(error.message, 'error');
+        }
+        finally { save.disabled = false; }
+    });
+}

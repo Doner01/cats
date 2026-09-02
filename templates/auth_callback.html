@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Signing in | CatRank{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto bg-white p-6 rounded-3xl border border-slate-200 text-center space-y-4">
+    <h1 class="text-2xl font-black">Welcome to CatRank</h1>
+    <p id="oauth-status" role="status" aria-live="polite">Verifying your Google sign-in…</p>
+    <a id="oauth-back" class="hidden text-indigo-600 font-bold" href="/login">Back to sign in</a>
+</div>
+{% endblock %}

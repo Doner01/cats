@@ -1,0 +1,4 @@
+Google G mark used in the sign-in controls.
+
+Source and branding guidance: https://developers.google.com/identity/branding-guidelines
+The mark is used only to identify the Google sign-in provider.

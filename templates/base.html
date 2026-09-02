@@ -24,17 +24,17 @@
     <!-- Static CSS -->
     <link
         rel="stylesheet"
-        href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}?v=4"
+        href="{{ asset_url('vendor/fontawesome/css/all.min.css') }}"
     >
 
     <link
         rel="stylesheet"
-        href="{{ url_for('static', filename='css/tailwind.css') }}?v=6"
+        href="{{ asset_url('css/tailwind.css') }}"
     >
 
     <link
         rel="stylesheet"
-        href="{{ url_for('static', filename='css/style.css') }}?v=8"
+        href="{{ asset_url('css/style.css') }}"
     >
 
     <!--
@@ -119,7 +119,7 @@
 
     <!-- Supabase -->
     <script
-        src="{{ url_for('static', filename='vendor/supabase.js') }}?v=4"
+        src="{{ asset_url('vendor/supabase.js') }}"
     ></script>
 
     <script>
@@ -159,9 +159,9 @@
                         SUPABASE_ANON_KEY,
                         {
                             auth: {
+                                flowType: "pkce",
                                 detectSessionInUrl:
-                                    window.location.pathname !==
-                                    "/reset-password"
+                                    !["/reset-password", "/auth/callback"].includes(window.location.pathname)
                             }
                         }
                     );
@@ -1125,24 +1125,24 @@
 
     <!-- JavaScript -->
     <script
-        src="{{ url_for('static', filename='js/translations.js') }}?v=8"
+        src="{{ asset_url('js/translations.js') }}"
     ></script>
 
     <script
-        src="{{ url_for('static', filename='js/toast.js') }}?v=4"
+        src="{{ asset_url('js/toast.js') }}"
     ></script>
 
     <script
-        src="{{ url_for('static', filename='js/auth.js') }}?v=6"
+        src="{{ asset_url('js/auth.js') }}"
     ></script>
 
     <script
-        src="{{ url_for('static', filename='js/main.js') }}?v=8"
+        src="{{ asset_url('js/main.js') }}"
     ></script>
-    <script src="{{ url_for('static', filename='js/favorites.js') }}?v=6"></script>
+    <script src="{{ asset_url('js/favorites.js') }}"></script>
 
     <script
-        src="{{ url_for('static', filename='js/ui.js') }}?v=4"
+        src="{{ asset_url('js/ui.js') }}"
     ></script>
 
     <script>
@@ -1214,6 +1214,11 @@
         );
     </script>
 
+    <script src="{{ asset_url('js/account.js') }}"></script>
+    <script src="{{ asset_url('js/comment-likes.js') }}"></script>
+    {% if phone_auth_enabled and request.endpoint in ('login_page', 'register_page') %}
+    <script src="{{ asset_url('js/phone-auth.js') }}"></script>
+    {% endif %}
     {% block scripts %}{% endblock %}
 
 </body>

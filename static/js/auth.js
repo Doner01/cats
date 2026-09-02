@@ -5,7 +5,7 @@ function getLoginDestination() {
     try {
         const url = new URL(next, window.location.origin);
         if (url.origin !== window.location.origin || !next.startsWith('/') || next.startsWith('//')) return '/';
-        if (['/login', '/register', '/forgot-password', '/reset-password'].includes(url.pathname)) return '/';
+        if (['/login', '/register', '/forgot-password', '/reset-password', '/auth/callback'].includes(url.pathname)) return '/';
         return url.pathname + url.search + url.hash;
     } catch (_) { return '/'; }
 }
@@ -102,6 +102,7 @@ function getUserDisplayName(user) {
 }
 
 async function checkAuth() {
+    if (window.location.pathname === "/auth/callback") return;
     if (typeof supabaseClient === "undefined" || !supabaseClient) return;
     try {
         const { data: { session } } = await supabaseClient.auth.getSession();
@@ -114,7 +115,7 @@ async function checkAuth() {
         if (session && session.user) {
             await uploadPendingRegistrationAvatar(session);
             const path = window.location.pathname;
-            if (path === "/login" || path === "/register" || path === "/forgot-password") {
+            if (path === "/login" || path === "/register") {
                 window.location.replace(getLoginDestination());
                 return;
             }
@@ -190,7 +191,7 @@ async function handleLogin() {
     }
 
     try {
-        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        const { data, error } = await signInWithPasswordThroughApp(email, password);
         if (error) {
             showToast(error.message, "error");
             if (btn) {
@@ -219,7 +220,6 @@ async function handleSignUp() {
     const nameElem = document.getElementById("reg-display-name");
     const emailElem = document.getElementById("reg-email");
     const phoneElem = document.getElementById("reg-phone");
-    const bioElem = document.getElementById("reg-bio");
     const passElem = document.getElementById("reg-password");
     const confirmElem = document.getElementById("reg-confirm-password");
     const btn = document.getElementById("register-btn");
@@ -228,7 +228,6 @@ async function handleSignUp() {
     const displayName = (nameElem ? nameElem.value.trim() : "") || emailElem.value.split('@')[0];
     const email = emailElem.value.trim().toLowerCase();
     const phone = phoneElem ? phoneElem.value.trim() : "";
-    const bio = bioElem ? bioElem.value.trim() : "";
     const password = passElem.value;
     const confirmPassword = confirmElem ? confirmElem.value : password;
 
@@ -268,7 +267,6 @@ async function handleSignUp() {
                 password,
                 display_name: displayName,
                 phone: phone,
-                bio: bio,
                 avatar_url: avatarUrl
             })
         });
@@ -299,7 +297,7 @@ async function handleSignUp() {
             if (confirmElem) confirmElem.value = '';
             return;
         }
-        const { data: signInData, error: signInError } = await supabaseClient.auth.signInWithPassword({ email, password });
+        const { data: signInData, error: signInError } = await signInWithPasswordThroughApp(email, password);
         if (signInError) {
             showToast("Account created. Please sign in.", "success");
             window.location.href = "/login";
@@ -320,7 +318,7 @@ async function handleSignUp() {
 
 async function handleLogout() {
     if (typeof supabaseClient === "undefined" || !supabaseClient) return;
-    const { error } = await supabaseClient.auth.signOut();
+    const { error } = await supabaseClient.auth.signOut({scope: "local"});
     if (error) { showToast(error.message, "error"); return; }
     showToast(typeof t === "function" ? t("toast_signout_success") : "Signed out successfully.");
     setTimeout(() => {

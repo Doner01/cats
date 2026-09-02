@@ -1,5 +1,8 @@
 const translations = {
     en: {
+        "continue_google": "Continue with Google",
+        "or_email": "Or use your email",
+        "connected_methods": "Connected sign-in methods",
         "current_email_label": "Current Email",
         "new_email_label": "New Email Address",
         "confirm_with_password_label": "Confirm with Current Password",
@@ -227,6 +230,9 @@ const translations = {
     },
 
     ru: {
+        "continue_google": "Продолжить с Google",
+        "or_email": "Или используйте почту",
+        "connected_methods": "Способы входа",
         "current_email_label": "Текущий Email",
         "new_email_label": "Новый Email адрес",
         "confirm_with_password_label": "Подтвердите текущим паролем",
@@ -474,6 +480,81 @@ Object.assign(translations.ru, {
     favorite_saved: 'Добавлено в избранное', favorite_removed: 'Убрано из избранного',
     login_to_interact: 'чтобы ставить лайки, сохранять и комментировать.', close_cat: 'Закрыть', like_cat: 'Нравится', delete_cat: 'Удалить котика',
     read_full_bio: 'Читать полностью', show_less_bio: 'Свернуть', close_bio: 'Закрыть описание'
+});
+
+Object.assign(translations.en, {
+    email_method: 'Email', phone_method: 'Phone',
+    phone_code_label: 'SMS code', send_code_btn: 'Send code', verify_code_btn: 'Verify and sign in',
+    resend_code: 'Resend code', resend_in_seconds: 'Resend in {sec}s', change_phone: 'Change number',
+    phone_not_ready: 'Phone sign-in is unavailable until SMS is configured.',
+    phone_format_error: 'Enter a phone number with its country code, for example +998901234567.',
+    phone_code_sent: 'Code sent. Check your phone.', phone_code_error: 'Enter the six-digit SMS code.',
+    phone_send_error: 'Could not send the SMS code.', phone_verify_error: 'This code is invalid or expired.',
+    phone_signed_in: 'Phone verified. Redirecting…', display_name_required: 'Choose a display name up to 40 characters.',
+    like_comment: 'Like comment', unlike_comment: 'Unlike comment',
+    comment_like_error: 'Could not update comment likes. Please try again.',
+    comment_edit_expired: 'Comments can only be edited during the first two minutes after posting.',
+    comment_edited: 'edited'
+});
+Object.assign(translations.ru, {
+    email_method: 'Почта', phone_method: 'Телефон',
+    phone_code_label: 'Код из SMS', send_code_btn: 'Отправить код', verify_code_btn: 'Подтвердить и войти',
+    resend_code: 'Отправить снова', resend_in_seconds: 'Повтор через {sec} сек.', change_phone: 'Изменить номер',
+    phone_not_ready: 'Вход по телефону станет доступен после настройки SMS.',
+    phone_format_error: 'Введите номер с кодом страны, например +998901234567.',
+    phone_code_sent: 'Код отправлен. Проверьте телефон.', phone_code_error: 'Введите шестизначный код из SMS.',
+    phone_send_error: 'Не удалось отправить код SMS.', phone_verify_error: 'Код недействителен или истёк.',
+    phone_signed_in: 'Телефон подтвержден. Перенаправление…', display_name_required: 'Укажите имя длиной до 40 символов.',
+    like_comment: 'Нравится комментарий', unlike_comment: 'Убрать лайк',
+    comment_like_error: 'Не удалось обновить лайки комментария. Попробуйте ещё раз.',
+    comment_edit_expired: 'Комментарий можно изменить только в первые две минуты после публикации.',
+    comment_edited: 'изменен'
+});
+
+Object.assign(translations.en, {
+    connected_methods: 'How you sign in',
+    connected_methods_hint: 'These are the sign-in methods connected to your account.',
+    no_connected_methods: 'No sign-in methods found',
+    connected_methods_error: 'Could not load sign-in methods. Reopen settings to try again.',
+    connect_google_btn: 'Add Google sign-in',
+    google_password_note: 'Use password recovery to set a password for your email. Keep Google connected until you can sign in with that password.',
+    set_password_link: 'Set a password',
+    disconnect_google_label: 'Current password',
+    disconnect_google_hint: 'Enter your password to remove Google sign-in. Keep another sign-in method connected.',
+    disconnect_google_btn: 'Remove Google sign-in',
+    disconnect_google_password_required: 'Enter your current password before removing Google.',
+    google_disconnected: 'Google sign-in removed. Your password sign-in remains available.',
+    sign_out_other_sessions_btn: 'Sign out other devices',
+    sign_out_other_sessions_hint: 'Use this if you signed in on a shared or old device.',
+    other_sessions_signed_out: 'Other sessions will not be renewed. They may stay active briefly.',
+    secure_badge: 'Protected',
+    new_email_placeholder: 'Enter new email',
+    change_email_btn: 'Send confirmation',
+    change_password_btn: 'Update password',
+    confirm_new_password_placeholder: 'Repeat new password'
+});
+
+Object.assign(translations.ru, {
+    connected_methods: 'Как войти в аккаунт',
+    connected_methods_hint: 'Ниже показаны способы входа, подключённые к вашему аккаунту.',
+    no_connected_methods: 'Способы входа не найдены',
+    connected_methods_error: 'Не удалось загрузить способы входа. Откройте настройки ещё раз.',
+    connect_google_btn: 'Подключить Google',
+    google_password_note: 'Создайте пароль через восстановление доступа по почте. Не отключайте Google, пока не проверите вход с новым паролем.',
+    set_password_link: 'Создать пароль',
+    disconnect_google_label: 'Текущий пароль',
+    disconnect_google_hint: 'Введите пароль, чтобы отключить вход через Google. Оставьте другой способ входа подключённым.',
+    disconnect_google_btn: 'Отключить Google',
+    disconnect_google_password_required: 'Введите текущий пароль, прежде чем отключать Google.',
+    google_disconnected: 'Вход через Google отключён. Вход по паролю по-прежнему доступен.',
+    sign_out_other_sessions_btn: 'Выйти с других устройств',
+    sign_out_other_sessions_hint: 'Используйте эту кнопку, если входили с чужого или старого устройства.',
+    other_sessions_signed_out: 'Другие сеансы больше не будут продлеваться. Они могут оставаться активными ещё некоторое время.',
+    secure_badge: 'Защищено',
+    new_email_placeholder: 'Введите новую почту',
+    change_email_btn: 'Отправить подтверждение',
+    change_password_btn: 'Обновить пароль',
+    confirm_new_password_placeholder: 'Повторите новый пароль'
 });
 
 let currentLang = "en";

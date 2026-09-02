@@ -73,7 +73,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+<script src="{{ asset_url('js/upload.js') }}"></script>
 <script>
 function clearUploadPreview() {
     const fileInput = document.getElementById("cat-file");

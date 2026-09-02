@@ -7,19 +7,22 @@ import secrets
 import importlib
 from collections import OrderedDict
 from io import BytesIO
-from functools import wraps
-from datetime import datetime, timezone
+from functools import lru_cache, wraps
+from datetime import datetime, timezone, timedelta
 from time import monotonic
 from pathlib import Path
+from threading import Lock
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 from urllib.parse import quote, urlparse
 
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, jsonify, g, Response
+from flask import Flask, render_template, request, jsonify, g, Response, url_for
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 from supabase import create_client, Client, ClientOptions
+from postgrest.types import CountMethod
 from werkzeug.exceptions import HTTPException
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -33,10 +36,23 @@ app: Flask = Flask(
     static_url_path="/static"
 )
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or secrets.token_hex(32)
-app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024                                
+app.config["MAX_CONTENT_LENGTH"] = (4 * 1024 * 1024 + 128 * 1024) if os.getenv("VERCEL") == "1" else 6 * 1024 * 1024                                
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["RATELIMIT_HEADERS_ENABLED"] = True
+
+
+@lru_cache(maxsize=128)
+def asset_fingerprint(filename: str) -> str:
+    directory = (BASE_DIR / "static").resolve()
+    path = (directory / filename).resolve()
+    if not path.is_relative_to(directory) or not path.is_file():
+        raise ValueError("Static asset is missing or outside the static directory")
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+
+def asset_url(filename: str) -> str:
+    return url_for("static", filename=filename, v=asset_fingerprint(filename))
 
 def env_flag(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
@@ -52,6 +68,14 @@ PUBLIC_SITE_URL: str = (os.getenv("PUBLIC_SITE_URL") or "").strip().rstrip("/")
 ENABLE_DEMO_DATA: bool = env_flag("ENABLE_DEMO_DATA", False)
 APP_ENV: str = (os.getenv("APP_ENV") or "development").strip().lower()
 IS_PRODUCTION: bool = APP_ENV == "production"
+GOOGLE_AUTH_ENABLED: bool = env_flag("GOOGLE_AUTH_ENABLED", False)
+PHONE_AUTH_ENABLED: bool = env_flag("PHONE_AUTH_ENABLED", False)
+ALLOWED_COUNTRIES = frozenset(code.strip().upper() for code in os.getenv("ALLOWED_COUNTRIES", "").split(",") if code.strip())
+COUNTRY_ACCESS_ENABLED: bool = env_flag("COUNTRY_ACCESS_ENABLED", False)
+if COUNTRY_ACCESS_ENABLED and (not ALLOWED_COUNTRIES or any(not re.fullmatch(r"[A-Z]{2}", c) for c in ALLOWED_COUNTRIES)):
+    raise RuntimeError("Country access requires a nonempty list of two-letter country codes")
+if COUNTRY_ACCESS_ENABLED and os.getenv("VERCEL") != "1":
+    raise RuntimeError("Country access currently requires the trusted Vercel geo header")
 RATE_LIMIT_STORAGE_URI: str = (os.getenv("RATE_LIMIT_STORAGE_URI") or "memory://").strip()
 try:
     _trust_proxy_hops = max(0, int(os.getenv("TRUST_PROXY_HOPS", "0")))
@@ -128,6 +152,7 @@ limiter = Limiter(
     app=app,
     default_limits=[],
     storage_uri=RATE_LIMIT_STORAGE_URI,
+    in_memory_fallback_enabled=True,
 )
 if IS_PRODUCTION and RATE_LIMIT_STORAGE_URI.startswith("memory://"):
     app.logger.warning("RATE_LIMIT_STORAGE_URI uses memory:// in production; use shared Redis for multi-worker/multi-replica deployments.")
@@ -149,9 +174,9 @@ if CACHE_REDIS_URL.startswith(("redis://", "rediss://")):
         )
         app.logger.info("Redis application cache configured")
     except Exception as redis_err:
-        app.logger.warning("Redis application cache could not be initialized: %s", redis_err)
+        app.logger.warning("Redis application cache could not be initialized (%s)", type(redis_err).__name__)
 
-CACHE_PREFIX = "catrank:v2"
+CACHE_PREFIX = "catrank:v4"
 cache_retry_after = 0.0
 FEED_CACHE_TTL = 15
 LEADERBOARD_CACHE_TTL = 45
@@ -196,7 +221,7 @@ def cache_set(key: str, value: Any, seconds: int) -> None:
 def cache_delete(*keys: str) -> None:
     client = redis_cache
     clean_keys = [key for key in keys if key]
-    if client is None or not clean_keys:
+    if client is None or not clean_keys or monotonic() < cache_retry_after:
         return
     try:
         client.delete(*clean_keys)
@@ -212,7 +237,7 @@ def cache_counter_value(name: str) -> int:
 
 def bump_cache_counter(name: str) -> None:
     client = redis_cache
-    if client is None:
+    if client is None or monotonic() < cache_retry_after:
         return
     try:
         client.incr(make_cache_key("version", name))
@@ -227,6 +252,15 @@ def invalidate_profile_cache(user_id: Any) -> None:
         make_cache_key("profile", uid),
         make_cache_key("identity", uid),
     )
+
+def invalidate_attribution(user_id: Any) -> None:
+    invalidate_profile_cache(user_id)
+    user_avatar_cache.pop(str(user_id), None)
+    bump_cache_counter("cats")
+    bump_cache_counter("attribution")
+
+def invalidate_comments(cat_id: Any) -> None:
+    bump_cache_counter(f"comments:{cat_id}")
 
 def invalidate_cat_content(*, cat_id: Any = None, user_id: Any = None) -> None:
     # Feed and leaderboard keys include this generation number, so bumping it
@@ -267,26 +301,39 @@ R2_BUCKET_NAME: str = os.getenv("R2_BUCKET_NAME", "cat-images").strip()
 R2_PUBLIC_DOMAIN: str = os.getenv("R2_PUBLIC_DOMAIN", "").strip().rstrip("/")
 
 r2_client: Any = None
-if R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY:
-    try:
-        boto3_module: Any = importlib.import_module("boto3")
-        botocore_config_module: Any = importlib.import_module("botocore.config")
-        config_factory: Any = getattr(botocore_config_module, "Config")
-        r2_client = boto3_module.client(
-            service_name="s3",
-            endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
-            aws_access_key_id=R2_ACCESS_KEY_ID,
-            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
-            region_name="auto",
-            config=config_factory(signature_version="s3v4")
-        )
-        app.logger.info("Cloudflare R2 Storage client initialized successfully")
-    except Exception as r2_err:
-        app.logger.warning("Failed to init Cloudflare R2 client: %s", r2_err)
+_r2_init_lock = Lock()
+
+
+def get_r2_client() -> Any:
+    global r2_client
+    if r2_client is not None:
+        return r2_client
+    if not (R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY):
+        return None
+    with _r2_init_lock:
+        if r2_client is not None:
+            return r2_client
+        try:
+            boto3_module: Any = importlib.import_module("boto3")
+            config_module: Any = importlib.import_module("botocore.config")
+            r2_client = boto3_module.client(
+                service_name="s3",
+                endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+                aws_access_key_id=R2_ACCESS_KEY_ID,
+                aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+                region_name="auto",
+                config=config_module.Config(
+                    signature_version="s3v4", connect_timeout=3, read_timeout=10,
+                    retries={"mode": "standard", "total_max_attempts": 2},
+                ),
+            )
+        except Exception as exc:
+            app.logger.warning("Could not initialize image storage (%s)", type(exc).__name__)
+    return r2_client
 
 STORAGE_BUCKET: str = "cat-images"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "jfif", "gif"}
-MAX_FILE_SIZE: int = 5 * 1024 * 1024        
+MAX_FILE_SIZE: int = (4 if os.getenv("VERCEL") == "1" else 5) * 1024 * 1024        
 
 MOCK_CATS: List[Dict[str, Any]] = [
     {
@@ -406,10 +453,10 @@ def optimize_image_file(file_bytes: bytes, *, avatar: bool = False) -> Tuple[byt
         return out.getvalue(), "webp", "image/webp"
 
 def upload_file_to_storage(file_bytes: bytes, unique_path: str, content_type: str, bucket_name: str = STORAGE_BUCKET) -> str:
-                                              
-    if r2_client and R2_BUCKET_NAME and R2_PUBLIC_DOMAIN:
+    storage_client = get_r2_client() if R2_BUCKET_NAME and R2_PUBLIC_DOMAIN else None
+    if storage_client is not None:
         try:
-            r2_client.put_object(
+            storage_client.put_object(
                 Bucket=R2_BUCKET_NAME,
                 Key=unique_path,
                 Body=file_bytes,
@@ -455,7 +502,7 @@ def delete_file_from_storage(
         backend = ""
         admin = supabase_admin
 
-        if r2_client and R2_PUBLIC_DOMAIN:
+        if R2_PUBLIC_DOMAIN:
             r2_origin = urlparse(R2_PUBLIC_DOMAIN)
             if (
                 parsed.scheme == r2_origin.scheme
@@ -486,7 +533,9 @@ def delete_file_from_storage(
             return
 
         if backend == "r2":
-            r2_client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+            storage_client = get_r2_client()
+            if storage_client is not None:
+                storage_client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
         elif backend == "supabase" and admin is not None:
             admin.storage.from_(bucket_name).remove([key])
     except Exception as exc:
@@ -503,12 +552,6 @@ def resolve_user_avatar(user_id: Optional[str], user_name: Optional[str], existi
         if user_id:
             cache_user_avatar(user_id, avatar_str)
         return avatar_str
-
-    if user_id and str(user_id) in user_avatar_cache:
-        key = str(user_id)
-        cached = user_avatar_cache[key]
-        user_avatar_cache.move_to_end(key)
-        return cached
 
     safe_uname = str(user_name or "").strip() or "Cat"
     avatar_url = generate_default_avatar(safe_uname)
@@ -710,6 +753,11 @@ def authenticated_user_rate_key() -> str:
 def assign_request_id() -> None:
     supplied = (request.headers.get("X-Request-ID") or "").strip()
     g.request_id = supplied if re.fullmatch(r"[A-Za-z0-9._:-]{1,64}", supplied) else str(uuid.uuid4())
+    if COUNTRY_ACCESS_ENABLED and request.path not in {"/livez", "/healthz"} and not request.path.startswith("/static/"):
+        country = request.headers.get("X-Vercel-IP-Country", "").strip().upper()
+        if country not in ALLOWED_COUNTRIES:
+            from flask import abort
+            abort(403, description="CatRank is not available in your country or your location could not be verified.")
     if request.path.startswith("/api/") and not ENABLE_DEMO_DATA:
         for key, value in (request.view_args or {}).items():
             if key.endswith("_id"):
@@ -724,14 +772,14 @@ def apply_response_headers(response: Response) -> Response:
     response.headers["X-Request-ID"] = str(getattr(g, "request_id", ""))
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Referrer-Policy"] = "no-referrer" if request.path in {"/auth/callback", "/reset-password"} else "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
 
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; "
-        "font-src 'self'; connect-src 'self' https: wss:; "
+        f"font-src 'self'; connect-src 'self' {SUPABASE_URL} {SUPABASE_URL.replace('https://', 'wss://')}; "
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
     )
     if IS_PRODUCTION:
@@ -753,14 +801,14 @@ def rate_limit_exceeded(_error: Any) -> Any:
 @app.errorhandler(413)
 def request_too_large(_error: Any) -> Any:
     if request.path.startswith("/api/"):
-        return jsonify({"error": "Upload is too large. Maximum request size is 6MB."}), 413
+        return jsonify({"error": f"Upload is too large. Maximum image size is {MAX_FILE_SIZE // (1024 * 1024)}MB."}), 413
     return Response("Request is too large.", status=413, mimetype="text/plain")
 
 @app.errorhandler(HTTPException)
 def http_error(error: HTTPException) -> Any:
     if request.path.startswith("/api/"):
         response = error.get_response()
-        response.data = app.json.dumps({"error": error.name})
+        response.data = app.json.dumps({"error": error.description if error.code == 403 else error.name})
         response.content_type = "application/json"
         return response
     return render_template("error.html", status=error.code, message=error.description), error.code
@@ -773,7 +821,9 @@ def server_error(error: Any) -> Any:
 
 @app.context_processor
 def shared_template_context() -> Dict[str, Any]:
-    return {"supabase_url": SUPABASE_URL, "supabase_anon_key": SUPABASE_ANON_KEY}
+    return {"supabase_url": SUPABASE_URL, "supabase_anon_key": SUPABASE_ANON_KEY,
+            "google_auth_enabled": GOOGLE_AUTH_ENABLED, "phone_auth_enabled": PHONE_AUTH_ENABLED,
+            "asset_url": asset_url}
 
 @app.route("/livez")
 def livez() -> Any:
@@ -981,9 +1031,10 @@ def upload_cat() -> Any:
         return jsonify({"error": "Upload failed unexpectedly. Please try again."}), 500
 
 @app.route("/api/cats/<cat_id>", methods=["GET"])
+@limiter.limit("240 per minute")
 def get_cat_details(cat_id: str) -> Any:
     cat_record: Optional[Dict[str, Any]] = None
-    cat_key = make_cache_key("cat", cat_id)
+    cat_key = make_cache_key("cat", cat_id, cache_counter_value("cats"))
     cached_cat = cache_get(cat_key)
     if isinstance(cached_cat, dict):
         cat_record = cast(Dict[str, Any], cached_cat)
@@ -1178,36 +1229,65 @@ def toggle_like(cat_id: str) -> Any:
         app.logger.exception("Failed to toggle like for cat %s", cat_id)
         return jsonify({"error": "Unable to update vote right now."}), 503
 
+COMMENT_COLUMNS = "id,cat_id,user_id,user_name,user_avatar,parent_id,reply_to_id,reply_to_name,comment,created_at,updated_at,likes_count"
+
+
 @app.route("/api/cats/<cat_id>/comments", methods=["GET"])
+@limiter.limit("120 per minute")
 def get_comments(cat_id: str) -> Any:
-    comments_list: List[Dict[str, Any]] = []
-
-    if supabase_admin:
+    cursor = request.args.get("cursor", "")
+    if len(cursor) > 1000:
+        return jsonify({"error": "Invalid comment cursor."}), 400
+    serializer = URLSafeTimedSerializer(cast(str, app.config["SECRET_KEY"]), salt="comments-page")
+    after = None
+    if cursor:
         try:
-            raw_res = getattr(
-                supabase_admin.table("comments").select("*").eq("cat_id", cat_id).order("created_at", desc=False).limit(200).execute(),
-                "data",
-                [],
-            )
-            comments_list = cast(List[Dict[str, Any]], raw_res) if isinstance(raw_res, list) else []
-        except Exception:
-            app.logger.exception("Could not load comments for cat %s", cat_id)
+            value = serializer.loads(cursor, max_age=86400)
+            if value["cat"] != cat_id:
+                raise ValueError("Wrong cat")
+            after = (datetime.fromisoformat(value["created_at"]).isoformat(), str(uuid.UUID(value["id"])))
+        except (BadSignature, SignatureExpired, ValueError, KeyError, TypeError):
+            return jsonify({"error": "This comment page has expired. Reload the comments."}), 400
+    key = make_cache_key("comments", cat_id, cache_counter_value(f"comments:{cat_id}"), cache_counter_value("attribution"), hashlib.sha256(cursor.encode()).hexdigest())
+    cached = cache_get_dict(key)
+    if cached is not None:
+        return jsonify(dict(cached, server_time=datetime.now(timezone.utc).isoformat()))
+    total = None
+    page_size = 30
+    try:
+        if supabase_admin:
+            query = supabase_admin.table("comments").select(COMMENT_COLUMNS, count=CountMethod.exact if not after else None).eq("cat_id", cat_id)
+            if after:
+                stamp, ident = after
+                query = query.or_(f"created_at.gt.{stamp},and(created_at.eq.{stamp},id.gt.{ident})")
+            result = query.order("created_at").order("id").limit(page_size + 1).execute()
+            rows = as_row_list(getattr(result, "data", None))
+            total = getattr(result, "count", None) if not after else None
+        elif ENABLE_DEMO_DATA:
+            all_rows = sorted((dict(c) for c in MOCK_COMMENTS if str(c.get("cat_id")) == cat_id), key=lambda c: (c["created_at"], c["id"]))
+            total = len(all_rows) if not after else None
+            rows = [c for c in all_rows if not after or (c["created_at"], c["id"]) > after][:page_size + 1]
+        else:
             return jsonify({"error": "Comments service is unavailable."}), 503
-    elif not ENABLE_DEMO_DATA:
+        has_more = len(rows) > page_size
+        rows = rows[:page_size]
+        for row in rows:
+            row.pop("user_email", None)
+            row["user_avatar"] = sanitize_image_url(row.get("user_avatar"), fallback_name=str(row.get("user_name") or "Cat Lover"))
+        next_cursor = None
+        if has_more:
+            last = rows[-1]
+            next_cursor = serializer.dumps({"cat": cat_id, "created_at": last["created_at"], "id": last["id"]})
+        payload = {"comments": rows, "total": total, "next_cursor": next_cursor, "has_more": has_more}
+        cache_set(key, payload, 15)
+        return jsonify(dict(payload, server_time=datetime.now(timezone.utc).isoformat()))
+    except Exception:
+        app.logger.exception("Could not load comments for cat %s", cat_id)
         return jsonify({"error": "Comments service is unavailable."}), 503
-
-    if not comments_list and ENABLE_DEMO_DATA:
-        comments_list = [c for c in MOCK_COMMENTS if str(c.get("cat_id")) == str(cat_id)]
-
-    for c in comments_list:
-        c["user_avatar"] = resolve_user_avatar(c.get("user_id"), c.get("user_name"), c.get("user_avatar"))
-        c.pop("user_email", None)
-
-    return jsonify({"comments": comments_list}), 200
 
 @app.route("/api/cats/<cat_id>/comments", methods=["POST"])
 @require_auth
-@limiter.limit("6 per minute", key_func=authenticated_user_rate_key)
+@limiter.limit("6 per minute; 60 per hour", key_func=authenticated_user_rate_key)
 def add_comment(cat_id: str) -> Any:
     try:
         user = getattr(g, "user", None)
@@ -1216,9 +1296,13 @@ def add_comment(cat_id: str) -> Any:
 
         raw_json: Any = request.get_json(silent=True)
         data: Dict[str, Any] = cast(Dict[str, Any], raw_json) if isinstance(raw_json, dict) else {}
-        comment_text = clean_text(data.get("comment"), max_length=300)
+        raw_comment = data.get("comment")
+        if not isinstance(raw_comment, str) or not 1 <= len(raw_comment.strip()) <= 300:
+            return jsonify({"error": "Comments must contain 1–300 characters."}), 400
+        comment_text = clean_text(raw_comment, max_length=300)
         parent_id = sanitize_nullable_str(data.get("parent_id"))
-        reply_to_name = sanitize_nullable_str(data.get("reply_to_name"))
+        reply_to_name = None
+        reply_to_id = parent_id
 
         if not comment_text:
             return jsonify({"error": "Comment text cannot be empty."}), 400
@@ -1241,7 +1325,7 @@ def add_comment(cat_id: str) -> Any:
                 try:
                     parent_row_for_notification = get_db_row(
                         supabase_admin.table("comments")
-                        .select("id,cat_id,user_id,user_name")
+                        .select("id,cat_id,user_id,user_name,parent_id")
                         .eq("id", parent_id)
                     )
                 except Exception:
@@ -1249,6 +1333,21 @@ def add_comment(cat_id: str) -> Any:
                 if not parent_row_for_notification or str(parent_row_for_notification.get("cat_id")) != str(cat_id):
                     return jsonify({"error": "Invalid reply target."}), 400
                 reply_to_name = clean_text(parent_row_for_notification.get("user_name"), max_length=40, fallback="Cat Lover")
+                root = parent_row_for_notification
+                seen: set[str] = set()
+                while root.get("parent_id"):
+                    if str(root["id"]) in seen or len(seen) >= 30:
+                        return jsonify({"error": "Invalid reply thread."}), 400
+                    seen.add(str(root["id"]))
+                    ancestor = get_db_row(supabase_admin.table("comments").select("id,cat_id,parent_id").eq("id", root["parent_id"]))
+                    if not ancestor or str(ancestor.get("cat_id")) != str(cat_id):
+                        return jsonify({"error": "Reply thread no longer exists."}), 400
+                    root = ancestor
+                parent_id = str(root["id"])
+            since = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+            duplicate = get_db_row(supabase_admin.table("comments").select("id").eq("cat_id", cat_id).eq("user_id", user_id).eq("comment", comment_text).gte("created_at", since))
+            if duplicate:
+                return jsonify({"error": "You just posted this comment. Please wait before repeating it."}), 429
 
         comment_id = str(uuid.uuid4())
         comment_payload: Dict[str, Any] = {
@@ -1259,6 +1358,7 @@ def add_comment(cat_id: str) -> Any:
             "user_avatar": avatar_url,
             "user_email": user_email,
             "parent_id": parent_id,
+            "reply_to_id": reply_to_id,
             "reply_to_name": reply_to_name,
             "comment": comment_text,
             "created_at": datetime.now(timezone.utc).isoformat()
@@ -1289,7 +1389,7 @@ def add_comment(cat_id: str) -> Any:
                             comment_id=comment_id,
                             message=f"{user_name} replied to your comment on {cat_name}!"
                         )
-                    else:
+                    if not parent_row_for_notification or str(parent_row_for_notification.get("user_id")) != cat_owner_id:
                         push_notification(
                             user_id=cat_owner_id,
                             actor_id=user_id,
@@ -1308,6 +1408,7 @@ def add_comment(cat_id: str) -> Any:
         if ENABLE_DEMO_DATA and not supabase_admin:
             MOCK_COMMENTS.append(comment_payload)
 
+        invalidate_comments(cat_id)
         return jsonify({
             "message": "Comment posted successfully!",
             "comment": {k: v for k, v in comment_payload.items() if k != "user_email"}
@@ -1317,74 +1418,65 @@ def add_comment(cat_id: str) -> Any:
         app.logger.exception("Could not add comment to cat %s", cat_id)
         return jsonify({"error": "Could not post comment right now."}), 500
 
-@app.route("/api/comments/<comment_id>", methods=["DELETE"])
+def mutate_comment(comment_id: str, *, delete: bool = False, admin_only: bool = False) -> Any:
+    user = g.user
+    admin = is_admin_user(user)
+    if admin_only and not admin:
+        return jsonify({"error": "Admin access required."}), 403
+    if not supabase_admin:
+        return jsonify({"error": "Comments service is unavailable."}), 503
+    try:
+        row = get_db_row(supabase_admin.table("comments").select("id,user_id,cat_id").eq("id", comment_id))
+        if not row:
+            return jsonify({"error": "Comment not found."}), 404
+        if str(row.get("user_id")) != str(user.id) and not admin:
+            return jsonify({"error": "You can only change your own comments."}), 403
+        if delete:
+            supabase_admin.table("comments").delete().eq("id", comment_id).execute()
+            invalidate_comments(row.get("cat_id"))
+            return jsonify({"message": "Comment deleted.", "comment_id": comment_id})
+        raw = request_json().get("comment")
+        if not isinstance(raw, str) or not raw.strip() or len(raw.strip()) > 300:
+            return jsonify({"error": "Comments must contain 1–300 characters."}), 400
+        text = clean_text(raw, max_length=300)
+        result = supabase_admin.rpc("edit_comment_with_window", {"p_comment_id": comment_id, "p_user_id": str(user.id), "p_comment": text, "p_admin": admin}).execute()
+        rows = as_row_list(result.data)
+        if not rows:
+            return jsonify({"error": "Comment not found."}), 404
+        updated = rows[0]
+        status = str(updated.get("status", ""))
+        if status == "expired":
+            return jsonify({"error": "Comments can only be edited during the first two minutes after posting.", "code": "edit_window_expired"}), 409
+        if status == "forbidden":
+            return jsonify({"error": "You can only change your own comments."}), 403
+        if status != "updated":
+            return jsonify({"error": "Comment not found."}), 404
+        invalidate_comments(updated.get("cat_id"))
+        return jsonify({"message": "Comment updated.", "comment_id": comment_id, "comment": updated["comment"], "updated_at": updated["updated_at"]})
+    except Exception:
+        app.logger.exception("Could not change comment %s", comment_id)
+        return jsonify({"error": "Could not change this comment. Please retry."}), 503
+
+
+@app.route("/api/comments/<comment_id>", methods=["PUT", "DELETE"])
 @require_auth
 @limiter.limit("30 per minute", key_func=authenticated_user_rate_key)
 def delete_comment(comment_id: str) -> Any:
-    user_id = str(getattr(getattr(g, "user", None), "id", ""))
-    is_admin = is_admin_user(getattr(g, "user", None))
+    return mutate_comment(comment_id, delete=request.method == "DELETE")
 
-    if not supabase_admin:
-        return jsonify({"error": "Comments service is unavailable."}), 503
-
-    try:
-        comm = get_db_row(supabase_admin.table("comments").select("id,user_id").eq("id", comment_id))
-        if not comm:
-            return jsonify({"error": "Comment not found."}), 404
-        if str(comm.get("user_id")) != user_id and not is_admin:
-            return jsonify({"error": "Permission denied. You can only delete your own comments."}), 403
-
-        supabase_admin.table("comments").delete().eq("id", comment_id).execute()
-        supabase_admin.table("notifications").delete().eq("comment_id", comment_id).execute()
-        return jsonify({"message": "Comment deleted successfully."}), 200
-    except Exception:
-        app.logger.exception("Failed to delete comment %s", comment_id)
-        return jsonify({"error": "Unable to delete comment right now."}), 503
 
 @app.route("/api/admin/comments/<comment_id>", methods=["PUT"])
 @require_auth
 @limiter.limit("60 per minute", key_func=authenticated_user_rate_key)
 def admin_edit_comment(comment_id: str) -> Any:
-    try:
-        if not is_admin_user(getattr(g, "user", None)):
-            return jsonify({"error": "Admin access required."}), 403
+    return mutate_comment(comment_id, admin_only=True)
 
-        raw_json: Any = request.get_json(silent=True)
-        data: Dict[str, Any] = cast(Dict[str, Any], raw_json) if isinstance(raw_json, dict) else {}
-        new_text = clean_text(data.get("comment"), max_length=300)
-
-        if not new_text:
-            return jsonify({"error": "Comment text cannot be empty."}), 400
-        if not supabase_admin:
-            return jsonify({"error": "Comments service is unavailable."}), 503
-        if safe_db_update("comments", {"comment": new_text}, "id", comment_id) is None:
-            return jsonify({"error": "Could not update comment."}), 503
-
-        return jsonify({"message": "Comment updated successfully.", "comment_id": comment_id, "comment": new_text}), 200
-    except Exception:
-        app.logger.exception("Admin comment update failed for %s", comment_id)
-        return jsonify({"error": "Could not update comment right now."}), 500
 
 @app.route("/api/admin/comments/<comment_id>", methods=["DELETE", "POST"])
 @require_auth
 @limiter.limit("60 per minute", key_func=authenticated_user_rate_key)
 def admin_delete_comment(comment_id: str) -> Any:
-    try:
-        if not is_admin_user(getattr(g, "user", None)):
-            return jsonify({"error": "Admin access required."}), 403
-
-        if not supabase_admin:
-            return jsonify({"error": "Comments service is unavailable."}), 503
-        try:
-            supabase_admin.table("comments").delete().eq("id", comment_id).execute()
-        except Exception:
-            app.logger.exception("Admin failed to delete comment %s", comment_id)
-            return jsonify({"error": "Could not delete comment."}), 503
-
-        return jsonify({"message": "Comment deleted successfully by admin.", "comment_id": comment_id}), 200
-    except Exception:
-        app.logger.exception("Admin comment deletion failed for %s", comment_id)
-        return jsonify({"error": "Could not delete comment right now."}), 500
+    return mutate_comment(comment_id, delete=True, admin_only=True)
 
 @app.route("/api/notifications", methods=["GET"])
 @require_auth
@@ -1510,7 +1602,7 @@ def upload_user_avatar() -> Any:
             return jsonify({"error": "Could not save the avatar. The upload was rolled back."}), 503
 
         cache_user_avatar(user_id, public_url)
-        invalidate_profile_cache(user_id)
+        invalidate_attribution(user_id)
         try:
             supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": {"avatar_url": public_url}})
         except Exception as exc:
@@ -1539,7 +1631,7 @@ def signup_rate_key() -> str:
 
 @app.route("/api/auth/register", methods=["POST"])
 @limiter.limit("10 per hour", key_func=signup_rate_key)
-@limiter.limit("700 per hour", key_func=get_remote_address)
+@limiter.limit("30 per hour", key_func=get_remote_address)
 def register_user() -> Any:
     try:
         if not supabase_auth:
@@ -1694,7 +1786,7 @@ def sync_user_profile() -> Any:
             if has_avatar and new_avatar and old_avatar_url and old_avatar_url != new_avatar:
                 delete_file_from_storage(old_avatar_url, "avatars", allowed_prefix=f"avatars/{user_id}/")
 
-        invalidate_profile_cache(user_id)
+        invalidate_attribution(user_id)
 
         if ENABLE_DEMO_DATA and not supabase_admin:
             for c in MOCK_CATS:
@@ -1811,7 +1903,7 @@ def admin_edit_user_profile(user_id: str) -> Any:
             if old_avatar_url and old_avatar_url != new_avatar:
                 delete_file_from_storage(old_avatar_url, "avatars", allowed_prefix=f"avatars/{user_id}/")
 
-        invalidate_profile_cache(user_id)
+        invalidate_attribution(user_id)
         return jsonify({
             "message": "User profile updated by admin successfully.",
             "user_id": user_id,
@@ -1869,7 +1961,7 @@ def admin_force_delete_user(user_id: str) -> Any:
 
 @app.route("/api/user/<user_id>/profile", methods=["GET"])
 def get_public_profile(user_id: str) -> Any:
-    profile_key = make_cache_key("profile", user_id)
+    profile_key = make_cache_key("profile", user_id, cache_counter_value("cats"))
     cached_profile = cache_get_dict(profile_key)
     if cached_profile is not None:
         return jsonify(cached_profile), 200
@@ -2221,6 +2313,272 @@ def admin_overview() -> Any:
     except Exception:
         app.logger.exception("Failed to load admin overview")
         return jsonify({"error": "Failed to load admin overview."}), 500
+
+def new_auth_client() -> Any:
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise RuntimeError("Authentication is not configured")
+    return create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False))
+
+
+def request_json() -> Dict[str, Any]:
+    value = request.get_json(silent=True)
+    return cast(Dict[str, Any], value) if isinstance(value, dict) else {}
+
+
+def email_rate_key() -> str:
+    email = clean_text(request_json().get("email"), max_length=254).lower()
+    return "email:" + hashlib.sha256(email.encode()).hexdigest()
+
+
+@app.route("/auth/callback")
+def oauth_callback_page() -> str:
+    return render_template("auth_callback.html")
+
+
+@app.route("/api/auth/options")
+@limiter.limit("60 per minute")
+def auth_options() -> Any:
+    options: Dict[str, bool] = {"google_enabled": GOOGLE_AUTH_ENABLED}
+    if PHONE_AUTH_ENABLED:
+        options["phone_enabled"] = True
+    return jsonify(options)
+
+
+@app.route("/api/auth/login", methods=["POST"])
+@limiter.limit("10 per minute")
+@limiter.limit("30 per hour", key_func=email_rate_key)
+def password_login() -> Any:
+    data = request_json()
+    email = clean_text(data.get("email"), max_length=254).lower()
+    password = data.get("password")
+    if not email or not isinstance(password, str) or not 1 <= len(password) <= 128:
+        return jsonify({"error": "Enter your email and password."}), 400
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        return jsonify({"error": "Sign-in is unavailable."}), 503
+    try:
+        result = new_auth_client().auth.sign_in_with_password({"email": email, "password": password})
+        session = getattr(result, "session", None)
+        if not session:
+            return jsonify({"error": "Sign-in failed. Check your details and email confirmation."}), 401
+        return jsonify({"access_token": session.access_token, "refresh_token": session.refresh_token})
+    except Exception as exc:
+        status = getattr(exc, "status", None)
+        if str(status) == "429":
+            return jsonify({"error": "Too many sign-in attempts. Please try again later."}), 429
+        return jsonify({"error": "Sign-in failed. Check your details and email confirmation."}), 401
+
+
+@app.route("/api/auth/password-reset", methods=["POST"])
+@limiter.limit("5 per hour", key_func=email_rate_key)
+@limiter.limit("15 per hour")
+def request_password_reset() -> Any:
+    email = clean_text(request_json().get("email"), max_length=254).lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        return jsonify({"error": "Enter a valid email address."}), 400
+    try:
+        new_auth_client().auth.reset_password_email(email, {"redirect_to": f"{public_site_url()}/reset-password"})
+    except Exception as exc:
+        # Do not disclose whether a registered address exists.
+        app.logger.warning("Password reset delivery failed (%s)", type(exc).__name__)
+        return jsonify({"error": "Password reset is temporarily unavailable. Please try again later."}), 503
+    return jsonify({"message": "If an account exists for that email, a reset link has been sent."})
+
+
+@app.route("/api/auth/bootstrap", methods=["POST"])
+@require_auth
+@limiter.limit("30 per minute", key_func=authenticated_user_rate_key)
+def bootstrap_profile() -> Any:
+    if not supabase_admin:
+        return jsonify({"error": "Profile service is unavailable."}), 503
+    user = g.user
+    try:
+        ensure_auth_profile(user)
+        return jsonify({"ready": True, "user_id": str(user.id)})
+    except Exception:
+        app.logger.exception("Could not initialize profile")
+        return jsonify({"error": "Could not initialize your profile. Please retry."}), 503
+
+
+@app.route("/api/user/security", methods=["PUT"])
+@require_auth
+@limiter.limit("5 per hour", key_func=authenticated_user_rate_key)
+@limiter.limit("15 per hour")
+def update_account_security() -> Any:
+    data = request_json()
+    action = data.get("action")
+    password = data.get("current_password")
+    if action not in {"email", "password", "unlink_google"} or not isinstance(password, str) or not 1 <= len(password) <= 128:
+        return jsonify({"error": "Current password is required."}), 400
+    value = data.get("value", "")
+    if not isinstance(value, str):
+        return jsonify({"error": "Invalid account details."}), 400
+    if action == "email":
+        value = value.strip().lower()
+        if len(value) > 254 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            return jsonify({"error": "Enter a valid email address."}), 400
+    elif action == "password" and not 8 <= len(value) <= 128:
+        return jsonify({"error": "Password must be between 8 and 128 characters."}), 400
+    client = None
+    verified = False
+    try:
+        client = new_auth_client()
+        result = client.auth.sign_in_with_password({"email": str(g.user.email), "password": password})
+        verified = bool(getattr(result, "session", None))
+        if not verified or str(getattr(getattr(result, "user", None), "id", "")) != str(g.user.id):
+            return jsonify({"error": "Re-authentication failed."}), 401
+        verified = True
+        if action == "unlink_google":
+            identities = client.auth.get_user_identities().identities
+            google = next((identity for identity in identities if identity.provider == "google"), None)
+            if not google or not any(identity.provider == "email" for identity in identities) or len(identities) < 2:
+                return jsonify({"error": "Keep a verified password sign-in before disconnecting Google."}), 409
+            client.auth.unlink_identity(google)
+            return jsonify({"message": "Google disconnected. You can still sign in with your password."})
+        attrs: Any = {str(action): value}
+        options: Any = {"email_redirect_to": f"{public_site_url()}/profile?email_confirmed=1"}
+        updated = client.auth.update_user(attrs, options) if action == "email" else client.auth.update_user(attrs)
+        immediate = action == "email" and str(getattr(updated.user, "email", "")).lower() == value
+        message = "Password updated." if action == "password" else "Confirm the change using the links sent to your current and new inboxes."
+        if immediate:
+            message = "Email changed. Confirmation is disabled in the authentication provider settings."
+        return jsonify({"message": message, "requires_confirmation": action == "email" and not immediate})
+    except Exception as exc:
+        app.logger.warning("Account security update rejected (%s)", type(exc).__name__)
+        return jsonify({"error": "Could not update your account. Check your current password and try again."}), 400
+    finally:
+        if client is not None and verified:
+            try:
+                client.auth.sign_out({"scope": "local"})
+            except Exception:
+                pass
+
+
+def normalize_phone(value: Any) -> Optional[str]:
+    if not isinstance(value, str) or len(value) > 40:
+        return None
+    phone = re.sub(r"[\s()\-]", "", value)
+    return phone if re.fullmatch(r"\+[1-9]\d{7,14}", phone) else None
+
+
+def phone_rate_key() -> str:
+    phone = normalize_phone(request_json().get("phone")) or "invalid"
+    return "phone:" + hashlib.sha256(phone.encode()).hexdigest()
+
+
+def ensure_auth_profile(user: Any) -> None:
+    if not supabase_admin:
+        raise RuntimeError("Profile service unavailable")
+    raw = getattr(user, "user_metadata", {})
+    meta = cast(Dict[str, Any], raw) if isinstance(raw, dict) else {}
+    name = clean_text(meta.get("display_name") or meta.get("full_name") or meta.get("name"), max_length=40, fallback="Cat Lover")
+    supabase_admin.table("profiles").upsert({
+        "id": str(user.id), "email": str(getattr(user, "email", "") or "") or None,
+        "display_name": name, "avatar_url": generate_default_avatar(name), "role": "user",
+    }, on_conflict="id", ignore_duplicates=True).execute()
+    invalidate_profile_cache(user.id)
+
+
+@app.route("/api/auth/phone/send", methods=["POST"])
+@limiter.limit("1 per minute; 5 per hour", key_func=phone_rate_key)
+@limiter.limit("15 per hour")
+@limiter.limit("100 per day", key_func=lambda: "phone-sms-global")
+def send_phone_code() -> Any:
+    if not PHONE_AUTH_ENABLED:
+        return jsonify({"error": "Phone sign-in is not available yet."}), 503
+    data = request_json()
+    phone = normalize_phone(data.get("phone"))
+    mode = data.get("mode")
+    if not phone or mode not in {"login", "register"}:
+        return jsonify({"error": "Enter your phone number with its country code, for example +998901234567."}), 400
+    name = clean_text(data.get("display_name"), max_length=40, fallback="Cat Lover")
+    options: Dict[str, Any] = {"should_create_user": mode == "register", "channel": "sms"}
+    if mode == "register":
+        options["data"] = {"display_name": name}
+    try:
+        new_auth_client().auth.sign_in_with_otp(cast(Any, {"phone": phone, "options": options}))
+        return jsonify({"message": "Check your phone for a verification code.", "retry_after": 60})
+    except Exception as exc:
+        app.logger.warning("Phone OTP request failed (%s)", type(exc).__name__)
+        code = str(getattr(exc, "code", ""))
+        if code in {"over_sms_send_rate_limit", "over_request_rate_limit"}:
+            return jsonify({"error": "Too many code requests. Please try again later."}), 429
+        if code in {"provider_disabled", "sms_send_failed", "unexpected_failure"}:
+            return jsonify({"error": "SMS sign-in is temporarily unavailable."}), 503
+        return jsonify({"error": "Could not send a code. Check the number. New users should choose Create account."}), 400
+
+
+@app.route("/api/auth/phone/verify", methods=["POST"])
+@limiter.limit("5 per 10 minutes", key_func=phone_rate_key)
+@limiter.limit("30 per hour")
+def verify_phone_code() -> Any:
+    if not PHONE_AUTH_ENABLED:
+        return jsonify({"error": "Phone sign-in is not available yet."}), 503
+    data = request_json()
+    phone = normalize_phone(data.get("phone"))
+    token = data.get("token")
+    if not phone or not isinstance(token, str) or not re.fullmatch(r"\d{6}", token):
+        return jsonify({"error": "Enter a valid phone number and the six-digit SMS code."}), 400
+    try:
+        result = new_auth_client().auth.verify_otp({"phone": phone, "token": token, "type": "sms"})
+    except Exception as exc:
+        app.logger.info("Phone verification rejected (%s)", type(exc).__name__)
+        return jsonify({"error": "This code is invalid or expired. Request a new code and try again."}), 400
+    auth_session = getattr(result, "session", None)
+    user = getattr(result, "user", None)
+    verified_phone = str(getattr(user, "phone", "") or "").lstrip("+")
+    if not auth_session or not user or not getattr(user, "phone_confirmed_at", None) or verified_phone != phone.lstrip("+"):
+        return jsonify({"error": "Phone verification did not complete."}), 401
+    try:
+        ensure_auth_profile(user)
+    except Exception:
+        app.logger.exception("Verified phone profile could not be initialized")
+        return jsonify({"error": "Your number was verified, but your profile could not load. Please sign in again."}), 503
+    return jsonify({"access_token": auth_session.access_token, "refresh_token": auth_session.refresh_token})
+
+
+@app.route("/api/user/comment-likes", methods=["GET"])
+@require_auth
+@limiter.limit("120 per minute", key_func=authenticated_user_rate_key)
+def get_comment_likes() -> Any:
+    ids = request.args.get("ids", "").split(",")
+    if not 1 <= len(ids) <= 100:
+        return jsonify({"error": "Request between 1 and 100 comments."}), 400
+    try:
+        ids = list(dict.fromkeys(str(uuid.UUID(value)) for value in ids))
+    except ValueError:
+        return jsonify({"error": "Invalid comment IDs."}), 400
+    if not supabase_admin:
+        return jsonify({"error": "Comment likes are unavailable."}), 503
+    try:
+        result = supabase_admin.table("comment_likes").select("comment_id").eq("user_id", str(g.user.id)).in_("comment_id", ids).execute()
+        return jsonify({"liked_comment_ids": [row["comment_id"] for row in as_row_list(result.data)]})
+    except Exception:
+        app.logger.exception("Could not load comment like state")
+        return jsonify({"error": "Comment likes are unavailable."}), 503
+
+
+@app.route("/api/comments/<comment_id>/like", methods=["PUT", "DELETE"])
+@require_auth
+@limiter.limit("120 per minute", key_func=authenticated_user_rate_key)
+def set_comment_like(comment_id: str) -> Any:
+    if not supabase_admin:
+        return jsonify({"error": "Comment likes are unavailable."}), 503
+    try:
+        comment_id = str(uuid.UUID(comment_id))
+    except ValueError:
+        return jsonify({"error": "Invalid comment ID."}), 400
+    try:
+        result = supabase_admin.rpc("set_comment_like", {"p_comment_id": comment_id, "p_user_id": str(g.user.id), "p_liked": request.method == "PUT"}).execute()
+        rows = as_row_list(result.data)
+        if not rows:
+            return jsonify({"error": "Comment not found."}), 404
+        row = rows[0]
+        invalidate_comments(row.get("cat_id"))
+        return jsonify({"liked": bool(row["liked"]), "likes_count": int(row["likes_count"])})
+    except Exception:
+        app.logger.exception("Could not change comment like")
+        return jsonify({"error": "Could not change the comment like. Please retry."}), 503
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=env_flag("FLASK_DEBUG", False))
