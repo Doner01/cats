@@ -2264,3 +2264,21 @@ body { padding-top: 80px; }
         gap: 2px !important;
     }
 }
+
+/* 4. Fix Inline Comment Editor Design */
+.comment-inline-editor {
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    margin-top: 4px !important;
+}
+.comment-inline-editor::before {
+    display: none !important;
+}
+.comment-inline-editor__top {
+    margin-bottom: -2px !important;
+}
+.comment-inline-editor__textarea {
+    min-height: 60px !important;
+}

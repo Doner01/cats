@@ -40,7 +40,7 @@ function renderProfileCats(cats, ownUploads = false) {
             </div></div></div>
             ${ownUploads ? `<div id="cat-editor-${id}" class="profile-cat-inline-editor profile-cat-inline-editor--compact hidden">
                 <div class="profile-cat-editor-head">
-                    <div class="profile-cat-editor-title"><i class="fa-solid fa-pen" aria-hidden="true"></i><strong>${escapeHtml(currentLang === 'ru' ? 'Редактировать публикацию' : 'Edit post')}</strong></div>
+                    <div class="profile-cat-editor-title"><strong>${escapeHtml(currentLang === 'ru' ? 'Редактировать публикацию' : 'Edit post')}</strong></div>
                     <button type="button" class="profile-cat-editor-close" onclick="cancelEditCat('${actionId}', event)" aria-label="${escapeHtml(currentLang === 'ru' ? 'Закрыть редактор' : 'Close editor')}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
                 </div>
                 <label class="profile-cat-editor-field profile-cat-editor-field--row"><span>${escapeHtml(currentLang === 'ru' ? 'Имя' : 'Name')}</span><input id="cat-edit-name-${id}" type="text" maxlength="80" value="${name}" autocomplete="off"></label>
