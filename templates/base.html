@@ -454,172 +454,87 @@
                 </div>
 
                 <!-- Notifications -->
-                <div
-                    class="relative"
-                    id="notifications-dropdown-wrapper"
-                >
-
+                <div class="relative" id="notifications-dropdown-wrapper">
                     <button
+                        id="notifications-toggle-btn"
+                        type="button"
                         onclick="toggleNotificationsDropdown()"
-                        class="
-                            w-9
-                            h-9
-                            rounded-xl
-                            bg-slate-100
-                            hover:bg-slate-200
-                            text-slate-600
-                            hover:text-slate-900
-                            border
-                            border-slate-200
-                            flex
-                            items-center
-                            justify-center
-                            transition
-                            shadow-2xs
-                            relative
-                        "
+                        class="notification-bell-button"
                         title="Notifications"
                         data-i18n-title="nav_notifications"
+                        aria-haspopup="true"
+                        aria-expanded="false"
+                        aria-controls="notifications-dropdown"
                     >
-
-                        <i
-                            class="
-                                fa-solid
-                                fa-bell
-                                text-xs
-                            "
-                        ></i>
-
-                        <span
-                            id="notif-badge"
-                            class="
-                                hidden
-                                absolute
-                                -top-1
-                                -right-1
-                                w-4
-                                h-4
-                                rounded-full
-                                bg-rose-500
-                                text-white
-                                text-[9px]
-                                font-black
-                                flex
-                                items-center
-                                justify-center
-                                border-2
-                                border-white
-                                animate-pulse
-                            "
-                        >
-                            0
-                        </span>
-
+                        <i class="fa-solid fa-bell" aria-hidden="true"></i>
+                        <span id="notif-badge" class="notification-badge hidden">0</span>
                     </button>
 
                     <div
                         id="notifications-dropdown"
-                        class="
-                            hidden
-                            absolute
-                            right-0
-                            mt-2
-                            w-80
-                            sm:w-88
-                            bg-white
-                            rounded-3xl
-                            border
-                            border-slate-200
-                            shadow-2xl
-                            overflow-hidden
-                            z-50
-                            animate-in
-                            fade-in
-                            zoom-in-95
-                            duration-150
-                        "
+                        class="notification-dropdown hidden"
+                        role="dialog"
+                        aria-label="Notifications"
                     >
-
-                        <div
-                            class="
-                                p-4
-                                border-b
-                                border-slate-100
-                                flex
-                                items-center
-                                justify-between
-                                bg-slate-50/80
-                            "
-                        >
-
-                            <div
-                                class="
-                                    flex
-                                    items-center
-                                    gap-2
-                                "
-                            >
-                                <i
-                                    class="
-                                        fa-solid
-                                        fa-bell
-                                        text-indigo-500
-                                        text-xs
-                                    "
-                                ></i>
-
-                                <span
-                                    class="
-                                        font-extrabold
-                                        text-slate-900
-                                        text-xs
-                                    "
-                                    data-i18n="notifications_title"
-                                >
-                                    Notifications
-                                </span>
+                        <div class="notification-header">
+                            <div class="notification-heading-wrap">
+                                <div class="notification-heading-icon" aria-hidden="true">
+                                    <i class="fa-solid fa-bell"></i>
+                                </div>
+                                <div class="notification-heading-copy">
+                                    <div class="notification-title-row">
+                                        <span class="notification-title" data-i18n="notifications_title">Notifications</span>
+                                        <span id="notifications-unread-count" class="notification-unread-pill hidden">0</span>
+                                    </div>
+                                    <span class="notification-subtitle" data-i18n="notif_footer">Activity updates</span>
+                                </div>
                             </div>
 
                             <button
-                                onclick="markAllNotificationsRead()"
-                                class="
-                                    text-[11px]
-                                    font-bold
-                                    text-indigo-600
-                                    hover:underline
-                                    transition
-                                "
-                                data-i18n="notif_mark_read"
+                                id="notifications-close-btn"
+                                type="button"
+                                class="notification-icon-button"
+                                onclick="closeNotificationsDropdown()"
+                                aria-label="Close notifications"
+                                title="Close"
                             >
-                                Mark all read
+                                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                             </button>
-
                         </div>
 
-                        <div
-                            id="notifications-list"
-                            class="
-                                max-h-72
-                                overflow-y-auto
-                                divide-y
-                                divide-slate-100
-                                text-xs
-                            "
-                        >
-                            <div
-                                class="
-                                    p-8
-                                    text-center
-                                    text-slate-400
-                                "
-                                data-i18n="notif_empty"
+                        <div class="notification-toolbar">
+                            <button
+                                id="notifications-mark-all-btn"
+                                type="button"
+                                class="notification-toolbar-button notification-toolbar-button--primary"
+                                onclick="markAllNotificationsRead()"
                             >
-                                No notifications yet
+                                <i class="fa-solid fa-check-double" aria-hidden="true"></i>
+                                <span data-i18n="notif_mark_read">Mark all read</span>
+                            </button>
+                            <button
+                                id="notifications-clear-all-btn"
+                                type="button"
+                                class="notification-toolbar-button notification-toolbar-button--danger"
+                                onclick="clearAllNotifications()"
+                            >
+                                <i class="fa-regular fa-trash-can" aria-hidden="true"></i>
+                                <span data-i18n="notif_clear_all">Clear all</span>
+                            </button>
+                        </div>
+
+                        <div id="notifications-list" class="notification-list" aria-live="polite">
+                            <div class="notification-empty-state">
+                                <div class="notification-empty-icon"><i class="fa-regular fa-bell-slash"></i></div>
+                                <strong data-i18n="notif_empty">No notifications yet</strong>
                             </div>
                         </div>
 
+                        <div class="notification-footer-hint">
+                            <i class="fa-solid fa-arrow-pointer" aria-hidden="true"></i>
+                            <span id="notification-footer-hint-text">Open a notification to view the cat. Click an avatar for the profile.</span>
+                        </div>
                     </div>
-
                 </div>
 
                 <!-- Authentication -->

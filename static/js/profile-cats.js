@@ -23,6 +23,8 @@ function renderProfileCats(cats, ownUploads = false) {
         const id = escapeHtml(cat.id);
         const actionId = escapeJsString(cat.id);
         const name = escapeHtml(cat.name || 'Cat');
+        const rawBio = String(cat.bio || cat.description || '');
+        const bio = escapeHtml(rawBio);
         const owner = escapeHtml(cat.user_name || 'Cat Lover');
         const avatar = escapeHtml(safeImageUrl(cat.user_avatar, cat.user_name || 'Cat Lover'));
         const image = escapeHtml(safeImageUrl(cat.image_url, cat.name || 'Cat'));
@@ -33,12 +35,102 @@ function renderProfileCats(cats, ownUploads = false) {
             <button type="button" class="cat-img-wrapper cat-open" onclick="openCatModal('${actionId}')" aria-label="${name}"><img data-cat-photo src="${image}" alt="${name}" loading="lazy" decoding="async"></button>
             <div class="feed-card-body"><div class="cat-title-row"><h3>${name}</h3><button id="like-btn-${id}" type="button" onclick="toggleLike('${actionId}', event)" class="vote-button" aria-label="${escapeHtml(t('like_cat'))}" aria-pressed="${liked}"><span id="heart-icon-${id}" aria-hidden="true">${liked ? '❤️' : '🤍'}</span><span id="like-count-${id}">${likes}</span></button></div>
             <div class="cat-credit"><time datetime="${escapeHtml(cat.created_at || '')}">${escapeHtml(String(cat.created_at || '').slice(0,10))}</time><div class="flex items-center gap-2">
-                ${ownUploads ? `<button type="button" onclick="deleteMyCat('${actionId}')" class="save-cat-button" aria-label="${escapeHtml(t('delete_cat'))}"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>` : ''}
+                ${ownUploads ? `<button type="button" onclick="startEditCat('${actionId}', event)" class="save-cat-button profile-cat-edit-button" aria-label="${escapeHtml(currentLang === 'ru' ? 'Редактировать котика' : 'Edit cat')}" title="${escapeHtml(currentLang === 'ru' ? 'Редактировать' : 'Edit')}"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true"><path d="M4 20h4.2L19 9.2a2.15 2.15 0 0 0 0-3.05l-1.15-1.15a2.15 2.15 0 0 0-3.05 0L4 15.8V20Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m13.6 6.2 4.2 4.2" stroke="currentColor" stroke-width="1.8"/></svg></button><button type="button" data-delete-cat-id="${id}" onclick="deleteMyCat('${actionId}', event)" class="save-cat-button profile-cat-delete-button" aria-label="${escapeHtml(t('delete_cat'))}" title="${escapeHtml(t('delete_cat'))}"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>` : ''}
                 <button type="button" class="save-cat-button" data-save-cat-id="${id}" onclick="toggleFavorite('${actionId}', event)" aria-label="${escapeHtml(t('save_cat'))}" aria-pressed="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4V3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
             </div></div></div>
+            ${ownUploads ? `<div id="cat-editor-${id}" class="profile-cat-inline-editor profile-cat-inline-editor--compact hidden">
+                <div class="profile-cat-editor-head">
+                    <div class="profile-cat-editor-title"><i class="fa-solid fa-pen" aria-hidden="true"></i><strong>${escapeHtml(currentLang === 'ru' ? 'Редактировать публикацию' : 'Edit post')}</strong></div>
+                    <button type="button" class="profile-cat-editor-close" onclick="cancelEditCat('${actionId}', event)" aria-label="${escapeHtml(currentLang === 'ru' ? 'Закрыть редактор' : 'Close editor')}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+                <label class="profile-cat-editor-field profile-cat-editor-field--row"><span>${escapeHtml(currentLang === 'ru' ? 'Имя' : 'Name')}</span><input id="cat-edit-name-${id}" type="text" maxlength="80" value="${name}" autocomplete="off"></label>
+                <label class="profile-cat-editor-field profile-cat-editor-field--row profile-cat-editor-field--bio"><span>${escapeHtml(currentLang === 'ru' ? 'Описание' : 'Bio')}</span><div class="profile-cat-editor-textarea-wrap"><textarea id="cat-edit-bio-${id}" maxlength="1000" rows="2" oninput="updateCatEditCount('${actionId}')">${bio}</textarea><small><span id="cat-edit-count-${id}">${rawBio.length}</span>/1000</small></div></label>
+                <div class="profile-cat-editor-actions">
+                    <button type="button" class="profile-cat-editor-cancel" onclick="cancelEditCat('${actionId}', event)">${escapeHtml(currentLang === 'ru' ? 'Отмена' : 'Cancel')}</button>
+                    <button id="cat-edit-save-${id}" type="button" class="profile-cat-editor-save" onclick="saveEditedCat('${actionId}', event)"><i class="fa-solid fa-check" aria-hidden="true"></i><span>${escapeHtml(currentLang === 'ru' ? 'Сохранить' : 'Save')}</span></button>
+                </div>
+            </div>` : ''}
         </article>`;
     }).join('');
     updateFavoriteButtons();
+}
+
+
+function updateCatEditCount(catId) {
+    const id = String(catId);
+    const textarea = document.getElementById(`cat-edit-bio-${id}`);
+    const count = document.getElementById(`cat-edit-count-${id}`);
+    if (textarea && count) count.textContent = String(textarea.value.length);
+}
+
+function startEditCat(catId, event) {
+    if (event) event.stopPropagation();
+    if (!profileCatsState.own || profileCatsState.tab !== 'uploads') return;
+    document.querySelectorAll('.profile-cat-inline-editor').forEach(editor => {
+        if (editor.id !== `cat-editor-${catId}`) editor.classList.add('hidden');
+    });
+    const editor = document.getElementById(`cat-editor-${catId}`);
+    if (!editor) return;
+    editor.classList.remove('hidden');
+    updateCatEditCount(catId);
+    requestAnimationFrame(() => document.getElementById(`cat-edit-name-${catId}`)?.focus());
+}
+
+function cancelEditCat(catId, event) {
+    if (event) event.stopPropagation();
+    const editor = document.getElementById(`cat-editor-${catId}`);
+    if (editor) editor.classList.add('hidden');
+}
+
+async function saveEditedCat(catId, event) {
+    if (event) event.stopPropagation();
+    if (!currentSession?.access_token) {
+        showToast(currentLang === 'ru' ? 'Сначала войдите в аккаунт.' : 'Please sign in first.', 'error');
+        return;
+    }
+    const id = String(catId);
+    const nameInput = document.getElementById(`cat-edit-name-${id}`);
+    const bioInput = document.getElementById(`cat-edit-bio-${id}`);
+    const saveBtn = document.getElementById(`cat-edit-save-${id}`);
+    const name = String(nameInput?.value || '').trim();
+    const bio = String(bioInput?.value || '').trim();
+    if (!name) {
+        showToast(currentLang === 'ru' ? 'Введите имя котика.' : 'Enter a cat name.', 'error');
+        nameInput?.focus();
+        return;
+    }
+    if (name.length > 80 || bio.length > 1000) return;
+    const oldHtml = saveBtn ? saveBtn.innerHTML : '';
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>Saving...</span>';
+    }
+    try {
+        const response = await fetch(`/api/cats/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentSession.access_token}`
+            },
+            body: JSON.stringify({name, bio})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || (currentLang === 'ru' ? 'Не удалось сохранить изменения.' : 'Could not save changes.'));
+        const cat = profileCatsState.uploads.find(item => String(item.id) === id);
+        if (cat) {
+            cat.name = name;
+            cat.bio = bio;
+            cat.description = bio;
+        }
+        renderProfileCats(profileCatsState.uploads, true);
+        showToast(currentLang === 'ru' ? 'Публикация обновлена.' : 'Cat post updated.', 'success');
+    } catch (error) {
+        showToast(error.message || (currentLang === 'ru' ? 'Не удалось сохранить изменения.' : 'Could not save changes.'), 'error');
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = oldHtml;
+        }
+    }
 }
 
 function switchProfileCatsTab(tab) {

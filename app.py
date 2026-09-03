@@ -1726,27 +1726,70 @@ def get_notifications() -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
     notifications: List[Dict[str, Any]] = []
 
+    unread_count = 0
     if supabase_admin:
         try:
             raw_res = getattr(
-                supabase_admin.table("notifications").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(50).execute(),
+                supabase_admin.table("notifications")
+                .select("*")
+                .eq("user_id", user_id)
+                .order("created_at", desc=True)
+                .limit(50)
+                .execute(),
                 "data",
                 [],
             )
             notifications = cast(List[Dict[str, Any]], raw_res) if isinstance(raw_res, list) else []
+
+            unread_result = (
+                supabase_admin.table("notifications")
+                .select("id", count=CountMethod.exact)
+                .eq("user_id", user_id)
+                .eq("is_read", False)
+                .limit(1)
+                .execute()
+            )
+            unread_count = int(getattr(unread_result, "count", 0) or 0)
         except Exception:
             app.logger.exception("Could not load notifications for user %s", user_id)
             return jsonify({"error": "Notifications service is unavailable."}), 503
     elif ENABLE_DEMO_DATA:
-        notifications = [n for n in MOCK_NOTIFICATIONS if str(n.get("user_id")) == user_id]
+        notifications = sorted(
+            [n for n in MOCK_NOTIFICATIONS if str(n.get("user_id")) == user_id],
+            key=lambda row: str(row.get("created_at") or ""),
+            reverse=True,
+        )[:50]
+        unread_count = sum(
+            1 for n in MOCK_NOTIFICATIONS
+            if str(n.get("user_id")) == user_id and not n.get("is_read", False)
+        )
     else:
         return jsonify({"error": "Notifications service is unavailable."}), 503
 
     for n in notifications:
         n["actor_avatar"] = resolve_user_avatar(n.get("actor_id"), n.get("actor_name"), n.get("actor_avatar"))
 
-    unread_count = sum(1 for n in notifications if not n.get("is_read", False))
     return jsonify({"notifications": notifications, "unread_count": unread_count}), 200
+
+@app.route("/api/notifications/<notif_id>", methods=["DELETE"])
+@require_auth
+@limiter.limit("120 per minute", key_func=authenticated_user_rate_key)
+def delete_notification(notif_id: str) -> Any:
+    user_id = str(getattr(getattr(g, "user", None), "id", ""))
+    if supabase_admin:
+        try:
+            supabase_admin.table("notifications").delete().eq("id", notif_id).eq("user_id", user_id).execute()
+        except Exception:
+            app.logger.exception("Failed to delete notification %s for user %s", notif_id, user_id)
+            return jsonify({"error": "Could not remove notification."}), 503
+    elif not ENABLE_DEMO_DATA:
+        return jsonify({"error": "Notifications service is unavailable."}), 503
+
+    MOCK_NOTIFICATIONS[:] = [
+        n for n in MOCK_NOTIFICATIONS
+        if not (str(n.get("id")) == str(notif_id) and str(n.get("user_id")) == user_id)
+    ]
+    return jsonify({"message": "Notification removed."}), 200
 
 @app.route("/api/notifications/<notif_id>/read", methods=["POST"])
 @require_auth

@@ -243,7 +243,7 @@ async function openCatModal(catId) {
     } catch (err) {
         if (requestVersion === modalRequestVersion) showToast("Could not load this cat. Please try again.", "error");
     }
-    if (requestVersion === modalRequestVersion) loadCatComments(catId);
+    if (requestVersion === modalRequestVersion) await loadCatComments(catId);
 }
 
 function closeCatModal() {
@@ -915,81 +915,375 @@ async function deleteComment(commentId, event) {
     }
 }
 
+let notificationsCache = [];
+let notificationsUnreadCount = 0;
+let notificationsRequestVersion = 0;
+
+function notificationUiText(enText, ruText) {
+    return (typeof currentLang !== 'undefined' && currentLang === 'ru') ? ruText : enText;
+}
+
+function closeNotificationsDropdown() {
+    const dropdown = document.getElementById("notifications-dropdown");
+    const toggle = document.getElementById("notifications-toggle-btn");
+    if (dropdown) dropdown.classList.add("hidden");
+    if (toggle) toggle.setAttribute("aria-expanded", "false");
+}
+
 function toggleNotificationsDropdown() {
     const dropdown = document.getElementById("notifications-dropdown");
+    const toggle = document.getElementById("notifications-toggle-btn");
     if (!dropdown) return;
-    dropdown.classList.toggle("hidden");
-    if (!dropdown.classList.contains("hidden")) {
-        fetchNotifications();
-    }
+
+    const willOpen = dropdown.classList.contains("hidden");
+    dropdown.classList.toggle("hidden", !willOpen);
+    if (toggle) toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+    if (willOpen) fetchNotifications();
 }
 
 document.addEventListener("click", (e) => {
     const wrapper = document.getElementById("notifications-dropdown-wrapper");
-    const dropdown = document.getElementById("notifications-dropdown");
-    if (wrapper && dropdown && !wrapper.contains(e.target)) {
-        dropdown.classList.add("hidden");
-    }
+    if (wrapper && !wrapper.contains(e.target)) closeNotificationsDropdown();
 });
+
+function notificationTypeMeta(type) {
+    switch (String(type || '').toLowerCase()) {
+        case 'like':
+            return { icon: 'fa-solid fa-heart', className: 'notification-type--like' };
+        case 'reply':
+            return { icon: 'fa-solid fa-reply', className: 'notification-type--reply' };
+        case 'comment':
+            return { icon: 'fa-solid fa-comment', className: 'notification-type--comment' };
+        default:
+            return { icon: 'fa-solid fa-bell', className: 'notification-type--default' };
+    }
+}
+
+function notificationMessage(notification) {
+    const actor = String(notification.actor_name || 'Someone');
+    const cat = String(notification.cat_name || 'your cat');
+    const type = String(notification.type || '').toLowerCase();
+
+    if (typeof currentLang !== 'undefined' && currentLang === 'ru') {
+        if (type === 'like') return `${actor} поставил(а) лайк коту ${cat}`;
+        if (type === 'comment') return `${actor} оставил(а) комментарий к ${cat}`;
+        if (type === 'reply') return `${actor} ответил(а) на ваш комментарий к ${cat}`;
+    }
+
+    if (notification.message) return String(notification.message);
+    if (type === 'like') return `${actor} liked your cat ${cat}!`;
+    if (type === 'comment') return `${actor} commented on your cat ${cat}!`;
+    if (type === 'reply') return `${actor} replied to your comment on ${cat}!`;
+    return notificationUiText('You have a new notification.', 'У вас новое уведомление.');
+}
+
+function notificationRelativeTime(rawDate) {
+    const timestamp = Date.parse(String(rawDate || ''));
+    if (!Number.isFinite(timestamp)) return '';
+
+    const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    const ru = typeof currentLang !== 'undefined' && currentLang === 'ru';
+    if (seconds < 45) return ru ? 'сейчас' : 'now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}${ru ? ' мин' : 'm'}`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}${ru ? ' ч' : 'h'}`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}${ru ? ' д' : 'd'}`;
+
+    try {
+        return new Date(timestamp).toLocaleDateString(ru ? 'ru-RU' : 'en-US', {
+            month: 'short', day: 'numeric', year: new Date(timestamp).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+        });
+    } catch (_error) {
+        return String(rawDate || '').slice(0, 10);
+    }
+}
+
+function updateNotificationBadge(count) {
+    notificationsUnreadCount = Math.max(0, Number(count) || 0);
+    const badge = document.getElementById("notif-badge");
+    const pill = document.getElementById("notifications-unread-count");
+
+    if (badge) {
+        if (notificationsUnreadCount > 0) {
+            badge.textContent = notificationsUnreadCount > 99 ? '99+' : String(notificationsUnreadCount);
+            badge.classList.remove("hidden");
+        } else {
+            badge.classList.add("hidden");
+        }
+    }
+
+    if (pill) {
+        if (notificationsUnreadCount > 0) {
+            pill.textContent = String(notificationsUnreadCount);
+            pill.classList.remove("hidden");
+        } else {
+            pill.classList.add("hidden");
+        }
+    }
+
+    const markAll = document.getElementById('notifications-mark-all-btn');
+    if (markAll) markAll.disabled = notificationsUnreadCount === 0;
+}
+
+function renderNotifications() {
+    const listContainer = document.getElementById("notifications-list");
+    const clearAll = document.getElementById('notifications-clear-all-btn');
+    const footerHint = document.getElementById('notification-footer-hint-text');
+    if (footerHint) {
+        footerHint.textContent = notificationUiText(
+            'Open a notification to view the cat. Click an avatar for the profile.',
+            'Нажмите уведомление, чтобы открыть кота. Нажмите аватар, чтобы открыть профиль.'
+        );
+    }
+
+    updateNotificationBadge(notificationsUnreadCount);
+    if (clearAll) clearAll.disabled = notificationsCache.length === 0;
+    if (!listContainer) return;
+
+    if (notificationsCache.length === 0) {
+        listContainer.innerHTML = `
+            <div class="notification-empty-state">
+                <div class="notification-empty-icon"><i class="fa-regular fa-bell-slash" aria-hidden="true"></i></div>
+                <strong>${escapeHtml(notificationUiText('No notifications yet', 'Уведомлений пока нет'))}</strong>
+                <span>${escapeHtml(notificationUiText('Likes, comments and replies will appear here.', 'Лайки, комментарии и ответы появятся здесь.'))}</span>
+            </div>
+        `;
+        return;
+    }
+
+    listContainer.innerHTML = notificationsCache.map(n => {
+        const id = escapeJsString(String(n.id || ''));
+        const catId = escapeJsString(String(n.cat_id || ''));
+        const actorId = escapeJsString(String(n.actor_id || ''));
+        const commentId = escapeJsString(String(n.comment_id || ''));
+        const actorName = escapeHtml(String(n.actor_name || 'CatRank user'));
+        const avatar = escapeHtml(n.actor_avatar || getFallbackAvatarSvg(n.actor_name));
+        const message = escapeHtml(notificationMessage(n));
+        const relative = escapeHtml(notificationRelativeTime(n.created_at));
+        const fullDate = escapeHtml(String(n.created_at || '').replace('T', ' ').replace('Z', '').slice(0, 19));
+        const isRead = Boolean(n.is_read);
+        const meta = notificationTypeMeta(n.type);
+        const targetLabel = n.cat_id
+            ? notificationUiText('Open cat', 'Открыть кота')
+            : notificationUiText('Open profile', 'Открыть профиль');
+
+        return `
+            <article class="notification-item ${isRead ? 'is-read' : 'is-unread'}" data-notification-id="${escapeHtml(String(n.id || ''))}">
+                <button
+                    type="button"
+                    class="notification-avatar-button"
+                    onclick="openNotificationProfile('${id}', '${actorId}', event)"
+                    title="${escapeHtml(notificationUiText('Open profile', 'Открыть профиль'))}: ${actorName}"
+                    aria-label="${escapeHtml(notificationUiText('Open profile', 'Открыть профиль'))}: ${actorName}"
+                >
+                    <img src="${avatar}" alt="${actorName}" class="notification-avatar" onerror="handleAvatarError(this, '${escapeJsString(String(n.actor_name || 'Cat'))}')">
+                    <span class="notification-type-badge ${meta.className}" aria-hidden="true"><i class="${meta.icon}"></i></span>
+                </button>
+
+                <button
+                    type="button"
+                    class="notification-content-button"
+                    onclick="openNotification('${id}', '${catId}', '${actorId}', '${commentId}', event)"
+                    aria-label="${escapeHtml(targetLabel)}"
+                >
+                    <span class="notification-message">${message}</span>
+                    <span class="notification-meta">
+                        <time title="${fullDate}">${relative}</time>
+                        ${!isRead ? `<span class="notification-new-label">${escapeHtml(notificationUiText('New', 'Новое'))}</span>` : ''}
+                    </span>
+                </button>
+
+                <div class="notification-item-actions">
+                    ${!isRead ? `
+                        <button
+                            type="button"
+                            class="notification-mini-button"
+                            onclick="markNotificationRead('${id}', event)"
+                            title="${escapeHtml(notificationUiText('Mark as read', 'Отметить прочитанным'))}"
+                            aria-label="${escapeHtml(notificationUiText('Mark as read', 'Отметить прочитанным'))}"
+                        ><i class="fa-solid fa-check" aria-hidden="true"></i></button>
+                    ` : ''}
+                    <button
+                        type="button"
+                        class="notification-mini-button notification-mini-button--danger"
+                        onclick="clearNotification('${id}', event)"
+                        title="${escapeHtml(notificationUiText('Remove notification', 'Удалить уведомление'))}"
+                        aria-label="${escapeHtml(notificationUiText('Remove notification', 'Удалить уведомление'))}"
+                    ><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+            </article>
+        `;
+    }).join('');
+}
 
 async function fetchNotifications() {
     if (!currentSession || !currentSession.access_token) return;
+    const version = ++notificationsRequestVersion;
+    const listContainer = document.getElementById("notifications-list");
+
     try {
+        if (listContainer && notificationsCache.length === 0) {
+            listContainer.innerHTML = `<div class="notification-loading"><i class="fa-solid fa-spinner fa-spin"></i><span>${escapeHtml(notificationUiText('Loading activity…', 'Загрузка…'))}</span></div>`;
+        }
         const res = await fetch("/api/notifications", {
             headers: { "Authorization": `Bearer ${currentSession.access_token}` }
         });
-        if (!res.ok) return;
+        if (version !== notificationsRequestVersion) return;
+        if (!res.ok) throw new Error(notificationUiText('Could not load notifications.', 'Не удалось загрузить уведомления.'));
+
         const data = await res.json();
-        const list = data.notifications || [];
-        const badge = document.getElementById("notif-badge");
-        const listContainer = document.getElementById("notifications-list");
-
-        if (badge) {
-            if (data.unread_count > 0) {
-                badge.innerText = data.unread_count;
-                badge.classList.remove("hidden");
-            } else {
-                badge.classList.add("hidden");
-            }
-        }
-
-        if (listContainer) {
-            if (list.length === 0) {
-                listContainer.innerHTML = `<div class="p-8 text-center text-slate-400">No notifications yet</div>`;
-                return;
-            }
-
-            listContainer.innerHTML = list.map(n => {
-                const isRead = n.is_read;
-                const avatar = escapeHtml(n.actor_avatar || getFallbackAvatarSvg(n.actor_name));
-                return `
-                    <div class="p-3 flex items-start gap-2.5 transition hover:bg-slate-50 ${isRead ? 'opacity-70' : 'bg-indigo-50/40'}">
-                        <img src="${avatar}" alt="Avatar" class="w-8 h-8 rounded-full object-cover border border-slate-200 flex-shrink-0">
-                        <div class="flex-grow min-w-0">
-                            <p class="text-xs text-slate-800 leading-snug">${escapeHtml(n.message)}</p>
-                            <span class="text-[10px] text-slate-400">${(n.created_at || '').slice(0, 10)}</span>
-                        </div>
-                    </div>
-                `;
-            }).join("");
-        }
+        notificationsCache = Array.isArray(data.notifications) ? data.notifications : [];
+        notificationsUnreadCount = Math.max(0, Number(data.unread_count) || 0);
+        renderNotifications();
     } catch (e) {
+        if (version !== notificationsRequestVersion) return;
+        if (listContainer) {
+            listContainer.innerHTML = `
+                <div class="notification-empty-state notification-empty-state--error">
+                    <div class="notification-empty-icon"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></div>
+                    <strong>${escapeHtml(notificationUiText('Could not load notifications', 'Не удалось загрузить уведомления'))}</strong>
+                    <button type="button" class="notification-retry-button" onclick="fetchNotifications()">${escapeHtml(notificationUiText('Try again', 'Повторить'))}</button>
+                </div>
+            `;
+        }
         console.error("Failed to fetch notifications:", e);
     }
 }
 
+async function markNotificationRead(notificationId, event = null) {
+    if (event) event.stopPropagation();
+    if (!currentSession || !notificationId) return false;
+
+    const item = notificationsCache.find(n => String(n.id) === String(notificationId));
+    if (item?.is_read) return true;
+
+    try {
+        const res = await fetch(`/api/notifications/${encodeURIComponent(notificationId)}/read`, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${currentSession.access_token}` }
+        });
+        if (!res.ok) throw new Error(notificationUiText('Could not mark notification as read.', 'Не удалось отметить уведомление прочитанным.'));
+
+        if (item) item.is_read = true;
+        notificationsUnreadCount = Math.max(0, notificationsUnreadCount - 1);
+        renderNotifications();
+        return true;
+    } catch (e) {
+        if (event) showToast(e.message, "error");
+        return false;
+    }
+}
+
 async function markAllNotificationsRead() {
-    if (!currentSession) return;
+    if (!currentSession || notificationsUnreadCount === 0) return;
+    const button = document.getElementById('notifications-mark-all-btn');
+    if (button) button.disabled = true;
+
     try {
         const res = await fetch("/api/notifications/read-all", {
             method: "POST",
             headers: { "Authorization": `Bearer ${currentSession.access_token}` }
         });
-        if (!res.ok) throw new Error('Could not mark notifications read.');
-        fetchNotifications();
+        if (!res.ok) throw new Error(notificationUiText('Could not mark notifications read.', 'Не удалось отметить уведомления прочитанными.'));
+
+        notificationsCache.forEach(n => { n.is_read = true; });
+        notificationsUnreadCount = 0;
+        renderNotifications();
+    } catch (e) {
+        showToast(e.message, "error");
+    } finally {
+        if (button) button.disabled = notificationsUnreadCount === 0;
+    }
+}
+
+async function clearNotification(notificationId, event = null) {
+    if (event) event.stopPropagation();
+    if (!currentSession || !notificationId) return;
+
+    try {
+        const res = await fetch(`/api/notifications/${encodeURIComponent(notificationId)}`, {
+            method: "DELETE",
+            headers: { "Authorization": `Bearer ${currentSession.access_token}` }
+        });
+        if (!res.ok) throw new Error(notificationUiText('Could not remove notification.', 'Не удалось удалить уведомление.'));
+
+        const removed = notificationsCache.find(n => String(n.id) === String(notificationId));
+        notificationsCache = notificationsCache.filter(n => String(n.id) !== String(notificationId));
+        if (removed && !removed.is_read) notificationsUnreadCount = Math.max(0, notificationsUnreadCount - 1);
+        renderNotifications();
     } catch (e) {
         showToast(e.message, "error");
     }
+}
+
+async function clearAllNotifications() {
+    if (!currentSession || notificationsCache.length === 0) return;
+
+    const confirmed = typeof showConfirmModal === 'function'
+        ? await showConfirmModal({
+            title: notificationUiText('Clear notifications?', 'Очистить уведомления?'),
+            message: notificationUiText('This removes all notifications from your list. This cannot be undone.', 'Все уведомления будут удалены из списка. Это действие нельзя отменить.'),
+            confirmText: notificationUiText('Clear all', 'Очистить всё'),
+            danger: true
+        })
+        : confirm(notificationUiText('Clear all notifications?', 'Очистить все уведомления?'));
+    if (!confirmed) return;
+
+    const button = document.getElementById('notifications-clear-all-btn');
+    if (button) button.disabled = true;
+    try {
+        const res = await fetch("/api/notifications/clear-all", {
+            method: "DELETE",
+            headers: { "Authorization": `Bearer ${currentSession.access_token}` }
+        });
+        if (!res.ok) throw new Error(notificationUiText('Could not clear notifications.', 'Не удалось очистить уведомления.'));
+
+        notificationsCache = [];
+        notificationsUnreadCount = 0;
+        renderNotifications();
+    } catch (e) {
+        showToast(e.message, "error");
+    } finally {
+        if (button) button.disabled = notificationsCache.length === 0;
+    }
+}
+
+async function focusNotificationComment(commentId) {
+    if (!commentId || !activeModalCatId) return;
+    const targetId = String(commentId);
+
+    for (let page = 0; page < 10; page++) {
+        const target = document.querySelector(`[data-comment-id="${targetId}"]`);
+        if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.classList.add('notification-target-highlight');
+            window.setTimeout(() => target.classList.remove('notification-target-highlight'), 2600);
+            return;
+        }
+        if (!nextCommentsCursor) break;
+        await loadCatComments(activeModalCatId, true);
+    }
+}
+
+async function openNotification(notificationId, catId, actorId, commentId, event = null) {
+    if (event) event.stopPropagation();
+    if (notificationId) await markNotificationRead(notificationId);
+    closeNotificationsDropdown();
+
+    if (catId && typeof openCatModal === 'function') {
+        await openCatModal(catId);
+        if (commentId) await focusNotificationComment(commentId);
+        return;
+    }
+    if (actorId) {
+        window.location.href = `/user/${encodeURIComponent(actorId)}`;
+    }
+}
+
+async function openNotificationProfile(notificationId, actorId, event = null) {
+    if (event) event.stopPropagation();
+    if (notificationId) await markNotificationRead(notificationId);
+    closeNotificationsDropdown();
+    if (actorId) window.location.href = `/user/${encodeURIComponent(actorId)}`;
 }
 
 window.addEventListener("catrank_language_changed", () => {
