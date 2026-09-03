@@ -1,29 +1,12 @@
 BEGIN;
 
-ALTER TABLE public.comments ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+-- updated_at is now created in phone_comments.sql
 ALTER TABLE public.comments ADD COLUMN IF NOT EXISTS reply_to_id uuid REFERENCES public.comments(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_comments_page ON public.comments (cat_id, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_comments_user_recent ON public.comments (user_id, cat_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_profiles_email_lower ON public.profiles (lower(email));
 
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO public.profiles (id, email, display_name, phone, bio, avatar_url, role)
-    VALUES (
-        NEW.id, NEW.email,
-        left(COALESCE(NULLIF(btrim(NEW.raw_user_meta_data->>'display_name'), ''),
-                      NULLIF(btrim(NEW.raw_user_meta_data->>'full_name'), ''),
-                      NULLIF(btrim(NEW.raw_user_meta_data->>'name'), ''),
-                      NULLIF(split_part(NEW.email, '@', 1), ''), 'Cat Lover'), 40),
-        left(NULLIF(btrim(NEW.raw_user_meta_data->>'phone_number'), ''), 30),
-        left(NULLIF(btrim(NEW.raw_user_meta_data->>'bio'), ''), 150),
-        NULL, 'user'
-    ) ON CONFLICT (id) DO NOTHING;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
-REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+-- handle_new_user() is defined in phone_comments.sql (with NULLIF for phone-only accounts)
 
 CREATE OR REPLACE FUNCTION public.validate_comment_reply()
 RETURNS TRIGGER AS $$
@@ -64,4 +47,5 @@ ALTER TABLE public.likes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.profiles, public.cats, public.comments, public.likes, public.notifications FROM PUBLIC, anon, authenticated;
 GRANT ALL ON public.profiles, public.cats, public.comments, public.likes, public.notifications TO service_role;
+NOTIFY pgrst, 'reload schema';
 COMMIT;

@@ -47,6 +47,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
 REVOKE ALL ON FUNCTION public.set_comment_like(uuid,uuid,boolean) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.set_comment_like(uuid,uuid,boolean) TO service_role;
 
+ALTER TABLE public.comments ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+
 CREATE OR REPLACE FUNCTION public.edit_comment_with_window(p_comment_id uuid, p_user_id uuid, p_comment text, p_admin boolean DEFAULT false)
 RETURNS TABLE(status text, cat_id uuid, comment text, updated_at timestamptz) AS $$
 DECLARE
@@ -92,4 +94,5 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
 REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
 
+NOTIFY pgrst, 'reload schema';
 COMMIT;

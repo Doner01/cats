@@ -9,6 +9,7 @@ import importlib
 from collections import OrderedDict
 from io import BytesIO
 from functools import wraps, lru_cache
+from threading import Lock
 from datetime import datetime, timezone, timedelta
 from time import monotonic
 from pathlib import Path
@@ -365,15 +366,17 @@ MOCK_COMMENTS: List[Dict[str, Any]] = []
 MOCK_NOTIFICATIONS: List[Dict[str, Any]] = []
 user_avatar_cache: "OrderedDict[str, str]" = OrderedDict()
 USER_AVATAR_CACHE_MAX: int = 2048
+_avatar_cache_lock: Lock = Lock()
 
 def cache_user_avatar(user_id: Any, avatar_url: str) -> None:
     key = str(user_id or "")
     if not key:
         return
-    user_avatar_cache[key] = avatar_url
-    user_avatar_cache.move_to_end(key)
-    while len(user_avatar_cache) > USER_AVATAR_CACHE_MAX:
-        user_avatar_cache.popitem(last=False)
+    with _avatar_cache_lock:
+        user_avatar_cache[key] = avatar_url
+        user_avatar_cache.move_to_end(key)
+        while len(user_avatar_cache) > USER_AVATAR_CACHE_MAX:
+            user_avatar_cache.popitem(last=False)
 
 def is_allowed_file(filename: Optional[str]) -> bool:
     if not filename or "." not in str(filename):
@@ -388,7 +391,7 @@ def validate_image_file(file_bytes: bytes, filename: Optional[str]) -> Tuple[boo
     if ext not in ALLOWED_EXTENSIONS:
         return False, f"Invalid extension '.{ext}'. Allowed formats: PNG, JPG, JPEG, WEBP, GIF, JFIF."
     if len(file_bytes) > MAX_FILE_SIZE:
-        return False, "File size exceeds 5MB limit."
+        return False, f"File size exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit."
     if len(file_bytes) < 12:
         return False, "Corrupted or empty image file."
 
@@ -686,14 +689,14 @@ def as_row_list(value: Any) -> List[Dict[str, Any]]:
     items: List[Any] = cast(List[Any], value)
     return [cast(Dict[str, Any], item) for item in items if isinstance(item, dict)]
 
-def fetch_all_rows(query_factory: Callable[[], Any]) -> List[Dict[str, Any]]:
+def fetch_all_rows(query_factory: Callable[[], Any], *, max_rows: int = 10000) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
     while True:
         response = query_factory().range(len(result), len(result) + 499).execute()
         rows = as_row_list(getattr(response, "data", None))
         result.extend(rows)
-        if len(rows) < 500:
-            return result
+        if len(rows) < 500 or len(result) >= max_rows:
+            return result[:max_rows]
 
 def get_db_row(query: Any) -> Optional[Dict[str, Any]]:
     rows = getattr(query.limit(1).execute(), "data", []) or []
@@ -985,10 +988,11 @@ def apply_response_headers(response: Response) -> Response:
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
 
+    supabase_csp = f" {SUPABASE_URL} {SUPABASE_URL.replace('https://', 'wss://')}" if SUPABASE_URL else ""
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; "
-        f"font-src 'self'; connect-src 'self' {SUPABASE_URL} {SUPABASE_URL.replace('https://', 'wss://')}; "
+        f"font-src 'self'; connect-src 'self'{supabase_csp}; "
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
     )
     if IS_PRODUCTION:
@@ -1086,9 +1090,12 @@ def index() -> Any:
                     query = query.order("likes_count", desc=True)
                 cats_response = query.order("created_at", desc=True).order("id").range((page - 1) * page_size, page * page_size).execute()
                 cats = as_row_list(getattr(cats_response, "data", None))
-                top_response = admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(1).execute()
-                top_rows = as_row_list(getattr(top_response, "data", None))
-                top_cat = top_rows[0] if top_rows else None
+                if sort == "top" and cats:
+                    top_cat = cats[0]
+                else:
+                    top_response = admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(1).execute()
+                    top_rows = as_row_list(getattr(top_response, "data", None))
+                    top_cat = top_rows[0] if top_rows else None
                 cache_set(feed_key, {"cats": cats, "top_cat": top_cat}, FEED_CACHE_TTL)
             except Exception:
                 app.logger.exception("Could not load community feed")
@@ -1123,7 +1130,7 @@ def leaderboard_page() -> Any:
         else:
             try:
                 raw_res: Any = getattr(supabase_admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(10).execute(), "data", [])
-                leaderboard = cast(List[Dict[str, Any]], raw_res) if isinstance(raw_res, list) else []
+                leaderboard = as_row_list(raw_res)
                 cache_set(leaderboard_key, leaderboard, LEADERBOARD_CACHE_TTL)
             except Exception:
                 app.logger.exception("Could not load leaderboard")
@@ -1739,7 +1746,7 @@ def get_notifications() -> Any:
                 "data",
                 [],
             )
-            notifications = cast(List[Dict[str, Any]], raw_res) if isinstance(raw_res, list) else []
+            notifications = as_row_list(raw_res)
 
             unread_result = (
                 supabase_admin.table("notifications")

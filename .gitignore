@@ -10,4 +10,5 @@ venv/
 .DS_Store
 node_modules/
 public/
+catrank-assets-*/
 *.zip

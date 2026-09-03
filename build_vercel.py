@@ -3,7 +3,8 @@ from shutil import copytree, rmtree
 from tempfile import TemporaryDirectory
 
 PUBLIC_EXTENSIONS = {
-    ".css", ".js", ".woff", ".woff2", ".ttf", ".otf", ".svg", ".png",
+    ".css", ".js", ".map", ".json", ".txt", ".xml", ".webmanifest",
+    ".woff", ".woff2", ".ttf", ".otf", ".svg", ".png",
     ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".avif", ".webm", ".mp4",
 }
 
@@ -13,7 +14,9 @@ def validate_assets(directory: Path) -> None:
         raise ValueError("Public asset directories must not be symbolic links")
     for path in directory.rglob("*"):
         relative = path.relative_to(directory)
-        if path.is_symlink() or any(part.startswith(".") for part in relative.parts):
+        if any(part.startswith(".") for part in relative.parts):
+            continue  # silently skip dotfiles like .DS_Store, .gitkeep
+        if path.is_symlink():
             raise ValueError(f"Unsafe public asset: {relative}")
         if path.is_file() and path.suffix.lower() not in PUBLIC_EXTENSIONS:
             raise ValueError(f"Non-public file found in assets: {relative}")
