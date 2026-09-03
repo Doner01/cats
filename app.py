@@ -2493,15 +2493,15 @@ def get_admin_overview() -> Any:
 
         if admin is not None:
             try:
-                cat_count_res = admin.table("cats").select("id,likes_count", count="exact").execute()
+                cat_count_res = admin.table("cats").select("id,likes_count", count=cast(Any, "exact")).execute()
                 total_cats = int(getattr(cat_count_res, "count", 0) or 0)
                 cats_data = as_row_list(getattr(cat_count_res, "data", None))
                 total_likes = sum(int(c.get("likes_count", 0) or 0) for c in cats_data)
 
-                user_count_res = admin.table("profiles").select("id", count="exact", head=True).execute()
+                user_count_res = admin.table("profiles").select("id", count=cast(Any, "exact"), head=True).execute()
                 total_users = int(getattr(user_count_res, "count", 0) or 0)
 
-                comment_count_res = admin.table("comments").select("id", count="exact", head=True).execute()
+                comment_count_res = admin.table("comments").select("id", count=cast(Any, "exact"), head=True).execute()
                 total_comments = int(getattr(comment_count_res, "count", 0) or 0)
             except Exception as e:
                 app.logger.warning("Admin overview count failed: %s", e)
@@ -2526,7 +2526,7 @@ def admin_get_cats() -> Any:
     limit = min(100, max(1, int(request.args.get("limit", 50))))
     search = request.args.get("search", "").strip()
     
-    query = supabase_admin.table("cats").select("*", count="exact")
+    query = supabase_admin.table("cats").select("*", count=cast(Any, "exact"))
     if search: query = query.ilike("name", f"%{search}%")
         
     res = query.order("created_at", desc=True).range((page-1)*limit, page*limit - 1).execute()
@@ -2543,13 +2543,13 @@ def admin_get_users() -> Any:
     limit = min(100, max(1, int(request.args.get("limit", 50))))
     search = request.args.get("search", "").strip()
     
-    query = supabase_admin.table("profiles").select("*", count="exact")
+    query = supabase_admin.table("profiles").select("*", count=cast(Any, "exact"))
     if search: query = query.or_(f"display_name.ilike.%{search}%,email.ilike.%{search}%,phone.ilike.%{search}%")
         
     res = query.order("id").range((page-1)*limit, page*limit - 1).execute()
     profiles = as_row_list(getattr(res, "data", None))
     
-    users = []
+    users: List[Dict[str, Any]] = []
     for p in profiles:
         users.append({
             "user_id": str(p.get("id")),
@@ -2576,7 +2576,7 @@ def admin_get_comments() -> Any:
     limit = min(100, max(1, int(request.args.get("limit", 50))))
     search = request.args.get("search", "").strip()
     
-    query = supabase_admin.table("comments").select("*", count="exact")
+    query = supabase_admin.table("comments").select("*", count=cast(Any, "exact"))
     if search: query = query.ilike("comment", f"%{search}%")
         
     res = query.order("created_at", desc=True).range((page-1)*limit, page*limit - 1).execute()
