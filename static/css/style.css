@@ -2202,3 +2202,65 @@ body { padding-top: 80px; }
         min-height: 32px !important;
     }
 }
+
+/* ===== OVERRIDES FOR FIXING DESIGN ISSUES ===== */
+
+/* 1. Comment Action Buttons Mobile Wrap Fix */
+.comment-actions {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+}
+.comment-actions::-webkit-scrollbar {
+    display: none;
+}
+.comment-action-button {
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+}
+
+@media (max-width: 480px) {
+    .comment-action-button span {
+        display: none !important;
+    }
+    .comment-action-button[data-comment-like-count] span {
+        display: inline-block !important;
+    }
+}
+
+/* 2. Reply Banner Fix (Remove weird padding/border between boxes) */
+#modal-reply-banner.comment-reply-composer {
+    margin: 0 4px 6px !important;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+}
+.comment-reply-composer__cancel:hover { 
+    background: #f1f5f9 !important; 
+}
+
+/* 3. Edit Post Modal UI Fix (Compact Stacked Labels) */
+.profile-cat-inline-editor--compact .profile-cat-editor-field--row {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 2px !important;
+    margin-top: 6px !important;
+}
+.profile-cat-inline-editor--compact .profile-cat-editor-field--row > span {
+    font-size: 10px !important;
+    text-align: left;
+}
+
+@media (max-width: 639px) {
+    .profile-cat-inline-editor--compact {
+        margin: 0 8px 8px !important;
+        padding: 9px !important;
+    }
+    .profile-cat-inline-editor--compact .profile-cat-editor-field--row {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 2px !important;
+    }
+}
