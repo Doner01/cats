@@ -963,51 +963,166 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 window.addEventListener('resize', updateCatBioPreview);
 
+function commentEditorLabel(enText, ruText) {
+    return (typeof currentLang !== 'undefined' && currentLang === 'ru') ? ruText : enText;
+}
+
+function closeCommentEditModal() {
+    const existing = document.getElementById('comment-edit-modal');
+    if (existing) existing.remove();
+}
+
 function editComment(commentId) {
     const comment = loadedComments.find(c => String(c.id) === String(commentId));
-    const card = Array.from(document.querySelectorAll('[data-comment-id]')).find(c => c.dataset.commentId === String(commentId));
-    if (!comment || !card || card.querySelector('.comment-edit-form')) return;
+    if (!comment) return;
+
     if (!commentCanBeEdited(comment)) {
-        showToast(typeof t === 'function' ? t('comment_edit_expired') : 'Editing is available for two minutes after posting.', 'info');
+        showToast(
+            typeof t === 'function'
+                ? t('comment_edit_expired')
+                : commentEditorLabel('Editing is available for two minutes after posting.', 'Редактирование доступно в течение двух минут после публикации.'),
+            'info'
+        );
         updateCommentEditControls();
         return;
     }
-    const form = document.createElement('form');
-    form.className = 'comment-edit-form';
+
+    closeCommentEditModal();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'comment-edit-modal';
+    overlay.className = 'comment-edit-modal-backdrop';
+
+    const dialog = document.createElement('form');
+    dialog.className = 'comment-edit-modal';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', 'comment-edit-modal-title');
+
+    const header = document.createElement('div');
+    header.className = 'comment-edit-modal__header';
+
+    const title = document.createElement('h3');
+    title.id = 'comment-edit-modal-title';
+    title.className = 'comment-edit-modal__title';
+    title.textContent = commentEditorLabel('Edit comment', 'Редактировать комментарий');
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'comment-edit-modal__close';
+    close.setAttribute('aria-label', commentEditorLabel('Close editor', 'Закрыть редактор'));
+    close.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
+
+    header.append(title, close);
+
     const text = document.createElement('textarea');
-    text.value = comment.comment;
+    text.className = 'comment-edit-modal__textarea';
+    text.value = String(comment.comment || '');
     text.maxLength = 300;
     text.required = true;
-    text.setAttribute('aria-label', 'Edit comment');
-    const save = document.createElement('button');
-    save.type = 'submit';
-    save.textContent = 'Save changes';
+    text.rows = 4;
+    text.setAttribute('aria-label', commentEditorLabel('Edit comment text', 'Текст комментария'));
+
+    const footer = document.createElement('div');
+    footer.className = 'comment-edit-modal__footer';
+
+    const counter = document.createElement('span');
+    counter.className = 'comment-edit-modal__counter';
+
+    const actions = document.createElement('div');
+    actions.className = 'comment-edit-modal__actions';
+
     const cancel = document.createElement('button');
     cancel.type = 'button';
-    cancel.textContent = 'Cancel';
-    cancel.addEventListener('click', () => form.remove());
-    form.append(text, save, cancel);
-    card.appendChild(form);
-    text.focus();
+    cancel.className = 'comment-edit-modal__button comment-edit-modal__button--cancel';
+    cancel.textContent = commentEditorLabel('Cancel', 'Отмена');
+
+    const save = document.createElement('button');
+    save.type = 'submit';
+    save.className = 'comment-edit-modal__button comment-edit-modal__button--save';
+    save.textContent = commentEditorLabel('Save changes', 'Сохранить');
+
+    actions.append(cancel, save);
+    footer.append(counter, actions);
+    dialog.append(header, text, footer);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const refreshCounter = () => {
+        counter.textContent = `${text.value.length}/300`;
+    };
+    refreshCounter();
+    text.addEventListener('input', refreshCounter);
+
+    let closed = false;
+    const closeEditor = () => {
+        if (closed) return;
+        closed = true;
+        document.removeEventListener('keydown', onKeyDown);
+        overlay.remove();
+    };
+    const onKeyDown = event => {
+        if (event.key === 'Escape' && !save.disabled) closeEditor();
+    };
+
+    close.addEventListener('click', closeEditor);
+    cancel.addEventListener('click', closeEditor);
+    overlay.addEventListener('mousedown', event => {
+        if (event.target === overlay && !save.disabled) closeEditor();
+    });
+    document.addEventListener('keydown', onKeyDown);
+
+    requestAnimationFrame(() => {
+        text.focus();
+        text.setSelectionRange(text.value.length, text.value.length);
+    });
+
     const catId = activeModalCatId;
     const version = modalRequestVersion;
-    form.addEventListener('submit', async event => {
+
+    dialog.addEventListener('submit', async event => {
         event.preventDefault();
-        if (!text.value.trim() || save.disabled) return;
+        const nextComment = text.value.trim();
+        if (!nextComment || save.disabled) return;
+
         save.disabled = true;
+        cancel.disabled = true;
+        close.disabled = true;
+        text.disabled = true;
+        save.textContent = commentEditorLabel('Saving...', 'Сохранение...');
+
         try {
-            const result = await authRequest(`/api/comments/${encodeURIComponent(commentId)}`, {comment: text.value.trim()}, 'PUT', true);
+            const result = await authRequest(
+                `/api/comments/${encodeURIComponent(commentId)}`,
+                {comment: nextComment},
+                'PUT',
+                true
+            );
+
+            closeEditor();
             if (activeModalCatId === catId && modalRequestVersion === version) {
-                await loadCatComments(catId, false, {...comment, comment: result.comment, updated_at: result.updated_at || new Date().toISOString()});
+                await loadCatComments(
+                    catId,
+                    false,
+                    {...comment, comment: result.comment, updated_at: result.updated_at || new Date().toISOString()}
+                );
             }
-            showToast('Comment updated.', 'success');
+            showToast(commentEditorLabel('Comment updated.', 'Комментарий обновлён.'), 'success');
         } catch (error) {
             if (error?.code === 'edit_window_expired') {
-                form.remove();
+                closeEditor();
                 updateCommentEditControls();
+            } else {
+                save.disabled = false;
+                cancel.disabled = false;
+                close.disabled = false;
+                text.disabled = false;
+                save.textContent = commentEditorLabel('Save changes', 'Сохранить');
             }
-            showToast(error.message, 'error');
+            showToast(
+                error?.message || commentEditorLabel('Could not update comment.', 'Не удалось обновить комментарий.'),
+                'error'
+            );
         }
-        finally { save.disabled = false; }
     });
 }

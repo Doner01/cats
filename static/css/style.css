@@ -400,9 +400,60 @@ body { padding-top: 80px; }
 .auth-phone-note.is-error { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
 .auth-phone-note.is-success { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
 .account-methods { padding: 16px; border: 1px solid #e2e8f0; border-radius: 16px; display: grid; gap: 12px; background: #f8fafc; }
-.comment-edit-form { display: grid; gap: 8px; margin-top: 10px; }
-.comment-edit-form textarea { width: 100%; padding: 8px; border: 1px solid #a5b4fc; border-radius: 8px; resize: vertical; min-height: 72px; }
-.comment-edit-form button, .comments-load-more { padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 12px; font-weight: 700; color: #4f46e5; background: white; }
+.comment-edit-form {
+    display: grid;
+    gap: 9px;
+    width: 100%;
+    min-width: 0;
+    margin-top: 8px;
+}
+.comment-edit-form textarea {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    min-height: 82px;
+    max-height: 180px;
+    padding: 10px 12px;
+    border: 1px solid #a5b4fc;
+    border-radius: 10px;
+    background: #fff;
+    color: #1e293b;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+    resize: vertical;
+    overflow-y: auto;
+    box-sizing: border-box;
+}
+.comment-edit-form textarea:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, .12);
+}
+.comment-edit-controls {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    width: 100%;
+}
+.comment-edit-form button,
+.comments-load-more {
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #4f46e5;
+    background: white;
+}
+.comment-edit-form .comment-edit-save {
+    border-color: #5543db;
+    background: #5543db;
+    color: #fff;
+}
+.comment-edit-form .comment-edit-save:hover { background: #4938c8; }
+.comment-edit-form .comment-edit-cancel { color: #64748b; }
+.comment-edit-form button:disabled { opacity: .6; cursor: wait; }
 .comments-load-more { display: block; margin: 12px auto; }
 .comment-card-actions { display: flex; align-items: center; margin-top: 7px; }
 .comment-like-button { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 3px 8px; border-radius: 999px; color: #94a3b8; font-size: 12px; font-weight: 800; transition: color .15s, background .15s, transform .15s; }
@@ -1195,3 +1246,162 @@ body { padding-top: 80px; }
     }
 }
 
+
+/* ===== Comment editor v1.0.2 — layout-safe in EN/RU ===== */
+.comment-actions {
+    max-width: 100%;
+}
+.comment-action-button,
+.comment-action-button span {
+    white-space: nowrap !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+}
+
+/* The editor is a small overlay instead of a child of the comment grid.
+   This prevents narrow avatar/grid columns and long Russian labels from
+   collapsing the textarea/buttons into vertical text. */
+.comment-edit-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 220;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(15, 23, 42, .48);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+.comment-edit-modal {
+    display: block !important;
+    width: min(460px, 100%) !important;
+    min-width: 0 !important;
+    max-width: 460px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 22px 70px rgba(15, 23, 42, .28);
+}
+.comment-edit-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid #eef2f7;
+}
+.comment-edit-modal__title {
+    min-width: 0;
+    margin: 0;
+    color: #172033;
+    font-size: 14px;
+    line-height: 1.35;
+    font-weight: 800;
+}
+.comment-edit-modal__close {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border: 0;
+    border-radius: 10px;
+    background: #f1f5f9;
+    color: #64748b;
+}
+.comment-edit-modal__close:hover { background: #e2e8f0; color: #334155; }
+.comment-edit-modal__textarea {
+    display: block !important;
+    width: calc(100% - 32px) !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: 112px !important;
+    max-height: 260px !important;
+    margin: 16px !important;
+    padding: 11px 12px !important;
+    resize: vertical;
+    overflow-y: auto;
+    box-sizing: border-box;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 12px !important;
+    background: #fff !important;
+    color: #1e293b !important;
+    font-size: 14px !important;
+    line-height: 1.5 !important;
+    white-space: pre-wrap !important;
+    word-break: normal !important;
+    overflow-wrap: break-word !important;
+}
+.comment-edit-modal__textarea:focus {
+    border-color: #818cf8 !important;
+    outline: none !important;
+    box-shadow: 0 0 0 3px rgba(99,102,241,.12) !important;
+}
+.comment-edit-modal__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 16px 16px;
+}
+.comment-edit-modal__counter {
+    color: #94a3b8;
+    font-size: 10px;
+    white-space: nowrap;
+}
+.comment-edit-modal__actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+}
+.comment-edit-modal__button {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 38px;
+    padding: 8px 13px !important;
+    border-radius: 10px;
+    font-size: 12px !important;
+    line-height: 1.2 !important;
+    font-weight: 800;
+    white-space: nowrap !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+}
+.comment-edit-modal__button--cancel {
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #64748b;
+}
+.comment-edit-modal__button--save {
+    border: 1px solid #5543db;
+    background: #5543db;
+    color: #fff;
+}
+.comment-edit-modal__button--save:hover { background: #4938c8; }
+.comment-edit-modal__button:disabled { opacity: .6; cursor: wait; }
+
+@media (max-width: 480px) {
+    .comment-edit-modal-backdrop { padding: 10px; }
+    .comment-edit-modal { width: 100% !important; border-radius: 14px; }
+    .comment-edit-modal__header { padding: 12px 13px; }
+    .comment-edit-modal__textarea {
+        width: calc(100% - 26px) !important;
+        margin: 13px !important;
+        min-height: 104px !important;
+        font-size: 16px !important;
+    }
+    .comment-edit-modal__footer {
+        padding: 0 13px 13px;
+        align-items: flex-end;
+    }
+    .comment-edit-modal__actions { gap: 6px; }
+    .comment-edit-modal__button { min-height: 36px; padding: 7px 10px !important; font-size: 11.5px !important; }
+}
