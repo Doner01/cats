@@ -2477,165 +2477,111 @@ def get_favorites() -> Any:
 
 @app.route("/api/admin/overview", methods=["GET"])
 @require_auth
-def admin_overview() -> Any:
+@limiter.limit("30 per minute", key_func=authenticated_user_rate_key)
+def get_admin_overview() -> Any:
     try:
-        is_admin = is_admin_user(getattr(g, "user", None))
-        if not is_admin:
-            user_email = str(getattr(getattr(g, "user", None), "email", "") or "").lower()
-            return jsonify({"error": f"Admin access restricted. Your account '{user_email}' is not configured as admin."}), 403
-
+        if not is_admin_user(getattr(g, "user", None)):
+            return jsonify({"error": "Admin access required."}), 403
         admin = supabase_admin
-        if admin is None:
-            return jsonify({"error": "Admin service is unavailable."}), 503
+        if admin is None and not ENABLE_DEMO_DATA:
+            return jsonify({"error": "Database service is unavailable."}), 503
 
-        cats: List[Dict[str, Any]] = []
-        try:
-            cats = fetch_all_rows(lambda: admin.table("cats").select("*").order("created_at", desc=True).order("id"))
-        except Exception as ce:
-            app.logger.warning("Admin overview cats query failed: %s", ce)
-            return jsonify({"error": "Could not load the admin dashboard."}), 503
+        total_cats = 0
+        total_likes = 0
+        total_users = 0
+        total_comments = 0
 
-        if not cats and ENABLE_DEMO_DATA:
-            cats = list(MOCK_CATS)
+        if admin is not None:
+            try:
+                cat_count_res = admin.table("cats").select("id,likes_count", count="exact").execute()
+                total_cats = int(getattr(cat_count_res, "count", 0) or 0)
+                cats_data = as_row_list(getattr(cat_count_res, "data", None))
+                total_likes = sum(int(c.get("likes_count", 0) or 0) for c in cats_data)
 
-        for c in cats:
-            c["user_avatar"] = resolve_user_avatar(c.get("user_id"), c.get("user_name"), c.get("user_avatar"))
+                user_count_res = admin.table("profiles").select("id", count="exact", head=True).execute()
+                total_users = int(getattr(user_count_res, "count", 0) or 0)
 
-        users_dict: Dict[str, Dict[str, Any]] = {}
+                comment_count_res = admin.table("comments").select("id", count="exact", head=True).execute()
+                total_comments = int(getattr(comment_count_res, "count", 0) or 0)
+            except Exception as e:
+                app.logger.warning("Admin overview count failed: %s", e)
 
-        try:
-            raw_users_list: List[Any] = []
-            auth_page = 1
-            while True:
-                auth_users_res = admin.auth.admin.list_users(page=auth_page, per_page=1000)
-                batch_value: Any = (
-                    getattr(auth_users_res, "users", None)
-                    or getattr(auth_users_res, "data", None)
-                    or auth_users_res
-                )
-                if not isinstance(batch_value, list):
-                    raise ValueError("Unexpected user response")
-                batch = cast(List[Any], batch_value)
-                raw_users_list.extend(batch)
-                if len(batch) < 1000:
-                    break
-                auth_page += 1
-
-            for u in raw_users_list:
-                uid = str(getattr(u, "id", "") or "")
-                if not uid:
-                    continue
-
-                u_email = str(getattr(u, "email", "") or "")
-                u_meta_value: Any = getattr(u, "user_metadata", {}) or {}
-                u_meta = cast(Dict[str, Any], u_meta_value) if isinstance(u_meta_value, dict) else {}
-                u_app_meta_value: Any = getattr(u, "app_metadata", {}) or {}
-                u_app_meta = cast(Dict[str, Any], u_app_meta_value) if isinstance(u_app_meta_value, dict) else {}
-
-                disp_name = str(u_meta.get("display_name", "")).strip() or u_email.split("@")[0] or "Cat Lover"
-                avatar_url = str(u_meta.get("avatar_url", "")).strip() or resolve_user_avatar(uid, disp_name, None)
-                phone_val = str(u_meta.get("phone_number", "") or getattr(u, "phone", "") or "").strip()
-                role_val = "admin" if (
-                    u_email.lower() in [e.strip().lower() for e in ADMIN_EMAIL_CONFIG.split(",") if e.strip()]
-                    or str(u_app_meta.get("role", "")).lower() == "admin"
-                ) else "user"
-
-                users_dict[uid] = {
-                    "user_id": uid,
-                    "user_name": disp_name,
-                    "display_name": disp_name,
-                    "user_avatar": avatar_url,
-                    "avatar_url": avatar_url,
-                    "email": u_email,
-                    "phone": phone_val,
-                    "phone_number": phone_val,
-                    "role": role_val,
-                    "created_at": str(getattr(u, "created_at", "") or ""),
-                    "cats_count": 0,
-                    "cat_count": 0,
-                    "total_likes": 0
-                }
-        except Exception as ue:
-            app.logger.warning("Admin auth list users failed: %s", ue)
-            return jsonify({"error": "Could not load registered users."}), 503
-
-        for profile in fetch_all_rows(lambda: admin.table("profiles").select("id,display_name,avatar_url,phone").order("id")):
-            entry = users_dict.get(str(profile["id"]))
-            if entry:
-                name = clean_text(profile.get("display_name"), max_length=40, fallback="Cat Lover")
-                avatar = sanitize_image_url(profile.get("avatar_url"), fallback_name=name)
-                entry.update(user_name=name, display_name=name, user_avatar=avatar, avatar_url=avatar,
-                             phone=profile.get("phone") or "", phone_number=profile.get("phone") or "")
-
-        for c in cats:
-            uid = str(c.get("user_id", ""))
-            uname = str(c.get("user_name", "Cat Lover"))
-            uavatar = str(c.get("user_avatar", "")) or generate_default_avatar(uname)
-            if uid:
-                if uid not in users_dict:
-                    users_dict[uid] = {
-                        "user_id": uid,
-                        "user_name": uname,
-                        "display_name": uname,
-                        "user_avatar": uavatar,
-                        "avatar_url": uavatar,
-                        "email": "",
-                        "phone": "—",
-                        "role": "user",
-                        "cats_count": 0,
-                        "cat_count": 0,
-                        "total_likes": 0
-                    }
-                users_dict[uid]["cats_count"] += 1
-                users_dict[uid]["cat_count"] += 1
-                users_dict[uid]["total_likes"] += int(c.get("likes_count", 0) or 0)
-
-        for mc in (MOCK_CATS if ENABLE_DEMO_DATA else []):
-            muid = str(mc.get("user_id"))
-            if muid not in users_dict:
-                users_dict[muid] = {
-                    "user_id": muid,
-                    "user_name": str(mc.get("user_name")),
-                    "display_name": str(mc.get("user_name")),
-                    "user_avatar": str(mc.get("user_avatar")),
-                    "avatar_url": str(mc.get("user_avatar")),
-                    "email": f"{str(mc.get('user_name')).lower()}@example.com",
-                    "phone": "+998 90 123 45 67",
-                    "role": "user",
-                    "cats_count": 1,
-                    "cat_count": 1,
-                    "total_likes": int(mc.get("likes_count", 0) or 0)
-                }
-
-        user_list = list(users_dict.values())
-        user_list.sort(key=lambda u: u.get("total_likes", 0), reverse=True)
-
-        all_comments: List[Dict[str, Any]] = []
-        try:
-            comments_response = admin.table("comments").select("*").order("created_at", desc=True).limit(200).execute()
-            all_comments = as_row_list(getattr(comments_response, "data", None))
-        except Exception as ce:
-            app.logger.warning("Admin overview comments query failed: %s", ce)
-
-        if not all_comments and ENABLE_DEMO_DATA:
-            all_comments = list(MOCK_COMMENTS)
-
-        count_method: Any = "exact"
-        count_response = admin.table("comments").select("id", count=count_method, head=True).execute()
-        comments_count = int(getattr(count_response, "count", 0) or 0)
         return jsonify({
-            "total_cats": len(cats),
-            "total_likes": sum(int(c.get("likes_count", 0) or 0) for c in cats),
-            "total_users": len(users_dict),
-            "total_comments": comments_count,
-            "cats": cats,
-            "users": user_list,
-            "comments": all_comments
+            "total_cats": total_cats,
+            "total_likes": total_likes,
+            "total_users": total_users,
+            "total_comments": total_comments
         }), 200
-
     except Exception:
         app.logger.exception("Failed to load admin overview")
         return jsonify({"error": "Failed to load admin overview."}), 500
+
+@app.route("/api/admin/cats", methods=["GET"])
+@require_auth
+def admin_get_cats() -> Any:
+    if not is_admin_user(getattr(g, "user", None)): return jsonify({"error": "Admin access required."}), 403
+    if not supabase_admin: return jsonify({"cats": [], "total": 0, "page": 1, "limit": 50})
+    
+    page = max(1, int(request.args.get("page", 1)))
+    limit = min(100, max(1, int(request.args.get("limit", 50))))
+    search = request.args.get("search", "").strip()
+    
+    query = supabase_admin.table("cats").select("*", count="exact")
+    if search: query = query.ilike("name", f"%{search}%")
+        
+    res = query.order("created_at", desc=True).range((page-1)*limit, page*limit - 1).execute()
+    cats = as_row_list(getattr(res, "data", None))
+    return jsonify({"cats": cats, "total": int(getattr(res, "count", 0) or 0), "page": page, "limit": limit})
+
+@app.route("/api/admin/users", methods=["GET"])
+@require_auth
+def admin_get_users() -> Any:
+    if not is_admin_user(getattr(g, "user", None)): return jsonify({"error": "Admin access required."}), 403
+    if not supabase_admin: return jsonify({"users": [], "total": 0, "page": 1, "limit": 50})
+    
+    page = max(1, int(request.args.get("page", 1)))
+    limit = min(100, max(1, int(request.args.get("limit", 50))))
+    search = request.args.get("search", "").strip()
+    
+    query = supabase_admin.table("profiles").select("*", count="exact")
+    if search: query = query.or_(f"display_name.ilike.%{search}%,email.ilike.%{search}%,phone.ilike.%{search}%")
+        
+    res = query.order("id").range((page-1)*limit, page*limit - 1).execute()
+    profiles = as_row_list(getattr(res, "data", None))
+    
+    users = []
+    for p in profiles:
+        users.append({
+            "user_id": str(p.get("id")),
+            "user_name": str(p.get("display_name") or "Cat Lover"),
+            "display_name": str(p.get("display_name") or "Cat Lover"),
+            "user_avatar": str(p.get("avatar_url") or ""),
+            "avatar_url": str(p.get("avatar_url") or ""),
+            "email": str(p.get("email") or ""),
+            "phone": str(p.get("phone") or ""),
+            "phone_number": str(p.get("phone") or ""),
+            "role": str(p.get("role") or "user"),
+            "cats_count": 0,
+            "total_likes": 0
+        })
+    return jsonify({"users": users, "total": int(getattr(res, "count", 0) or 0), "page": page, "limit": limit})
+
+@app.route("/api/admin/comments", methods=["GET"])
+@require_auth
+def admin_get_comments() -> Any:
+    if not is_admin_user(getattr(g, "user", None)): return jsonify({"error": "Admin access required."}), 403
+    if not supabase_admin: return jsonify({"comments": [], "total": 0, "page": 1, "limit": 50})
+    
+    page = max(1, int(request.args.get("page", 1)))
+    limit = min(100, max(1, int(request.args.get("limit", 50))))
+    search = request.args.get("search", "").strip()
+    
+    query = supabase_admin.table("comments").select("*", count="exact")
+    if search: query = query.ilike("comment", f"%{search}%")
+        
+    res = query.order("created_at", desc=True).range((page-1)*limit, page*limit - 1).execute()
+    comments = as_row_list(getattr(res, "data", None))
+    return jsonify({"comments": comments, "total": int(getattr(res, "count", 0) or 0), "page": page, "limit": limit})
 
 def new_auth_client() -> Any:
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
