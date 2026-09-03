@@ -99,7 +99,31 @@ function formatCommentText(rawComment) {
     return { text: text, replyTo: replyTo };
 }
 
+
+function setModalCatImage(src, altText = 'Cat') {
+    const image = document.getElementById('modal-cat-img');
+    const media = document.querySelector('.cat-detail-media');
+    const url = String(src || '').trim();
+
+    if (image) {
+        image.src = url || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' fill='%23e2e8f0'></svg>";
+        image.alt = String(altText || 'Cat');
+    }
+
+    if (!media) return;
+    if (!url || url.startsWith('data:image/svg+xml')) {
+        media.style.removeProperty('--cat-blur-image');
+        media.classList.remove('has-photo');
+        return;
+    }
+
+    const cssUrl = url.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]/g, '');
+    media.style.setProperty('--cat-blur-image', `url("${cssUrl}")`);
+    media.classList.add('has-photo');
+}
+
 function resetCatModalState() {
+    closeCommentEditModal();
     commentsRequestVersion++;
     if (commentEditExpiryTimer) clearTimeout(commentEditExpiryTimer);
     commentEditExpiryTimer = null;
@@ -123,7 +147,7 @@ function resetCatModalState() {
 
     if (modalNameElem) modalNameElem.innerText = "";
     if (modalImgElem) {
-        modalImgElem.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' fill='%231e293b'></svg>";
+        setModalCatImage('', 'Cat');
     }
     if (bioBox) bioBox.classList.add("hidden");
     if (bioText) bioText.innerText = "";
@@ -176,7 +200,7 @@ async function openCatModal(catId) {
         const cardName = card.dataset.catName;
         const cardImg = card.querySelector(".cat-open img") || card.querySelector("img");
         if (cardName && modalNameElem) modalNameElem.innerText = cardName;
-        if (cardImg && cardImg.src && modalImgElem) modalImgElem.src = cardImg.src;
+        if (cardImg && cardImg.src && modalImgElem) setModalCatImage(cardImg.src, cardName || 'Cat');
     } else {
         if (modalNameElem) modalNameElem.innerText = typeof t === "function" && currentLang === "ru" ? "Загрузка..." : "Loading...";
     }
@@ -195,8 +219,7 @@ async function openCatModal(catId) {
             if (requestVersion !== modalRequestVersion) return;
             const cat = data.cat || data;
             if (modalNameElem) modalNameElem.innerText = cat.name || "Whiskers";
-            if (modalImgElem) modalImgElem.src = cat.image_url || "";
-            if (modalImgElem) modalImgElem.alt = cat.name || "Cat";
+            if (modalImgElem) setModalCatImage(cat.image_url || "", cat.name || "Cat");
             updateModalOwner(cat);
             if (modalLikeCount) modalLikeCount.innerText = cat.likes_count !== undefined ? cat.likes_count : 0;
             if (modalHeartIcon) {
@@ -575,8 +598,19 @@ async function loadCatComments(catId, append = false, posted = null) {
         const serverTime = Date.parse(String(data.server_time || ''));
         if (Number.isFinite(serverTime)) serverClockOffsetMs = serverTime - Date.now();
         const incoming = data.comments || [];
-        const combined = append ? [...loadedComments, ...incoming] : (posted ? [posted, ...incoming] : incoming);
+        // Comments are chronological: oldest at the top, newest at the bottom.
+        // A just-posted comment/reply must be appended, never prepended.
+        const combined = append ? [...loadedComments, ...incoming] : (posted ? [...incoming, posted] : incoming);
         loadedComments = Array.from(new Map(combined.map(c => [String(c.id), c])).values());
+
+        // Keep a deterministic chronological order even if the API/cache returns
+        // rows in an unexpected order.
+        loadedComments.sort((a, b) => {
+            const aTime = Date.parse(String(a.created_at || '')) || 0;
+            const bTime = Date.parse(String(b.created_at || '')) || 0;
+            if (aTime !== bTime) return aTime - bTime;
+            return String(a.id || '').localeCompare(String(b.id || ''));
+        });
         nextCommentsCursor = data.next_cursor || null;
         if (Number.isFinite(data.total)) commentsTotal = data.total;
         else if (!append) commentsTotal = loadedComments.length;
@@ -592,6 +626,7 @@ async function loadCatComments(catId, append = false, posted = null) {
         }
 
         if (!container) return;
+        closeCommentEditModal();
 
         if (comments.length === 0) {
             const noCommentsText = typeof t === "function" ? t("no_comments") : "No comments yet. Be the first to say something nice!";
@@ -642,7 +677,6 @@ async function loadCatComments(catId, append = false, posted = null) {
 
         const replyBtnText = typeof t === "function" ? t("reply_btn") : "Reply";
         const deleteBtnText = typeof t === "function" ? t("delete_btn") : "Delete";
-        const replyingToText = typeof t === "function" ? t("replying_to") : "Replying to";
 
         container.innerHTML = rootComments.map(c => {
             const authorDisplayName = c.user_name || "Cat Lover";
@@ -659,7 +693,12 @@ async function loadCatComments(catId, append = false, posted = null) {
                 const rIsOwner = currentUserId && String(r.user_id) === String(currentUserId);
                 const safeRAuthorName = escapeHtml(rAuthorName);
                 const jsSafeRAuthorName = escapeJsString(rAuthorName);
-                const replyTarget = escapeHtml(r.reply_to_name || authorDisplayName);
+                const rawReplyTarget = String(r.reply_to_name || authorDisplayName).trim();
+                const replyTarget = escapeHtml(rawReplyTarget);
+                const isDirectReplyToRoot = rawReplyTarget.toLowerCase() === String(authorDisplayName).trim().toLowerCase();
+                const replyContextHtml = isDirectReplyToRoot ? '' : `
+                    <div class="comment-reply-context"><i class="fa-solid fa-turn-up" aria-hidden="true"></i><span><strong>@${replyTarget}</strong></span></div>
+                `;
                 const createdLabel = `${escapeHtml((r.created_at || '').slice(0, 10))}${r.updated_at ? ' · edited' : ''}`;
 
                 return `
@@ -674,7 +713,7 @@ async function loadCatComments(catId, append = false, posted = null) {
                                     <span class="comment-date">${createdLabel}</span>
                                 </div>
                             </div>
-                            <div class="comment-reply-context"><i class="fa-solid fa-reply" aria-hidden="true"></i><span>${escapeHtml(replyingToText)} <strong>@${replyTarget}</strong></span></div>
+                            ${replyContextHtml}
                             <p class="comment-text">${escapeHtml(formatCommentText(r.comment).text)}</p>
                             <div class="comment-actions">
                                 ${renderCommentLikeControl(r)}
@@ -727,6 +766,14 @@ async function loadCatComments(catId, append = false, posted = null) {
             window.dispatchEvent(new CustomEvent('catrank_comments_rendered', {detail: {catId: String(catId), commentIds: comments.map(c => String(c.id))}}));
         }
         scheduleCommentEditExpiry();
+
+        if (posted && posted.id) {
+            const postedElement = container.querySelector(`[data-comment-id="${CSS.escape(String(posted.id))}"]`);
+            if (postedElement && typeof postedElement.scrollIntoView === 'function') {
+                postedElement.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+            }
+        }
+
         if (nextCommentsCursor) {
             const more = document.createElement('button');
             more.type = 'button';
@@ -967,9 +1014,17 @@ function commentEditorLabel(enText, ruText) {
     return (typeof currentLang !== 'undefined' && currentLang === 'ru') ? ruText : enText;
 }
 
+let activeInlineCommentEditor = null;
+
 function closeCommentEditModal() {
-    const existing = document.getElementById('comment-edit-modal');
-    if (existing) existing.remove();
+    if (!activeInlineCommentEditor) return;
+    const { root, textNode, actionsNode, form, keyHandler } = activeInlineCommentEditor;
+    if (keyHandler) document.removeEventListener('keydown', keyHandler);
+    if (form?.isConnected) form.remove();
+    if (textNode) textNode.hidden = false;
+    if (actionsNode) actionsNode.hidden = false;
+    if (root) root.classList.remove('is-editing-comment');
+    activeInlineCommentEditor = null;
 }
 
 function editComment(commentId) {
@@ -989,107 +1044,106 @@ function editComment(commentId) {
 
     closeCommentEditModal();
 
-    const overlay = document.createElement('div');
-    overlay.id = 'comment-edit-modal';
-    overlay.className = 'comment-edit-modal-backdrop';
+    const root = document.querySelector(`[data-comment-id="${CSS.escape(String(commentId))}"]`);
+    const body = root?.querySelector('.comment-body');
+    const textNode = body?.querySelector('.comment-text');
+    const actionsNode = body?.querySelector('.comment-actions');
+    if (!root || !body || !textNode || !actionsNode) return;
 
-    const dialog = document.createElement('form');
-    dialog.className = 'comment-edit-modal';
-    dialog.setAttribute('role', 'dialog');
-    dialog.setAttribute('aria-modal', 'true');
-    dialog.setAttribute('aria-labelledby', 'comment-edit-modal-title');
+    const form = document.createElement('form');
+    form.className = 'comment-inline-editor';
+    form.setAttribute('aria-label', commentEditorLabel('Edit comment', 'Редактирование комментария'));
 
-    const header = document.createElement('div');
-    header.className = 'comment-edit-modal__header';
+    const topRow = document.createElement('div');
+    topRow.className = 'comment-inline-editor__top';
 
-    const title = document.createElement('h3');
-    title.id = 'comment-edit-modal-title';
-    title.className = 'comment-edit-modal__title';
-    title.textContent = commentEditorLabel('Edit comment', 'Редактировать комментарий');
-
-    const close = document.createElement('button');
-    close.type = 'button';
-    close.className = 'comment-edit-modal__close';
-    close.setAttribute('aria-label', commentEditorLabel('Close editor', 'Закрыть редактор'));
-    close.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
-
-    header.append(title, close);
-
-    const text = document.createElement('textarea');
-    text.className = 'comment-edit-modal__textarea';
-    text.value = String(comment.comment || '');
-    text.maxLength = 300;
-    text.required = true;
-    text.rows = 4;
-    text.setAttribute('aria-label', commentEditorLabel('Edit comment text', 'Текст комментария'));
-
-    const footer = document.createElement('div');
-    footer.className = 'comment-edit-modal__footer';
+    const status = document.createElement('span');
+    status.className = 'comment-inline-editor__status';
+    status.innerHTML = '<i class="fa-regular fa-pen-to-square" aria-hidden="true"></i><span></span>';
+    status.querySelector('span').textContent = commentEditorLabel('Editing comment', 'Редактирование');
 
     const counter = document.createElement('span');
-    counter.className = 'comment-edit-modal__counter';
+    counter.className = 'comment-inline-editor__counter';
+    topRow.append(status, counter);
 
-    const actions = document.createElement('div');
-    actions.className = 'comment-edit-modal__actions';
+    const textareaWrap = document.createElement('div');
+    textareaWrap.className = 'comment-inline-editor__field';
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'comment-inline-editor__textarea';
+    textarea.value = String(comment.comment || '');
+    textarea.maxLength = 300;
+    textarea.required = true;
+    textarea.rows = 3;
+    textarea.setAttribute('aria-label', commentEditorLabel('Edit comment text', 'Текст комментария'));
+    textareaWrap.appendChild(textarea);
+
+    const footer = document.createElement('div');
+    footer.className = 'comment-inline-editor__footer';
+
+    const controls = document.createElement('div');
+    controls.className = 'comment-inline-editor__controls';
 
     const cancel = document.createElement('button');
     cancel.type = 'button';
-    cancel.className = 'comment-edit-modal__button comment-edit-modal__button--cancel';
+    cancel.className = 'comment-inline-editor__button comment-inline-editor__button--cancel';
     cancel.textContent = commentEditorLabel('Cancel', 'Отмена');
 
     const save = document.createElement('button');
     save.type = 'submit';
-    save.className = 'comment-edit-modal__button comment-edit-modal__button--save';
-    save.textContent = commentEditorLabel('Save changes', 'Сохранить');
+    save.className = 'comment-inline-editor__button comment-inline-editor__button--save';
+    save.innerHTML = '<i class="fa-solid fa-check" aria-hidden="true"></i><span></span>';
+    save.querySelector('span').textContent = commentEditorLabel('Save', 'Сохранить');
 
-    actions.append(cancel, save);
-    footer.append(counter, actions);
-    dialog.append(header, text, footer);
-    overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
+    controls.append(cancel, save);
+    footer.append(controls);
+    form.append(topRow, textareaWrap, footer);
+
+    textNode.hidden = true;
+    actionsNode.hidden = true;
+    root.classList.add('is-editing-comment');
+    textNode.insertAdjacentElement('afterend', form);
 
     const refreshCounter = () => {
-        counter.textContent = `${text.value.length}/300`;
+        counter.textContent = `${textarea.value.length}/300`;
+        save.disabled = !textarea.value.trim();
     };
     refreshCounter();
-    text.addEventListener('input', refreshCounter);
+    textarea.addEventListener('input', refreshCounter);
 
-    let closed = false;
-    const closeEditor = () => {
-        if (closed) return;
-        closed = true;
-        document.removeEventListener('keydown', onKeyDown);
-        overlay.remove();
+    const keyHandler = event => {
+        if (event.key === 'Escape' && !save.dataset.saving) {
+            // Escape belongs to the inline editor first. Prevent the global
+            // modal handler from also closing the whole cat viewer.
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            closeCommentEditModal();
+        }
     };
-    const onKeyDown = event => {
-        if (event.key === 'Escape' && !save.disabled) closeEditor();
-    };
+    document.addEventListener('keydown', keyHandler);
+    activeInlineCommentEditor = { root, textNode, actionsNode, form, keyHandler };
 
-    close.addEventListener('click', closeEditor);
-    cancel.addEventListener('click', closeEditor);
-    overlay.addEventListener('mousedown', event => {
-        if (event.target === overlay && !save.disabled) closeEditor();
-    });
-    document.addEventListener('keydown', onKeyDown);
+    cancel.addEventListener('click', closeCommentEditModal);
 
     requestAnimationFrame(() => {
-        text.focus();
-        text.setSelectionRange(text.value.length, text.value.length);
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        root.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     });
 
     const catId = activeModalCatId;
     const version = modalRequestVersion;
 
-    dialog.addEventListener('submit', async event => {
+    form.addEventListener('submit', async event => {
         event.preventDefault();
-        const nextComment = text.value.trim();
-        if (!nextComment || save.disabled) return;
+        const nextComment = textarea.value.trim();
+        if (!nextComment || save.dataset.saving) return;
 
+        save.dataset.saving = '1';
         save.disabled = true;
         cancel.disabled = true;
-        close.disabled = true;
-        text.disabled = true;
-        save.textContent = commentEditorLabel('Saving...', 'Сохранение...');
+        textarea.disabled = true;
+        save.querySelector('span').textContent = commentEditorLabel('Saving…', 'Сохранение…');
 
         try {
             const result = await authRequest(
@@ -1099,7 +1153,7 @@ function editComment(commentId) {
                 true
             );
 
-            closeEditor();
+            closeCommentEditModal();
             if (activeModalCatId === catId && modalRequestVersion === version) {
                 await loadCatComments(
                     catId,
@@ -1110,14 +1164,14 @@ function editComment(commentId) {
             showToast(commentEditorLabel('Comment updated.', 'Комментарий обновлён.'), 'success');
         } catch (error) {
             if (error?.code === 'edit_window_expired') {
-                closeEditor();
+                closeCommentEditModal();
                 updateCommentEditControls();
             } else {
+                delete save.dataset.saving;
                 save.disabled = false;
                 cancel.disabled = false;
-                close.disabled = false;
-                text.disabled = false;
-                save.textContent = commentEditorLabel('Save changes', 'Сохранить');
+                textarea.disabled = false;
+                save.querySelector('span').textContent = commentEditorLabel('Save', 'Сохранить');
             }
             showToast(
                 error?.message || commentEditorLabel('Could not update comment.', 'Не удалось обновить комментарий.'),

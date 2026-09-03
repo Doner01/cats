@@ -49,6 +49,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (event.key === 'Escape') {
             if (modal.id === 'custom-confirm-modal') return;
+            // While a comment is being edited, Escape cancels that editor.
+            // Do not also close the parent cat viewer.
+            if (modal.id === 'cat-detail-modal' && modal.querySelector('.comment-inline-editor')) return;
             if (modal.id === 'cat-detail-modal') closeCatModal();
             else modal.classList.add('hidden');
         }

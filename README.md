@@ -22,3 +22,11 @@ Enable the authentication providers you use, email confirmation, secure email ch
 Vercel uses `python build_vercel.py` from `vercel.json`. Install runtime dependencies from `requirements.txt`.
 
 After deployment, test login/register, Google sign-in, email change, password change/reset, avatar upload, cat upload, comments, favorites, notifications, and sign-out with test accounts.
+
+## v1.0.3 UI polish
+
+- Cat viewer keeps a stable layout for portrait, landscape, and square images.
+- The full original image stays visible with `object-fit: contain`.
+- Empty image space uses a soft blurred copy of the same photo instead of black bars.
+- Comment editing is inline (no blocking popup), with a slim indigo edit accent and responsive EN/RU-safe controls.
+
