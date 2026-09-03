@@ -1222,6 +1222,17 @@
                 url.searchParams.delete("password_reset");
                 consumed = true;
             }
+            if (url.searchParams.get("password_set") === "1") {
+                showImportantAlert(
+                    currentLang === "ru"
+                        ? "Пароль создан. Теперь можно входить с помощью пароля, не отключая Google."
+                        : "Password created. You can now sign in with your password while keeping Google connected.",
+                    "success",
+                    { title: currentLang === "ru" ? "Пароль подключён" : "Password connected" }
+                );
+                url.searchParams.delete("password_set");
+                consumed = true;
+            }
             if (url.searchParams.get("email_confirmed") === "1") {
                 showImportantAlert(
                     currentLang === "ru"

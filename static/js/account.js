@@ -6,7 +6,7 @@ async function authRequest(path, payload, method = 'POST', authenticated = false
         if (!session) throw new Error('Please sign in again.');
         headers.Authorization = `Bearer ${session.access_token}`;
     }
-    const res = await fetch(path, {method, headers, body: JSON.stringify(payload)});
+    const res = await fetch(path, {method, headers, body: JSON.stringify(payload || {})});
     let data = {};
     try { data = await res.json(); } catch (_) {}
     if (!res.ok) {
@@ -21,56 +21,202 @@ async function authRequest(path, payload, method = 'POST', authenticated = false
 async function signInWithPasswordThroughApp(email, password) {
     try {
         const tokens = await authRequest('/api/auth/login', {email, password});
-        return await supabaseClient.auth.setSession(tokens);
-    } catch (error) { return {data: null, error}; }
-}
-
-async function startGoogleSignIn(link = false) {
-    const buttons = document.querySelectorAll('[data-google-button]');
-    buttons.forEach(b => b.disabled = true);
-    try {
-        if (!supabaseClient) throw new Error('Sign-in is unavailable.');
-        const res = await fetch('/api/auth/options');
-        const options = await res.json();
-        if (!res.ok || !options.google_enabled) throw new Error(options.error || 'Google sign-in is not enabled yet.');
-        const {data: {session}} = await supabaseClient.auth.getSession();
-        if (link && !session) throw new Error('Please sign in before connecting Google.');
-        const intent = {next: link ? '/profile' : getLoginDestination(), userId: link ? session.user.id : null, started: Date.now()};
-        sessionStorage.setItem('catrank_oauth_intent', JSON.stringify(intent));
-        const params = {provider: 'google', options: {redirectTo: window.location.origin + '/auth/callback', queryParams: {prompt: 'select_account'}}};
-        const {error} = link ? await supabaseClient.auth.linkIdentity(params) : await supabaseClient.auth.signInWithOAuth(params);
-        if (error) throw error;
+        const authResult = await supabaseClient.auth.setSession({
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token
+        });
+        if (!authResult.error && authResult.data) {
+            authResult.data.catrank = {google_release: tokens.google_release || null};
+        }
+        return authResult;
     } catch (error) {
-        sessionStorage.removeItem('catrank_oauth_intent');
-        showToast(error.message, 'error');
-        buttons.forEach(b => b.disabled = false);
+        return {data: null, error};
     }
 }
 
-async function completeGoogleSignIn() {
-    const message = document.getElementById('oauth-status');
-    if (!message) return;
+function safeLocalDestination(value, fallback = '/') {
+    const raw = String(value || fallback);
     try {
-        const params = new URLSearchParams(window.location.search);
-        const code = params.get('code');
-        const providerError = params.get('error') || new URLSearchParams(window.location.hash.slice(1)).get('error');
-        const intent = JSON.parse(sessionStorage.getItem('catrank_oauth_intent') || 'null');
-        history.replaceState(null, '', '/auth/callback');
-        if (providerError) throw new Error('Google sign-in was cancelled or could not be completed.');
-        if (!code || !intent || Date.now() - intent.started > 10 * 60 * 1000) throw new Error('This sign-in attempt has expired. Please start again.');
-        const {data, error} = await supabaseClient.auth.exchangeCodeForSession(code);
-        if (error || !data.session) throw new Error('Could not verify this sign-in. Please start again in the same browser.');
-        if (intent.userId && data.session.user.id !== intent.userId) {
-            await supabaseClient.auth.signOut({scope: 'local'});
-            throw new Error('The connected account did not match. Please sign in again.');
+        const url = new URL(raw, window.location.origin);
+        const blocked = new Set(['/login', '/register', '/forgot-password', '/reset-password', '/auth/callback']);
+        if (url.origin !== window.location.origin || !raw.startsWith('/') || raw.startsWith('//') || blocked.has(url.pathname)) {
+            return fallback;
         }
-        await authRequest('/api/auth/bootstrap', {}, 'POST', true);
-        sessionStorage.removeItem('catrank_oauth_intent');
-        const destination = new URL(intent.next || '/', window.location.origin);
-        window.location.replace(destination.origin === window.location.origin && destination.pathname !== '/auth/callback' ? destination.pathname + destination.search + destination.hash : '/');
+        return `${url.pathname}${url.search}${url.hash}`;
+    } catch (_) {
+        return fallback;
+    }
+}
+
+async function startGoogleSignIn() {
+    const buttons = document.querySelectorAll('[data-google-button]');
+    buttons.forEach(button => { button.disabled = true; });
+    try {
+        if (!supabaseClient) throw new Error('Google sign-in is unavailable.');
+
+        // Google is deliberately only a normal sign-in / registration path.
+        // There is no user-facing manual Connect/Disconnect flow. CatRank may
+        // internally unlink a stale Google identity after an email change.
+        const sessionResult = await supabaseClient.auth.getSession();
+        if (sessionResult?.data?.session?.user) {
+            throw new Error('You are already signed in. Sign out before choosing another account.');
+        }
+
+        const response = await fetch('/api/auth/options');
+        const options = await response.json().catch(() => ({}));
+        if (!response.ok || !options.google_enabled) {
+            throw new Error(options.error || 'Google sign-in is not enabled yet.');
+        }
+
+        const intent = {
+            mode: 'signin',
+            next: typeof getLoginDestination === 'function' ? getLoginDestination() : '/',
+            started: Date.now()
+        };
+        sessionStorage.setItem('catrank_oauth_intent', JSON.stringify(intent));
+
+        const {error} = await supabaseClient.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: `${window.location.origin}/auth/callback`,
+                queryParams: {prompt: 'select_account'}
+            }
+        });
+        if (error) throw error;
     } catch (error) {
         sessionStorage.removeItem('catrank_oauth_intent');
-        message.textContent = error.message || 'Sign-in could not be completed.';
+        if (typeof showToast === 'function') showToast(error?.message || 'Google sign-in failed.', 'error');
+        buttons.forEach(button => { button.disabled = false; });
+    }
+}
+
+function oauthIdentityEmail(identity) {
+    if (!identity || typeof identity !== 'object') return '';
+    const data = identity.identity_data && typeof identity.identity_data === 'object'
+        ? identity.identity_data
+        : {};
+    return String(data.email || identity.email || '').trim().toLowerCase();
+}
+
+async function normalizeGoogleIdentitiesAfterOAuth(fallbackUser) {
+    // CatRank allows exactly the Google identity whose verified email matches
+    // auth.users.email. Old Google identities are removed as soon as Supabase
+    // gives us a safe alternate identity to keep.
+    let user = fallbackUser || null;
+    try {
+        const fresh = await supabaseClient.auth.getUser();
+        if (!fresh.error && fresh.data?.user) user = fresh.data.user;
+    } catch (_) {}
+
+    const primaryEmail = String(user?.email || '').trim().toLowerCase();
+    if (!primaryEmail) throw new Error('Google did not return a usable account email.');
+
+    const identityResult = await supabaseClient.auth.getUserIdentities();
+    if (identityResult.error) throw identityResult.error;
+
+    let identities = Array.isArray(identityResult.data?.identities)
+        ? [...identityResult.data.identities]
+        : [];
+    const googleIdentities = identities.filter(
+        identity => String(identity?.provider || '').toLowerCase() === 'google'
+    );
+    const matchingGoogle = googleIdentities.filter(
+        identity => oauthIdentityEmail(identity) === primaryEmail
+    );
+    const staleGoogle = googleIdentities.filter(
+        identity => oauthIdentityEmail(identity) !== primaryEmail
+    );
+
+    // If the Google account used for this OAuth login does not match the
+    // current CatRank email, remove stale Google identities only when another
+    // identity can safely remain, then reject the login.
+    if (!matchingGoogle.length) {
+        for (const identity of staleGoogle) {
+            if (identities.length <= 1) break;
+            const {error} = await supabaseClient.auth.unlinkIdentity(identity);
+            if (!error) identities = identities.filter(item => item?.id !== identity?.id);
+        }
+        const mismatch = new Error(
+            `This Google account does not match your CatRank email (${primaryEmail}). ` +
+            `Use Google with ${primaryEmail}, or use email/password.`
+        );
+        mismatch.code = 'google_email_mismatch';
+        throw mismatch;
+    }
+
+    // A matching Google account is now available. Remove every old Google
+    // identity so changing the CatRank email does not leave two Google
+    // accounts entering the same CatRank user.
+    for (const identity of staleGoogle) {
+        if (identities.length <= 1) {
+            const error = new Error('CatRank could not safely remove the old Google sign-in.');
+            error.code = 'google_cleanup_failed';
+            throw error;
+        }
+        const {error} = await supabaseClient.auth.unlinkIdentity(identity);
+        if (error) {
+            const cleanupError = new Error(
+                'Google sign-in matched your CatRank email, but the old Google identity could not be released. ' +
+                'Enable Supabase manual identity linking/unlinking and try again.'
+            );
+            cleanupError.code = 'google_cleanup_failed';
+            throw cleanupError;
+        }
+        identities = identities.filter(item => item?.id !== identity?.id);
+    }
+
+    return user;
+}
+
+async function completeGoogleSignIn() {
+    const status = document.getElementById('oauth-status');
+    if (!status) return;
+
+    let sessionEstablished = false;
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(String(window.location.hash || '').replace(/^#/, ''));
+        const code = String(params.get('code') || '').trim();
+        const providerError = params.get('error') || hashParams.get('error');
+        const intent = JSON.parse(sessionStorage.getItem('catrank_oauth_intent') || 'null');
+
+        // Remove the OAuth code from browser history immediately.
+        history.replaceState(null, '', '/auth/callback');
+
+        if (providerError) throw new Error('Google sign-in was cancelled or could not be completed.');
+        if (!code || !intent || intent.mode !== 'signin' || !Number(intent.started)) {
+            throw new Error('This Google sign-in attempt is invalid. Please start again.');
+        }
+        if (Date.now() - Number(intent.started) > 10 * 60 * 1000) {
+            throw new Error('This Google sign-in attempt has expired. Please start again.');
+        }
+
+        const {data, error} = await supabaseClient.auth.exchangeCodeForSession(code);
+        if (error || !data?.session?.user) {
+            throw error || new Error('Could not verify this Google sign-in. Please start again in the same browser.');
+        }
+        sessionEstablished = true;
+
+        // Normalize provider identities before CatRank accepts the OAuth login.
+        // This guarantees that only the Google identity matching the current
+        // CatRank email remains connected once a safe replacement exists.
+        await normalizeGoogleIdentitiesAfterOAuth(data.session.user);
+
+        // Profile creation is idempotent and keyed only by the verified
+        // Supabase user id. OAuth never chooses or rewrites another user's id.
+        await authRequest('/api/auth/bootstrap', {}, 'POST', true);
+
+        sessionStorage.removeItem('catrank_oauth_intent');
+        const destination = safeLocalDestination(intent.next, '/');
+        window.location.replace(destination);
+    } catch (error) {
+        sessionStorage.removeItem('catrank_oauth_intent');
+        // Do not leave a half-initialized authenticated browser behind if
+        // Supabase OAuth succeeded but CatRank profile bootstrap failed.
+        if (sessionEstablished) {
+            try { await supabaseClient.auth.signOut({scope: 'local'}); } catch (_) {}
+        }
+        status.textContent = error?.message || 'Google sign-in could not be completed.';
         document.getElementById('oauth-back')?.classList.remove('hidden');
     }
 }
@@ -80,7 +226,8 @@ const accountSecurityState = {
     user: null,
     identities: [],
     hasEmailPassword: false,
-    hasGoogle: false
+    hasGoogle: false,
+    hasAnyGoogleIdentity: false
 };
 
 let activeSecurityMethod = null;
@@ -96,30 +243,24 @@ function setSecurityHidden(id, hidden) {
     if (element) element.classList.toggle('hidden', hidden);
 }
 
-function setSecurityStatusText(id, message, kind = 'info') {
-    const element = document.getElementById(id);
-    if (!element) return;
-    element.textContent = message || '';
-    element.classList.remove('text-slate-500', 'text-rose-600', 'text-emerald-600', 'text-indigo-600');
-    element.classList.add(kind === 'error' ? 'text-rose-600' : kind === 'success' ? 'text-emerald-600' : kind === 'active' ? 'text-indigo-600' : 'text-slate-500');
-}
-
 function setMethodBadge(id, connected, alternateText = '') {
     const element = document.getElementById(id);
     if (!element) return;
-    const label = alternateText || (connected ? securityText('connected_badge', 'Connected') : securityText('not_connected_badge', 'Not connected'));
+    const label = alternateText || (connected ? securityText('connected_badge', 'Available') : securityText('not_connected_badge', 'Not used'));
     element.textContent = label;
     element.className = connected
         ? 'text-[10px] font-black rounded-full px-2 py-0.5 bg-emerald-50 text-emerald-700'
         : 'text-[10px] font-black rounded-full px-2 py-0.5 bg-slate-100 text-slate-500';
 }
 
-
 function friendlySecurityAuthError(error, fallback) {
     const code = String(error?.code || '').toLowerCase();
     const message = String(error?.message || '');
+    if (code === 'google_email_mismatch') {
+        return 'This Google sign-in no longer matches your CatRank email. Use your CatRank email/password, or choose Google with the same email as your CatRank account.';
+    }
     if (['user_already_exists', 'email_exists', 'identity_already_exists'].includes(code) || /already.*(registered|exists|used)/i.test(message)) {
-        return securityText('signin_method_in_use', 'That email is already connected to another account.');
+        return securityText('signin_method_in_use', 'That email is already used by another account.');
     }
     return message || fallback;
 }
@@ -127,13 +268,23 @@ function friendlySecurityAuthError(error, fallback) {
 function providerSetForUser(user, identities) {
     const providers = new Set();
     for (const identity of identities || []) {
-        if (identity && identity.provider) providers.add(String(identity.provider));
+        if (identity?.provider) providers.add(String(identity.provider).toLowerCase());
     }
     const appMeta = user?.app_metadata || {};
     const listed = Array.isArray(appMeta.providers) ? appMeta.providers : [];
-    for (const provider of listed) providers.add(String(provider));
-    if (appMeta.provider) providers.add(String(appMeta.provider));
+    for (const provider of listed) providers.add(String(provider).toLowerCase());
+    if (appMeta.provider) providers.add(String(appMeta.provider).toLowerCase());
     return providers;
+}
+
+function hasPasswordSignInForUser(user, providers) {
+    if (!user?.email && !user?.phone) return false;
+    if (providers?.has?.('email')) return true;
+    if (providers?.has?.('phone') && user?.app_metadata?.catrank_password_enabled === true) return true;
+    if (user?.app_metadata?.catrank_password_enabled === true) return true;
+    // Compatibility for accounts created by older CatRank builds. This value
+    // is only a UX hint; sensitive actions still verify the real password.
+    return user?.user_metadata?.catrank_password_enabled === true;
 }
 
 function getProviderIdentityEmail(user, provider, identities = null) {
@@ -144,13 +295,32 @@ function getProviderIdentityEmail(user, provider, identities = null) {
 
     for (const identity of list) {
         if (!identity || String(identity.provider || '').toLowerCase() !== wanted) continue;
-        const data = identity.identity_data && typeof identity.identity_data === 'object'
-            ? identity.identity_data
-            : {};
+        const data = identity.identity_data && typeof identity.identity_data === 'object' ? identity.identity_data : {};
         const email = String(data.email || identity.email || '').trim().toLowerCase();
         if (email) return email;
     }
     return '';
+}
+
+function getProviderIdentityEmails(user, provider, identities = null) {
+    const wanted = String(provider || '').toLowerCase();
+    const list = Array.isArray(identities)
+        ? identities
+        : (Array.isArray(user?.identities) ? user.identities : []);
+    const emails = [];
+    for (const identity of list) {
+        if (!identity || String(identity.provider || '').toLowerCase() !== wanted) continue;
+        const data = identity.identity_data && typeof identity.identity_data === 'object' ? identity.identity_data : {};
+        const email = String(data.email || identity.email || '').trim().toLowerCase();
+        if (email && !emails.includes(email)) emails.push(email);
+    }
+    return emails;
+}
+
+function getMatchingGoogleEmail(user, identities = null) {
+    const primaryEmail = String(user?.email || '').trim().toLowerCase();
+    if (!primaryEmail) return '';
+    return getProviderIdentityEmails(user, 'google', identities).find(email => email === primaryEmail) || '';
 }
 
 function getProfileEmailForUser(user, identities = null) {
@@ -160,18 +330,18 @@ function getProfileEmailForUser(user, identities = null) {
         ? identities
         : (Array.isArray(user.identities) ? user.identities : []);
     const providers = providerSetForUser(user, list);
-    const primaryProvider = String(user?.app_metadata?.provider || '').toLowerCase();
     const googleEmail = getProviderIdentityEmail(user, 'google', list);
+    const hasPassword = hasPasswordSignInForUser(user, providers);
 
-    // A Supabase account can keep its original Google identity even after the
-    // account's primary/email-password address is changed. For profiles, show
-    // the Google identity email when Google is the account's original/only
-    // sign-in provider so the UI does not pretend that Google is using the
-    // newer password email.
-    if (googleEmail && (primaryProvider === 'google' || (providers.has('google') && !providers.has('email')))) {
-        return googleEmail;
-    }
-    return primaryEmail || googleEmail;
+    // Once password sign-in exists, auth.users.email is the CatRank account
+    // email and is the value users expect to see after changing email.
+    // A Google identity keeps its own provider email and remains a separate
+    // sign-in route to the same Supabase user; it must not replace the account
+    // email in the profile UI just because this user originally joined Google.
+    if (hasPassword && primaryEmail) return primaryEmail;
+
+    // Google-only accounts naturally show the Google identity email.
+    return googleEmail || primaryEmail;
 }
 
 async function refreshAccountSecuritySession() {
@@ -179,71 +349,100 @@ async function refreshAccountSecuritySession() {
     const sessionResult = await supabaseClient.auth.getSession();
     const session = sessionResult?.data?.session || null;
     if (!session) throw new Error('Please sign in again.');
+
     let user = session.user;
     try {
-        const result = await supabaseClient.auth.getUser();
-        if (!result.error && result.data?.user) user = result.data.user;
+        const current = await supabaseClient.auth.getUser();
+        if (!current.error && current.data?.user) user = current.data.user;
     } catch (_) {}
-    accountSecurityState.session = session;
+
+    // getSession() may contain a cached user object after an email change.
+    // Keep the access/refresh tokens, but replace the embedded user with the
+    // authoritative getUser() result so the rest of the UI sees the new email.
+    const freshSession = user === session.user ? session : {...session, user};
+    accountSecurityState.session = freshSession;
     accountSecurityState.user = user;
-    if (typeof currentSession !== 'undefined') currentSession = session;
-    return {session, user};
+    if (typeof currentSession !== 'undefined') currentSession = freshSession;
+    return {session: freshSession, user};
 }
 
 async function loadConnectedMethods() {
     const container = document.getElementById('connected-methods');
     if (!container || !supabaseClient) return;
+
     try {
         const {user} = await refreshAccountSecuritySession();
-        let identities = [];
+        let identities = Array.isArray(user.identities) ? user.identities : [];
         try {
-            const identityResult = await supabaseClient.auth.getUserIdentities();
-            if (!identityResult.error) identities = identityResult.data?.identities || [];
-        } catch (_) {
-            identities = Array.isArray(user.identities) ? user.identities : [];
-        }
+            const result = await supabaseClient.auth.getUserIdentities();
+            if (!result.error && Array.isArray(result.data?.identities)) identities = result.data.identities;
+        } catch (_) {}
+
         accountSecurityState.identities = identities;
         const providers = providerSetForUser(user, identities);
-        accountSecurityState.hasEmailPassword = Boolean(user.email) && providers.has('email');
-        accountSecurityState.hasGoogle = providers.has('google');
+        accountSecurityState.hasEmailPassword = hasPasswordSignInForUser(user, providers);
+        const googleEmails = getProviderIdentityEmails(user, 'google', identities);
+        const matchingGoogleEmail = getMatchingGoogleEmail(user, identities);
+        accountSecurityState.hasAnyGoogleIdentity = googleEmails.length > 0;
+        accountSecurityState.hasGoogle = Boolean(matchingGoogleEmail);
 
         const methods = [];
-        if (accountSecurityState.hasEmailPassword) methods.push('Email');
+        if (accountSecurityState.hasEmailPassword) methods.push('Email/password');
         if (accountSecurityState.hasGoogle) methods.push('Google');
-        container.textContent = methods.join(' · ') || securityText('no_methods_found', 'No methods found');
+        if (providers.has('phone')) methods.push('Phone');
+        container.textContent = methods.join(' · ') || securityText('no_methods_found', 'No sign-in methods found');
 
-        const googleIdentityEmail = getProviderIdentityEmail(user, 'google', identities);
+        const googleEmail = matchingGoogleEmail || getProviderIdentityEmail(user, 'google', identities);
         const emailValue = document.getElementById('security-email-value');
         if (emailValue) {
-            if (accountSecurityState.hasEmailPassword) emailValue.textContent = user.email;
-            else if (accountSecurityState.hasGoogle && (googleIdentityEmail || user.email)) {
-                const googleOnlyEmail = googleIdentityEmail || user.email;
-                emailValue.textContent = securityText('google_email_only', `${googleOnlyEmail} · Google only`).replace('{email}', googleOnlyEmail);
-            } else emailValue.textContent = securityText('email_not_connected_desc', 'Email/password sign-in is not connected.');
+            if (accountSecurityState.hasEmailPassword) {
+                emailValue.textContent = user.email || user.phone || 'Password sign-in';
+            } else if (accountSecurityState.hasGoogle && (googleEmail || user.email)) {
+                emailValue.textContent = `${googleEmail || user.email} · no CatRank password`;
+            } else {
+                emailValue.textContent = 'No password sign-in is configured.';
+            }
         }
-        setMethodBadge('security-email-status', accountSecurityState.hasEmailPassword, !accountSecurityState.hasEmailPassword && user.email && accountSecurityState.hasGoogle ? securityText('google_only_badge', 'Google only') : '');
-        const emailAction = document.getElementById('security-email-action');
-        if (emailAction) emailAction.querySelector('span').textContent = accountSecurityState.hasEmailPassword ? securityText('change_btn', 'Change') : securityText('manage_btn', 'Manage');
+        setMethodBadge(
+            'security-email-status',
+            accountSecurityState.hasEmailPassword,
+            !accountSecurityState.hasEmailPassword && accountSecurityState.hasGoogle ? 'Google only' : ''
+        );
 
-        setMethodBadge('security-google-status', accountSecurityState.hasGoogle);
+        const emailAction = document.getElementById('security-email-action');
+        if (emailAction) {
+            const label = emailAction.querySelector('span');
+            if (label) label.textContent = accountSecurityState.hasEmailPassword ? 'Manage' : 'Add password';
+        }
+
+        const primaryEmail = String(user.email || '').trim().toLowerCase();
         const googleValue = document.getElementById('security-google-value');
+        const googleNote = document.getElementById('security-google-note');
         if (googleValue) {
-            googleValue.textContent = accountSecurityState.hasGoogle
-                ? (googleIdentityEmail
-                    ? `${googleIdentityEmail} · Google`
-                    : securityText('google_connected_desc', 'Google is connected to this CatRank account.'))
-                : securityText('google_signin_desc', 'Use your Google account as another sign-in method.');
+            if (accountSecurityState.hasGoogle) {
+                googleValue.textContent = `${matchingGoogleEmail} · Google sign-in`;
+            } else if (accountSecurityState.hasAnyGoogleIdentity && primaryEmail) {
+                googleValue.textContent = 'Old Google sign-in is waiting to be released.';
+            } else {
+                googleValue.textContent = 'This account does not currently use Google sign-in.';
+            }
         }
-        setSecurityHidden('connect-google', accountSecurityState.hasGoogle);
-        setSecurityHidden('security-google-manage', !accountSecurityState.hasGoogle);
-        setSecurityHidden('unlink-google-controls', !(accountSecurityState.hasGoogle && accountSecurityState.hasEmailPassword));
-        const unlink = document.getElementById('disconnect-google');
-        if (unlink) {
-            unlink.classList.toggle('hidden', !(accountSecurityState.hasGoogle && accountSecurityState.hasEmailPassword));
-            unlink.onclick = () => disconnectGoogle();
+        if (googleNote) {
+            if (accountSecurityState.hasGoogle) {
+                googleNote.textContent = 'Google can sign in because its verified email matches your current CatRank email.';
+            } else if (accountSecurityState.hasAnyGoogleIdentity && primaryEmail) {
+                googleNote.textContent = `The old Google email no longer signs in here. After you sign in with ${primaryEmail} + password, CatRank permanently releases that old Google identity so it can be used for a separate account.`;
+            } else if (primaryEmail) {
+                googleNote.textContent = `To use Google, sign out and choose Continue with Google using ${primaryEmail}.`;
+            } else {
+                googleNote.textContent = 'Google is available only when its verified email matches the current CatRank email.';
+            }
         }
-        const googleNote = document.getElementById('google-password-note');
-        if (googleNote) googleNote.textContent = securityText('disconnect_google_help', 'Disconnect Google only after email/password sign-in is working.');
+        setMethodBadge(
+            'security-google-status',
+            accountSecurityState.hasGoogle,
+            accountSecurityState.hasGoogle ? '' : (accountSecurityState.hasAnyGoogleIdentity ? 'Release pending' : '')
+        );
 
         refreshSecurityAuxiliaryCards();
         refreshSecurityMethodActionButtons();
@@ -253,138 +452,90 @@ async function loadConnectedMethods() {
     }
 }
 
-function defaultSecurityActionLabel(method) {
-    if (method === 'email') {
-        return accountSecurityState.hasEmailPassword
-            ? securityText('change_btn', 'Change')
-            : securityText('manage_btn', 'Manage');
-    }
-    return securityText('manage_btn', 'Manage');
-}
-
 function refreshSecurityMethodActionButtons() {
-    const buttonIds = {
-        email: 'security-email-action',
-        google: 'security-google-manage'
-    };
-    for (const [method, id] of Object.entries(buttonIds)) {
-        const button = document.getElementById(id);
-        if (!button) continue;
-        const panel = document.getElementById(`security-${method}-panel`);
-        const isOpen = activeSecurityMethod === method && panel && !panel.classList.contains('hidden');
-        const label = isOpen ? securityText('close_btn', 'Close') : defaultSecurityActionLabel(method);
-        const labelNode = button.querySelector('span');
-        if (labelNode) labelNode.textContent = label;
-        else button.textContent = label;
-        button.setAttribute('aria-expanded', String(Boolean(isOpen)));
-        button.classList.toggle('bg-slate-100', Boolean(isOpen));
-        button.classList.toggle('border-slate-300', Boolean(isOpen));
+    const button = document.getElementById('security-email-action');
+    if (!button) return;
+    const panel = document.getElementById('security-email-panel');
+    const isOpen = activeSecurityMethod === 'email' && panel && !panel.classList.contains('hidden');
+    const label = button.querySelector('span');
+    if (label) {
+        label.textContent = isOpen
+            ? securityText('close_btn', 'Close')
+            : (accountSecurityState.hasEmailPassword ? securityText('manage_btn', 'Manage') : 'Add password');
     }
+    button.setAttribute('aria-expanded', String(Boolean(isOpen)));
+    button.classList.toggle('bg-slate-100', Boolean(isOpen));
+    button.classList.toggle('border-slate-300', Boolean(isOpen));
 }
 
 function refreshSecurityAuxiliaryCards() {
-    const managerOpen = Boolean(activeSecurityMethod);
+    const managerOpen = activeSecurityMethod === 'email';
     setSecurityHidden('password-security-card', managerOpen || !accountSecurityState.hasEmailPassword);
     setSecurityHidden('password-security-note', managerOpen || accountSecurityState.hasEmailPassword);
     setSecurityHidden('sessions-security-card', managerOpen);
 }
 
 function closeSecurityMethod(method) {
-    setSecurityHidden(`security-${method}-panel`, true);
-    if (!activeSecurityMethod || activeSecurityMethod === method) activeSecurityMethod = null;
+    if (method !== 'email') return;
+    setSecurityHidden('security-email-panel', true);
+    if (activeSecurityMethod === 'email') activeSecurityMethod = null;
     refreshSecurityAuxiliaryCards();
     refreshSecurityMethodActionButtons();
 }
 
 function toggleSecurityMethod(method) {
-    if (!['email', 'google'].includes(method)) return;
-    const panel = document.getElementById(`security-${method}-panel`);
-    if (!panel) return;
+    if (method !== 'email') return;
 
-    const isOpen = activeSecurityMethod === method && !panel.classList.contains('hidden');
-    if (isOpen) {
-        closeSecurityMethod(method);
+    if (!accountSecurityState.hasEmailPassword) {
+        window.location.href = '/set-password';
         return;
     }
 
-    // Open immediately so the control always feels responsive, even if
-    // refreshing the Supabase identity data takes a moment or fails.
-    for (const name of ['email', 'google']) {
-        setSecurityHidden(`security-${name}-panel`, name !== method);
+    const panel = document.getElementById('security-email-panel');
+    if (!panel) return;
+    const isOpen = activeSecurityMethod === 'email' && !panel.classList.contains('hidden');
+    if (isOpen) {
+        closeSecurityMethod('email');
+        return;
     }
     panel.classList.remove('hidden');
-    activeSecurityMethod = method;
+    activeSecurityMethod = 'email';
     refreshSecurityAuxiliaryCards();
     refreshSecurityMethodActionButtons();
-
-    // Refresh/prepare the method asynchronously without blocking the UI.
-    Promise.resolve(openSecurityMethod(method)).catch((error) => {
-        console.warn('Could not prepare account security method:', error);
-    });
+    Promise.resolve(openSecurityMethod('email')).catch(error => console.warn('Could not prepare account security:', error));
 }
 
 async function openSecurityMethod(method) {
-    if (!['email', 'google'].includes(method)) return;
-
-    // Make the target panel visible first, before any network/session work.
-    for (const name of ['email', 'google']) {
-        setSecurityHidden(`security-${name}-panel`, name !== method);
-    }
-    activeSecurityMethod = method;
-    refreshSecurityAuxiliaryCards();
-    refreshSecurityMethodActionButtons();
-
+    if (method !== 'email') return;
     if (!accountSecurityState.user) await loadConnectedMethods();
-
-    if (method === 'email') {
-        const state = accountSecurityState;
-        const help = document.getElementById('security-email-help');
-        const save = document.getElementById('security-email-save');
-        const inputWrap = document.getElementById('security-email-input-wrap');
-        setSecurityHidden('security-email-password-auth', !state.hasEmailPassword);
-        setSecurityHidden('security-email-google-only', state.hasEmailPassword || !state.hasGoogle);
-        if (inputWrap) inputWrap.classList.toggle('hidden', !state.hasEmailPassword);
-        if (help) {
-            help.textContent = state.hasEmailPassword
-                ? securityText('change_email_help', 'Changing your email requires your current password and email confirmation. Your old email stays active until confirmation finishes.')
-                : securityText('add_email_google_help', 'Use password recovery to create email/password access for this Google account.');
-        }
-        if (save) {
-            save.classList.toggle('hidden', !state.hasEmailPassword);
-            save.textContent = securityText('change_email_btn', 'Update Email');
-        }
+    if (!accountSecurityState.hasEmailPassword) {
+        window.location.href = '/set-password';
+        return;
     }
 
-    refreshSecurityAuxiliaryCards();
-    refreshSecurityMethodActionButtons();
-}
-
-async function reauthenticateCurrentPassword(password) {
-    const state = accountSecurityState;
-    const originalId = state.user?.id;
-    const email = state.user?.email;
-    if (!originalId || !email) throw new Error(securityText('reauth_unavailable', 'Password verification is not available for this account.'));
-    const tokens = await authRequest('/api/auth/login', {email, password});
-    const result = await supabaseClient.auth.setSession(tokens);
-    if (result.error || !result.data?.session) throw result.error || new Error('Could not refresh your session.');
-    if (String(result.data.session.user.id) !== String(originalId)) {
-        await supabaseClient.auth.signOut({scope: 'local'});
-        throw new Error('The verified account did not match your current account. Please sign in again.');
+    setSecurityHidden('security-email-password-auth', false);
+    setSecurityHidden('security-email-google-only', true);
+    const inputWrap = document.getElementById('security-email-input-wrap');
+    if (inputWrap) inputWrap.classList.remove('hidden');
+    const help = document.getElementById('security-email-help');
+    if (help) {
+        help.textContent = 'Changing your sign-in email requires your current password and Supabase email confirmation. When the new email becomes active, Google sign-in with a different email is reset for CatRank.';
     }
-    accountSecurityState.session = result.data.session;
-    accountSecurityState.user = result.data.session.user;
-    if (typeof currentSession !== 'undefined') currentSession = result.data.session;
-    return result.data.session;
+    const save = document.getElementById('security-email-save');
+    if (save) {
+        save.classList.remove('hidden');
+        save.textContent = securityText('change_email_btn', 'Update Email');
+    }
 }
-
 
 async function saveEmailSignInMethod() {
     const state = accountSecurityState;
     if (!state.user || !supabaseClient) return;
     if (!state.hasEmailPassword) {
-        showToast(securityText('add_email_google_help', 'Use password recovery to create email/password access for this Google account.'), 'info');
+        window.location.href = '/set-password';
         return;
     }
+
     const input = document.getElementById('security-email-input');
     const button = document.getElementById('security-email-save');
     const newEmail = String(input?.value || '').trim().toLowerCase();
@@ -397,47 +548,66 @@ async function saveEmailSignInMethod() {
         showToast(securityText('same_email_info', 'This is already your current email address.'), 'info');
         return;
     }
+
     if (button) button.disabled = true;
     try {
-        const password = String(document.getElementById('security-email-current-password')?.value || '');
+        const passwordField = document.getElementById('security-email-current-password');
+        const password = String(passwordField?.value || '');
         if (!password) throw new Error(securityText('current_password_required', 'Enter your current password.'));
-        const result = await authRequest('/api/user/security', {action: 'email', value: newEmail, current_password: password}, 'PUT', true);
-        if (typeof showImportantAlert === 'function') showImportantAlert(result.message || securityText('email_change_sent', 'Check your email to confirm the change.'), 'success', {title: securityText('email_signin_title', 'Email & password')});
+
+        const result = await authRequest(
+            '/api/user/security',
+            {action: 'email', value: newEmail, current_password: password},
+            'PUT',
+            true
+        );
+        if (typeof showImportantAlert === 'function') {
+            showImportantAlert(
+                result.message || 'Check your inboxes to confirm the email change.',
+                'success',
+                {title: 'Email & password'}
+            );
+        }
         if (input) input.value = '';
-        const pass = document.getElementById('security-email-current-password');
-        if (pass) pass.value = '';
+        if (passwordField) passwordField.value = '';
         closeSecurityMethod('email');
     } catch (error) {
-        if (typeof showImportantAlert === 'function') showImportantAlert(friendlySecurityAuthError(error, securityText('email_method_error', 'Could not update email sign-in.')), 'error', {title: securityText('security_title', 'Sign-in & security')});
+        const message = friendlySecurityAuthError(error, 'Could not update your sign-in email.');
+        if (typeof showImportantAlert === 'function') showImportantAlert(message, 'error', {title: 'Sign-in & security'});
+        else showToast(message, 'error');
     } finally {
         if (button) button.disabled = false;
     }
 }
 
-async function disconnectGoogle() {
-    const field = document.getElementById('unlink-current-password');
-    const password = field?.value || '';
-    if (!accountSecurityState.hasEmailPassword) {
-        showToast(securityText('google_disconnect_requires_email', 'Add a working email & password method before disconnecting Google.'), 'info');
-        return;
-    }
-    if (!password) {
-        showToast(securityText('password_to_disconnect_google', 'Enter your current password before disconnecting Google.'), 'info');
-        field?.focus();
-        return;
-    }
-    const button = document.getElementById('disconnect-google');
-    if (button) button.disabled = true;
+async function refreshAfterEmailConfirmation() {
+    if (!supabaseClient || window.location.pathname !== '/profile') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('email_confirmed') !== '1') return;
+
     try {
-        await authRequest('/api/user/security', {action: 'unlink_google', current_password: password}, 'PUT', true);
-        field.value = '';
-        if (typeof showImportantAlert === 'function') showImportantAlert(securityText('google_disconnected_success', 'Google disconnected. Your email/password sign-in remains available.'), 'success', {title: 'Google'});
-        closeSecurityMethod('google');
-        await loadConnectedMethods();
+        // Email-change links can return with a session whose embedded user is
+        // stale. Refresh it, then sync the confirmed auth email into profiles.
+        await supabaseClient.auth.refreshSession();
+        const {user} = await refreshAccountSecuritySession();
+        await authRequest('/api/auth/bootstrap', {}, 'POST', true);
+
+        const currentEmail = String(user?.email || '').trim().toLowerCase();
+        if (typeof showImportantAlert === 'function') {
+            showImportantAlert(
+                currentEmail
+                    ? `Email confirmation processed. Current CatRank email: ${currentEmail}. If it has not changed yet, confirm the other inbox too. Google sign-in now works only with a Google account using this same email.`
+                    : 'Email confirmation processed. If your project requires both inboxes, complete both confirmation links. Google sign-in works only when its email matches your current CatRank email.',
+                'success',
+                {title: 'Email confirmation'}
+            );
+        }
     } catch (error) {
-        if (typeof showImportantAlert === 'function') showImportantAlert(error.message, 'error', {title: 'Google'});
+        console.warn('Could not refresh confirmed email state:', error);
     } finally {
-        if (button) button.disabled = false;
+        params.delete('email_confirmed');
+        const query = params.toString();
+        history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`);
     }
 }
 
@@ -445,8 +615,17 @@ async function signOutOtherSessions() {
     try {
         const {error} = await supabaseClient.auth.signOut({scope: 'others'});
         if (error) throw error;
-        if (typeof showImportantAlert === 'function') showImportantAlert(securityText('other_sessions_signed_out', 'Other sessions signed out. Existing access tokens expire at their normal expiry time.'), 'success', {title: securityText('sessions_title', 'Other sessions')});
-    } catch (error) { if (typeof showImportantAlert === 'function') showImportantAlert(error.message, 'error', {title: securityText('sessions_title', 'Other sessions')}); }
+        if (typeof showImportantAlert === 'function') {
+            showImportantAlert(
+                securityText('other_sessions_signed_out', 'Other sessions signed out. Existing access tokens expire at their normal expiry time.'),
+                'success',
+                {title: securityText('sessions_title', 'Other sessions')}
+            );
+        }
+    } catch (error) {
+        if (typeof showImportantAlert === 'function') showImportantAlert(error.message, 'error', {title: securityText('sessions_title', 'Other sessions')});
+        else showToast(error.message, 'error');
+    }
 }
 
 Object.assign(window, {
@@ -455,24 +634,27 @@ Object.assign(window, {
     closeSecurityMethod,
     toggleSecurityMethod,
     saveEmailSignInMethod,
-    disconnectGoogle,
     signOutOtherSessions,
-    startGoogleSignIn
+    startGoogleSignIn,
+    completeGoogleSignIn,
+    providerSetForUser,
+    hasPasswordSignInForUser,
+    getProviderIdentityEmail,
+    getProfileEmailForUser,
+    refreshAfterEmailConfirmation
 });
 
 function bindAccountSecurityControls() {
     const handlers = {
         'security-email-action': () => toggleSecurityMethod('email'),
-        'security-google-manage': () => toggleSecurityMethod('google'),
         'security-email-save': () => saveEmailSignInMethod(),
-        'disconnect-google': () => disconnectGoogle(),
         'signout-other-sessions-btn': () => signOutOtherSessions()
     };
     for (const [id, handler] of Object.entries(handlers)) {
         const element = document.getElementById(id);
         if (!element) continue;
         element.onclick = null;
-        element.addEventListener('click', (event) => {
+        element.addEventListener('click', event => {
             event.preventDefault();
             event.stopPropagation();
             handler();
@@ -480,23 +662,20 @@ function bindAccountSecurityControls() {
     }
 }
 
-// Event delegation is a second safety net. It keeps the controls working
-// even if profile markup is rendered/replaced after DOMContentLoaded.
-document.addEventListener('click', (event) => {
-    const target = event.target instanceof Element ? event.target.closest('[data-security-toggle]') : null;
+document.addEventListener('click', event => {
+    const target = event.target instanceof Element ? event.target.closest('[data-security-toggle="email"]') : null;
     if (!target) return;
-    const method = target.getAttribute('data-security-toggle');
-    if (!method) return;
     event.preventDefault();
-    toggleSecurityMethod(method);
+    toggleSecurityMethod('email');
 });
 
 document.addEventListener('DOMContentLoaded', () => {
     bindAccountSecurityControls();
     completeGoogleSignIn();
+    refreshAfterEmailConfirmation();
 });
+
 window.addEventListener('catrank_language_changed', () => {
-    if (document.getElementById('tab-content-security') && !document.getElementById('tab-content-security').classList.contains('hidden')) {
-        loadConnectedMethods();
-    }
+    const security = document.getElementById('tab-content-security');
+    if (security && !security.classList.contains('hidden')) loadConnectedMethods();
 });

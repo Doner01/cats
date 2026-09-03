@@ -15,3 +15,15 @@ Paste each HTML file into the corresponding Supabase Auth email template. These 
 Send through Supabase Custom SMTP using Resend. Do not add Resend keys to browser code. Set a verified sender domain and a monitored reply address in your provider settings where supported. Disable click tracking for authentication links.
 
 Sources: [Supabase email templates](https://supabase.com/docs/guides/auth/auth-email-templates), [Resend SMTP setup](https://resend.com/docs/send-with-supabase-smtp).
+## Password recovery (important)
+
+CatRank v2 deliberately does **not** depend on a browser-local PKCE verifier for password recovery.
+In **Supabase Dashboard → Authentication → Email Templates → Reset password**, paste the contents of `emails/reset_password.html`.
+The template links to:
+
+`{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=recovery`
+
+The `/reset-password` page verifies that one-time TokenHash with Supabase `verifyOtp`, then lets the authenticated user choose a new password. This makes recovery work even when the email is opened in another browser/device.
+
+For Google-only or phone-only users who are already signed in, do **not** use Forgot Password to create the first password. Use `/set-password`, which performs fresh reauthentication first.
+

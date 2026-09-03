@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import os
@@ -582,6 +583,60 @@ def sanitize_image_url(value: Any, *, fallback_name: str = "Cat") -> str:
         pass
     return generate_default_avatar(fallback_name)
 
+def is_generated_default_avatar(value: Any) -> bool:
+    """Return True only for CatRank's own generated DiceBear fallback avatar."""
+    url = str(value or "").strip()
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.netloc.lower() == "api.dicebear.com"
+        and parsed.path.startswith("/7.x/bottts/svg")
+    )
+
+
+def _google_avatar_from_user(user: Any) -> str:
+    """Return the Google photo only for a Google identity matching auth.users.email."""
+    if not user:
+        return ""
+
+    account_email = clean_text(_auth_field(user, "email", ""), max_length=254).lower()
+    if not account_email:
+        return ""
+
+    for identity in _auth_identities(user):
+        if _identity_provider(identity) != "google":
+            continue
+        if _identity_email(identity) != account_email:
+            continue
+        raw_data = _auth_field(identity, "identity_data", {})
+        data: Dict[str, Any] = cast(Dict[str, Any], raw_data) if isinstance(raw_data, dict) else {}
+        candidate = data.get("avatar_url") or data.get("picture")
+        if candidate:
+            return sanitize_image_url(candidate, fallback_name="Cat")
+    return ""
+
+
+def _merged_auth_user_metadata(user_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge metadata instead of replacing provider metadata accidentally."""
+    merged: Dict[str, Any] = {}
+    if supabase_admin and user_id:
+        try:
+            response = supabase_admin.auth.admin.get_user_by_id(user_id)
+            current = getattr(response, "user", None) or getattr(response, "data", None)
+            raw = _auth_field(current, "user_metadata", {})
+            if isinstance(raw, dict):
+                merged.update(cast(Dict[str, Any], raw))
+        except Exception:
+            app.logger.debug("Could not read existing auth metadata for %s", user_id, exc_info=True)
+    merged.update(updates)
+    return merged
+
+
 def get_canonical_user_identity(user: Any) -> Tuple[str, str, str]:
     """Return server-trusted display name/avatar for content attribution.
 
@@ -733,6 +788,126 @@ def push_notification(user_id: str, actor_id: str, actor_name: str, actor_avatar
     elif ENABLE_DEMO_DATA:
         MOCK_NOTIFICATIONS.insert(0, notif_data)
 
+def _auth_field(value: Any, name: str, default: Any = None) -> Any:
+    if isinstance(value, dict):
+        mapping: Dict[str, Any] = cast(Dict[str, Any], value)
+        return mapping.get(name, default)
+    return getattr(value, name, default)
+
+
+def _identity_email(identity: Any) -> str:
+    direct = clean_text(_auth_field(identity, "email", ""), max_length=254).lower()
+    if direct:
+        return direct
+    raw_data = _auth_field(identity, "identity_data", {})
+    data: Dict[str, Any] = cast(Dict[str, Any], raw_data) if isinstance(raw_data, dict) else {}
+    return clean_text(data.get("email"), max_length=254).lower()
+
+
+def _identity_provider(identity: Any) -> str:
+    return clean_text(_auth_field(identity, "provider", ""), max_length=40).lower()
+
+
+def _identity_signin_timestamp(identity: Any) -> float:
+    value = clean_text(_auth_field(identity, "last_sign_in_at", ""), max_length=80)
+    if not value:
+        value = clean_text(_auth_field(identity, "updated_at", ""), max_length=80)
+    if not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _latest_oauth_identity(user: Any) -> Optional[Any]:
+    raw_identities = _auth_field(user, "identities", [])
+    if not isinstance(raw_identities, list):
+        return None
+
+    identities: List[Any] = cast(List[Any], raw_identities)
+    oauth_identities: List[Any] = [
+        identity
+        for identity in identities
+        if _identity_provider(identity) not in {"", "email", "phone"}
+    ]
+    if not oauth_identities:
+        return None
+
+    return max(oauth_identities, key=_identity_signin_timestamp)
+
+
+def _jwt_primary_auth_method(token: str) -> str:
+    """Read the AMR claim only after Supabase has already validated the JWT.
+
+    This parser does not authenticate the token. ``require_auth`` first calls
+    Supabase ``get_user(token)``; only then do we inspect the validated token's
+    AMR entries to distinguish password sessions from OAuth sessions.
+    """
+    try:
+        payload_part = token.split(".", 2)[1]
+        padded = payload_part + "=" * (-len(payload_part) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+    except (IndexError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return ""
+
+    if not isinstance(payload, dict):
+        return ""
+
+    payload_map: Dict[str, Any] = cast(Dict[str, Any], payload)
+    raw_amr = payload_map.get("amr")
+    if not isinstance(raw_amr, list):
+        return ""
+
+    amr_entries: List[Any] = cast(List[Any], raw_amr)
+    primary = {"password", "oauth", "otp", "magiclink", "sso/saml", "web3", "anonymous"}
+    candidates: List[Tuple[float, str]] = []
+
+    for raw_entry in amr_entries:
+        if not isinstance(raw_entry, dict):
+            continue
+
+        entry: Dict[str, Any] = cast(Dict[str, Any], raw_entry)
+        method = clean_text(entry.get("method"), max_length=40).lower()
+        if method not in primary:
+            continue
+
+        raw_timestamp = entry.get("timestamp", 0)
+        try:
+            timestamp = float(raw_timestamp or 0)
+        except (TypeError, ValueError):
+            timestamp = 0.0
+
+        candidates.append((timestamp, method))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda item: item[0])
+    return candidates[-1][1]
+
+
+def google_oauth_matches_current_email(user: Any, token: str) -> bool:
+    """Enforce CatRank's strict Google/email ownership rule.
+
+    Google is allowed as a login method only when the Google identity used for
+    the current OAuth session has the same verified email as ``auth.users.email``.
+    After a user changes their CatRank email, an older Google identity therefore
+    stops being a valid CatRank login automatically. The user can use Google
+    again by choosing a Google account whose verified email matches the current
+    CatRank email; Supabase's automatic same-email identity linking then keeps
+    the same user UUID.
+    """
+    if _jwt_primary_auth_method(token) != "oauth":
+        return True
+
+    identity = _latest_oauth_identity(user)
+    if identity is None or _identity_provider(identity) != "google":
+        return False
+
+    account_email = clean_text(_auth_field(user, "email", ""), max_length=254).lower()
+    google_email = _identity_email(identity)
+    return bool(account_email and google_email and account_email == google_email)
+
+
 def require_auth(f: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(f)
     def decorated_function(*args: Any, **kwargs: Any) -> Any:
@@ -764,6 +939,12 @@ def require_auth(f: Callable[..., Any]) -> Callable[..., Any]:
             if last_error:
                 app.logger.info("Rejected invalid auth token: %s", type(last_error).__name__)
             return jsonify({"error": "Invalid or expired session. Please sign in again."}), 401
+
+        if not google_oauth_matches_current_email(auth_user, token):
+            return jsonify({
+                "error": "This Google sign-in is no longer connected to your current CatRank email. Sign in with your CatRank email and password, or use Google with the same email as your CatRank account.",
+                "code": "google_email_mismatch",
+            }), 403
 
         g.user = auth_user
         return f(*args, **kwargs)
@@ -800,7 +981,7 @@ def apply_response_headers(response: Response) -> Response:
     response.headers["X-Request-ID"] = str(getattr(g, "request_id", ""))
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "no-referrer" if request.path in {"/auth/callback", "/reset-password"} else "strict-origin-when-cross-origin"
+    response.headers["Referrer-Policy"] = "no-referrer" if request.path in {"/auth/callback", "/reset-password", "/set-password"} else "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
 
@@ -987,6 +1168,10 @@ def forgot_password_page() -> str:
 @app.route("/reset-password")
 def reset_password_page() -> str:
     return render_template("reset_password.html", supabase_url=SUPABASE_URL, supabase_anon_key=SUPABASE_ANON_KEY)
+
+@app.route("/set-password")
+def set_password_page() -> str:
+    return render_template("set_password.html", supabase_url=SUPABASE_URL, supabase_anon_key=SUPABASE_ANON_KEY)
 
 @app.route("/profile")
 def profile_page() -> str:
@@ -1661,7 +1846,11 @@ def upload_user_avatar() -> Any:
         cache_user_avatar(user_id, public_url)
         invalidate_attribution(user_id)
         try:
-            supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": {"avatar_url": public_url}})
+            merged_meta = _merged_auth_user_metadata(
+                user_id,
+                {"avatar_url": public_url, "catrank_avatar_source": "custom"},
+            )
+            supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": merged_meta})
         except Exception as exc:
             app.logger.warning("Could not synchronize avatar into auth metadata for %s: %s", user_id, exc)
 
@@ -1710,14 +1899,6 @@ def register_user() -> Any:
         if len(password) > 128:
             return jsonify({"error": "Password is too long."}), 400
 
-        if supabase_admin:
-            try:
-                existing = getattr(supabase_admin.table("profiles").select("id").ilike("email", escape_like(email)).limit(1).execute(), "data", [])
-                if existing:
-                    return jsonify({"error": "An account with this email already exists."}), 409
-            except Exception:
-                app.logger.warning("Could not pre-check duplicate email during registration")
-
         options: Dict[str, Any] = {
             "data": {
                 "display_name": display_name,
@@ -1735,12 +1916,29 @@ def register_user() -> Any:
         user = getattr(result, "user", None)
         session = getattr(result, "session", None)
         if user and getattr(user, "identities", None) == [] and session is None:
-            return jsonify({"error": "An account with this email already exists."}), 409
+            # Supabase deliberately returns an obfuscated user shape for an
+            # already-registered email. Return the same public response as a
+            # normal confirmation-required signup so this endpoint cannot be
+            # used to enumerate CatRank accounts. Do not touch metadata/profile
+            # for this obfuscated result.
+            return jsonify({
+                "message": "If this email is new, check your inbox to confirm your account.",
+                "email": email,
+                "requires_email_confirmation": True,
+            }), 201
         if not user:
             return jsonify({"error": "Registration did not complete. Please try again."}), 400
 
+        # This account was created through the explicit email/password path.
+        # Store only a server-controlled capability hint; the real password
+        # remains exclusively inside Supabase Auth.
+        try:
+            mark_password_access(user)
+        except Exception:
+            app.logger.debug("Could not persist password capability after signup", exc_info=True)
+
         return jsonify({
-            "message": "Account created. Check your email to confirm it before signing in." if not session else "Account created successfully.",
+            "message": "If this email is new, check your inbox to confirm your account." if not session else "Account created successfully.",
             "email": email,
             "requires_email_confirmation": session is None,
         }), 201
@@ -1824,10 +2022,12 @@ def sync_user_profile() -> Any:
                     auth_meta["display_name"] = new_name
                 if has_avatar and new_avatar:
                     auth_meta["avatar_url"] = new_avatar
+                    auth_meta["catrank_avatar_source"] = "default"
                 if has_bio:
                     auth_meta["bio"] = new_bio
                 if auth_meta:
-                    supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": auth_meta})
+                    merged_meta = _merged_auth_user_metadata(user_id, auth_meta)
+                    supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": merged_meta})
             except Exception as exc:
                 app.logger.warning("Auth metadata update failed for %s: %s", user_id, exc)
 
@@ -2393,6 +2593,201 @@ def new_auth_client() -> Any:
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False))
 
 
+def password_credentials_for_user(user: Any, password: str) -> Optional[Dict[str, str]]:
+    """Build password sign-in credentials for the authenticated account.
+
+    Supabase supports password authentication with either an email address or a
+    phone number.  Keeping this in one place lets the security flows work for
+    Google-created accounts (which still have an email) and phone-first
+    accounts without duplicating identity logic.
+    """
+    email = clean_text(getattr(user, "email", ""), max_length=254).lower()
+    if email:
+        return {"email": email, "password": password}
+
+    phone = normalize_phone(getattr(user, "phone", ""))
+    if phone:
+        return {"phone": phone, "password": password}
+    return None
+
+
+def mark_password_access(user: Any) -> None:
+    """Persist a server-controlled hint that password login is working.
+
+    Supabase OAuth users can gain password access without always exposing a
+    separate ``email`` identity in every client payload.  CatRank therefore
+    stores only a boolean capability hint in *app_metadata* after password
+    authentication has been proven.  ``app_metadata`` is admin controlled, so
+    this value cannot be forged through the normal client ``updateUser`` API.
+    Security-sensitive actions still re-authenticate with the real password;
+    this flag is used for UX only.
+    """
+    if not supabase_admin or not user:
+        return
+    user_id = str(getattr(user, "id", "") or "")
+    if not user_id:
+        return
+
+    raw_meta = getattr(user, "app_metadata", None)
+    app_meta: Dict[str, Any] = (
+        dict(cast(Dict[str, Any], raw_meta))
+        if isinstance(raw_meta, dict)
+        else {}
+    )
+    app_meta["catrank_password_enabled"] = True
+    supabase_admin.auth.admin.update_user_by_id(user_id, {"app_metadata": app_meta})
+
+
+def _auth_identities(value: Any) -> List[Any]:
+    raw = _auth_field(value, "identities", [])
+    if not isinstance(raw, list):
+        return []
+    return cast(List[Any], raw)
+
+
+def _admin_user_by_id(user_id: str) -> Optional[Any]:
+    if not supabase_admin or not user_id:
+        return None
+    response = supabase_admin.auth.admin.get_user_by_id(user_id)
+    return getattr(response, "user", None) or getattr(response, "data", None)
+
+
+def ensure_email_identity_for_google_release(user: Any) -> Optional[Any]:
+    """Ensure a confirmed email identity exists before removing Google.
+
+    Supabase currently allows an OAuth-created user to gain password access
+    without always adding an ``email`` row to ``auth.identities``.  The normal
+    unlink endpoint refuses to remove the last identity.  After CatRank has
+    independently proven a password login, this server-only admin refresh of
+    the already-current, already-confirmed email makes the email identity
+    explicit so the old Google identity can be removed through Supabase's
+    supported unlink API.
+    """
+    if not supabase_admin or not user:
+        return None
+
+    user_id = str(getattr(user, "id", "") or "").strip()
+    account_email = clean_text(getattr(user, "email", ""), max_length=254).lower()
+    if not user_id or not account_email:
+        return None
+
+    current = _admin_user_by_id(user_id) or user
+    if any(
+        _identity_provider(identity) == "email"
+        and _identity_email(identity) == account_email
+        for identity in _auth_identities(current)
+    ):
+        return current
+
+    # This is intentionally server-side only.  ``email_confirm`` is safe here
+    # because the exact same current email has just completed a successful
+    # password sign-in; CatRank is not changing or newly verifying an address.
+    response = supabase_admin.auth.admin.update_user_by_id(
+        user_id,
+        {"email": account_email, "email_confirm": True},
+    )
+    refreshed = getattr(response, "user", None) or _admin_user_by_id(user_id)
+    if not refreshed:
+        return None
+
+    has_email_identity = any(
+        _identity_provider(identity) == "email"
+        and _identity_email(identity) == account_email
+        for identity in _auth_identities(refreshed)
+    )
+    return refreshed if has_email_identity else None
+
+
+def release_mismatched_google_after_password_login(client: Any, user: Any) -> Dict[str, Any]:
+    """Permanently release stale Google identities after an email change.
+
+    The caller must have *just* completed a successful password sign-in.  If
+    the current CatRank email no longer matches an attached Google identity,
+    CatRank first ensures a confirmed email identity exists, then asks
+    Supabase Auth to unlink only the mismatched Google identity.  That makes
+    the old Google account available for a separate CatRank account later.
+
+    Failure is non-fatal for password login: the strict OAuth-email policy
+    still blocks the stale Google identity from accessing this account, and a
+    later password login can retry the release.
+    """
+    if not client or not user:
+        return {"status": "not_needed", "released_emails": []}
+
+    user_id = str(getattr(user, "id", "") or "").strip()
+    account_email = clean_text(getattr(user, "email", ""), max_length=254).lower()
+    if not user_id or not account_email:
+        return {"status": "not_needed", "released_emails": []}
+
+    initial_google = [
+        identity for identity in _auth_identities(user)
+        if _identity_provider(identity) == "google"
+        and _identity_email(identity)
+        and _identity_email(identity) != account_email
+    ]
+    if not initial_google:
+        return {"status": "not_needed", "released_emails": []}
+
+    try:
+        if ensure_email_identity_for_google_release(user) is None:
+            raise RuntimeError("email identity could not be prepared")
+
+        # Refresh through the password-authenticated client so the identity
+        # objects passed to unlink_identity belong to this exact session/user.
+        identities_response = client.auth.get_user_identities()
+        identities = _auth_identities(identities_response)
+        if not identities:
+            current_response = client.auth.get_user()
+            current_user = getattr(current_response, "user", None) or getattr(current_response, "data", None)
+            identities = _auth_identities(current_user)
+
+        has_email_identity = any(
+            _identity_provider(identity) == "email"
+            and _identity_email(identity) == account_email
+            for identity in identities
+        )
+        if not has_email_identity:
+            raise RuntimeError("email identity is not visible to the authenticated session")
+
+        stale_google = [
+            identity for identity in identities
+            if _identity_provider(identity) == "google"
+            and _identity_email(identity)
+            and _identity_email(identity) != account_email
+        ]
+        released: List[str] = []
+        for identity in stale_google:
+            email = _identity_email(identity)
+            client.auth.unlink_identity(identity)
+            if email and email not in released:
+                released.append(email)
+
+        if not released:
+            return {"status": "not_needed", "released_emails": []}
+
+        # Revoke other refresh tokens so a previously-created Google session
+        # cannot mint new access tokens. CatRank's server-side mismatch check
+        # already rejects stale OAuth access tokens while they naturally expire.
+        try:
+            client.auth.sign_out({"scope": "others"})
+        except Exception:
+            app.logger.debug("Could not revoke other sessions after Google release", exc_info=True)
+
+        app.logger.info("Released stale Google identity for user %s", user_id)
+        return {"status": "released", "released_emails": released}
+    except Exception as exc:
+        code = provider_auth_error_code(exc) if "provider_auth_error_code" in globals() else ""
+        app.logger.warning(
+            "Could not release stale Google identity for %s (%s, code=%s)",
+            user_id, type(exc).__name__, code or "unknown"
+        )
+        return {
+            "status": "pending",
+            "released_emails": [],
+            "code": code or "google_release_pending",
+        }
+
+
 def request_json() -> Dict[str, Any]:
     value = request.get_json(silent=True)
     return cast(Dict[str, Any], value) if isinstance(value, dict) else {}
@@ -2426,11 +2821,37 @@ def password_login() -> Any:
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         return jsonify({"error": "Sign-in is unavailable."}), 503
     try:
-        result = new_auth_client().auth.sign_in_with_password({"email": email, "password": password})
+        client = new_auth_client()
+        result = client.auth.sign_in_with_password({"email": email, "password": password})
         session = getattr(result, "session", None)
         if not session:
             return jsonify({"error": "Sign-in failed. Check your details and email confirmation."}), 401
-        return jsonify({"access_token": session.access_token, "refresh_token": session.refresh_token})
+
+        verified_user = getattr(result, "user", None)
+
+        # A successful password sign-in is definitive proof that this account
+        # has password access. Keep a server-controlled UX hint because
+        # Supabase may still report only the original OAuth identity for an
+        # OAuth-created account after a password is added.
+        try:
+            mark_password_access(verified_user)
+        except Exception:
+            app.logger.debug("Could not persist password capability hint", exc_info=True)
+
+        # Strict CatRank rule: once the primary email changes, any Google
+        # identity with the old email is not merely hidden/blocked. On the
+        # first successful login with the current email+password, release that
+        # stale Google identity for real so it can later create/sign in to a
+        # separate CatRank account. Password login itself remains successful if
+        # Supabase refuses the unlink; the old Google route stays blocked and
+        # the release will retry on a later password login.
+        google_release = release_mismatched_google_after_password_login(client, verified_user)
+
+        return jsonify({
+            "access_token": session.access_token,
+            "refresh_token": session.refresh_token,
+            "google_release": google_release,
+        })
     except Exception as exc:
         status = getattr(exc, "status", None)
         if str(status) == "429":
@@ -2454,6 +2875,49 @@ def request_password_reset() -> Any:
     return jsonify({"message": "If an account exists for that email, a reset link has been sent."})
 
 
+@app.route("/api/auth/password-proof", methods=["POST"])
+@require_auth
+@limiter.limit("10 per hour", key_func=authenticated_user_rate_key)
+def prove_password_access() -> Any:
+    """Verify that the current account can really sign in with a password.
+
+    This endpoint is intentionally separate from the password-setting step.
+    The browser talks directly to Supabase when creating the password, then
+    CatRank performs one independent sign-in proof before marking the method as
+    connected in server-controlled metadata.
+    """
+    password = request_json().get("password")
+    if not isinstance(password, str) or not 8 <= len(password) <= 128:
+        return jsonify({"error": "Enter the password you just created."}), 400
+
+    credentials = password_credentials_for_user(g.user, password)
+    if not credentials:
+        return jsonify({"error": "This account does not have an email or phone number that can use password sign-in."}), 409
+
+    client = None
+    try:
+        client = new_auth_client()
+        result = client.auth.sign_in_with_password(credentials)
+        verified_user = getattr(result, "user", None)
+        verified_session = getattr(result, "session", None)
+        if not verified_user or not verified_session or str(getattr(verified_user, "id", "")) != str(g.user.id):
+            return jsonify({"error": "Password verification failed. Please try again."}), 401
+
+        mark_password_access(verified_user)
+        return jsonify({"message": "Email & password sign-in is ready."})
+    except Exception as exc:
+        status = str(getattr(exc, "status", "") or "")
+        if status == "429":
+            return jsonify({"error": "Too many verification attempts. Please wait and try again."}), 429
+        return jsonify({"error": "Password verification failed. Please try again."}), 401
+    finally:
+        if client is not None:
+            try:
+                client.auth.sign_out({"scope": "local"})
+            except Exception:
+                pass
+
+
 @app.route("/api/auth/bootstrap", methods=["POST"])
 @require_auth
 @limiter.limit("30 per minute", key_func=authenticated_user_rate_key)
@@ -2469,6 +2933,23 @@ def bootstrap_profile() -> Any:
         return jsonify({"error": "Could not initialize your profile. Please retry."}), 503
 
 
+
+
+def provider_auth_error_code(exc: Exception) -> str:
+    """Return a normalized Supabase Auth error code without leaking diagnostics.
+
+    Auth V4 has no manual Google link/unlink actions, so account-security
+    mutations only need provider codes that are relevant to email/password.
+    """
+    for name in ("code", "error_code"):
+        value = getattr(exc, name, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lower()
+    message = str(exc).lower()
+    if "email_exists" in message or "email already" in message or "already registered" in message or "already exists" in message:
+        return "email_exists"
+    return ""
+
 @app.route("/api/user/security", methods=["PUT"])
 @require_auth
 @limiter.limit("5 per hour", key_func=authenticated_user_rate_key)
@@ -2477,7 +2958,7 @@ def update_account_security() -> Any:
     data = request_json()
     action = data.get("action")
     password = data.get("current_password")
-    if action not in {"email", "password", "unlink_google"} or not isinstance(password, str) or not 1 <= len(password) <= 128:
+    if action not in {"email", "password"} or not isinstance(password, str) or not 1 <= len(password) <= 128:
         return jsonify({"error": "Current password is required."}), 400
     value = data.get("value", "")
     if not isinstance(value, str):
@@ -2492,29 +2973,36 @@ def update_account_security() -> Any:
     verified = False
     try:
         client = new_auth_client()
-        result = client.auth.sign_in_with_password({"email": str(g.user.email), "password": password})
+        credentials = password_credentials_for_user(g.user, password)
+        if not credentials:
+            return jsonify({"error": "Password verification is not available for this account."}), 409
+        result = client.auth.sign_in_with_password(credentials)
         verified = bool(getattr(result, "session", None))
         if not verified or str(getattr(getattr(result, "user", None), "id", "")) != str(g.user.id):
             return jsonify({"error": "Re-authentication failed."}), 401
         verified = True
-        if action == "unlink_google":
-            identities = client.auth.get_user_identities().identities
-            google = next((identity for identity in identities if identity.provider == "google"), None)
-            if not google or not any(identity.provider == "email" for identity in identities) or len(identities) < 2:
-                return jsonify({"error": "Keep a verified password sign-in before disconnecting Google."}), 409
-            client.auth.unlink_identity(google)
-            return jsonify({"message": "Google disconnected. You can still sign in with your password."})
         attrs: Any = {str(action): value}
         options: Any = {"email_redirect_to": f"{public_site_url()}/profile?email_confirmed=1"}
         updated = client.auth.update_user(attrs, options) if action == "email" else client.auth.update_user(attrs)
+        if action == "password":
+            try:
+                mark_password_access(getattr(updated, "user", None) or getattr(result, "user", None) or g.user)
+            except Exception:
+                app.logger.debug("Could not persist password capability after change", exc_info=True)
         immediate = action == "email" and str(getattr(updated.user, "email", "")).lower() == value
-        message = "Password updated." if action == "password" else "Confirm the change using the links sent to your current and new inboxes."
+        message = "Password updated." if action == "password" else "Confirm the change using the links sent to your current and new inboxes. After the new email becomes active, Google sign-in with a different email is disabled for CatRank."
         if immediate:
-            message = "Email changed. Confirmation is disabled in the authentication provider settings."
+            message = "Email changed. Any Google sign-in using a different email is now disabled for CatRank. To use Google again, sign in with a Google account that uses this same email."
         return jsonify({"message": message, "requires_confirmation": action == "email" and not immediate})
     except Exception as exc:
-        app.logger.warning("Account security update rejected (%s)", type(exc).__name__)
-        return jsonify({"error": "Could not update your account. Check your current password and try again."}), 400
+        code = provider_auth_error_code(exc)
+        app.logger.warning("Account security update rejected (%s, code=%s)", type(exc).__name__, code or "unknown")
+        if code in {"user_already_exists", "email_exists"}:
+            return jsonify({"error": "That email is already used by another account.", "code": code}), 409
+        low = str(exc).lower()
+        if "already" in low and ("email" in low or "registered" in low or "exists" in low):
+            return jsonify({"error": "That email is already used by another account.", "code": code}), 409
+        return jsonify({"error": "Could not update your account. Check your current password and try again.", "code": code}), 400
     finally:
         if client is not None and verified:
             try:
@@ -2532,23 +3020,90 @@ def normalize_phone(value: Any) -> Optional[str]:
 
 
 def ensure_auth_profile(user: Any) -> None:
+    """Create/repair a profile without destroying a user's chosen avatar.
+
+    First Google sign-in uses the matching Google photo. Existing custom
+    avatars and explicit Reset choices stay untouched.
+    """
     if not supabase_admin:
         raise RuntimeError("Profile service unavailable")
+
     raw = getattr(user, "user_metadata", {})
     meta = cast(Dict[str, Any], raw) if isinstance(raw, dict) else {}
-    name = clean_text(meta.get("display_name") or meta.get("full_name") or meta.get("name"), max_length=40, fallback="Cat Lover")
+    name = clean_text(
+        meta.get("display_name") or meta.get("full_name") or meta.get("name"),
+        max_length=40,
+        fallback="Cat Lover",
+    )
     user_id = str(user.id)
     auth_email = clean_text(getattr(user, "email", ""), max_length=254).lower() or None
     auth_phone = normalize_phone(str(getattr(user, "phone", "") or ""))
 
-    # Create the profile once, but keep verified Auth contact fields as the source of truth.
-    supabase_admin.table("profiles").upsert({
-        "id": user_id, "email": auth_email,
-        "display_name": name, "avatar_url": generate_default_avatar(name), "role": "user",
-    }, on_conflict="id", ignore_duplicates=True).execute()
+    google_avatar = _google_avatar_from_user(user)
+    avatar_source = clean_text(meta.get("catrank_avatar_source"), max_length=20).lower()
 
-    # Email and phone are login credentials. Sync only confirmed values from auth.users;
-    # never trust editable profile metadata for these fields.
+    existing: Optional[Dict[str, Any]] = None
+    try:
+        rows = as_row_list(
+            getattr(
+                supabase_admin.table("profiles")
+                .select("id,display_name,avatar_url")
+                .eq("id", user_id)
+                .limit(1)
+                .execute(),
+                "data",
+                None,
+            )
+        )
+        existing = rows[0] if rows else None
+    except Exception as exc:
+        app.logger.warning("Could not inspect profile before bootstrap for %s: %s", user_id, exc)
+
+    if existing is None:
+        initial_avatar = google_avatar or generate_default_avatar(name)
+        supabase_admin.table("profiles").insert({
+            "id": user_id,
+            "email": auth_email,
+            "display_name": name,
+            "avatar_url": initial_avatar,
+            "role": "user",
+        }).execute()
+
+        if google_avatar:
+            try:
+                merged_meta = _merged_auth_user_metadata(
+                    user_id,
+                    {"avatar_url": google_avatar, "catrank_avatar_source": "google"},
+                )
+                supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": merged_meta})
+            except Exception:
+                app.logger.debug("Could not persist Google avatar source for %s", user_id, exc_info=True)
+    else:
+        existing_avatar = str(existing.get("avatar_url") or "").strip()
+        should_repair_google_avatar = bool(
+            google_avatar
+            and (not existing_avatar or is_generated_default_avatar(existing_avatar))
+            and avatar_source not in {"default", "custom"}
+        )
+        if should_repair_google_avatar:
+            safe_db_update(
+                "profiles",
+                {
+                    "avatar_url": google_avatar,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                "id",
+                user_id,
+            )
+            try:
+                merged_meta = _merged_auth_user_metadata(
+                    user_id,
+                    {"avatar_url": google_avatar, "catrank_avatar_source": "google"},
+                )
+                supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": merged_meta})
+            except Exception:
+                app.logger.debug("Could not repair Google avatar metadata for %s", user_id, exc_info=True)
+
     if safe_db_update("profiles", {"email": auth_email}, "id", user_id) is None:
         app.logger.debug("Could not sync profile email for %s", user_id)
     if auth_phone and safe_db_update("profiles", {"phone": auth_phone}, "id", user_id) is None:

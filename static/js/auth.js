@@ -86,10 +86,15 @@ function handleAvatarError(imgElem, name = "Cat") {
 }
 
 function getAvatarUrl(user) {
-    if (user && user.user_metadata && user.user_metadata.avatar_url) {
-        return user.user_metadata.avatar_url;
-    }
-    const name = (user && user.user_metadata && user.user_metadata.display_name) 
+    const meta = user && user.user_metadata && typeof user.user_metadata === 'object'
+        ? user.user_metadata
+        : {};
+    const providerAvatar = meta.avatar_url || meta.picture || '';
+    if (providerAvatar) return providerAvatar;
+
+    const name = meta.display_name
+        || meta.full_name
+        || meta.name
         || ((user && user.email) ? user.email.split('@')[0] : 'Cat');
     return `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
 }
@@ -200,7 +205,14 @@ async function handleLogin() {
             }
         } else {
             if (data && data.session) await uploadPendingRegistrationAvatar(data.session);
-            showToast(typeof t === "function" ? t("toast_signin_success") : "Welcome back! Redirecting...", "success");
+            const release = data?.catrank?.google_release || null;
+            if (release?.status === 'released') {
+                showToast('Signed in. Your old Google sign-in was released and can now be used for a separate CatRank account.', 'success');
+            } else if (release?.status === 'pending') {
+                showToast('Signed in. Your old Google sign-in is still reserved and CatRank will retry releasing it on your next password sign-in.', 'warning');
+            } else {
+                showToast(typeof t === "function" ? t("toast_signin_success") : "Welcome back! Redirecting...", "success");
+            }
             window.location.href = getLoginDestination();
         }
     } catch (err) {
@@ -283,7 +295,7 @@ async function handleSignUp() {
             showToast(result.message || "Account created. Check your email to confirm it before signing in.", "success");
             const alertBox = document.getElementById('register-alert-box');
             if (alertBox) {
-                alertBox.textContent = `Confirmation email sent to ${email}. Your account will not activate until you confirm it.`;
+                alertBox.textContent = `If ${email} is new, check that inbox for the confirmation message before signing in.`;
                 alertBox.classList.remove('hidden');
             }
             if (btn) {
