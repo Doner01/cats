@@ -714,30 +714,6 @@ function renderAdminComments(comments) {
     });
 }
 
-    const filtered = allAdminCats.filter(c => 
-        (c.name || '').toLowerCase().includes(q) ||
-        (c.user_name || '').toLowerCase().includes(q)
-    );
-    renderAdminCats(filtered);
-}
-
-    const filtered = allAdminUsers.filter(u => 
-        (u.display_name || u.user_name || '').toLowerCase().includes(q) ||
-        (u.email || '').toLowerCase().includes(q) ||
-        (u.phone || u.phone_number || '').toLowerCase().includes(q) ||
-        (u.user_id || '').toLowerCase().includes(q)
-    );
-    renderAdminUsers(filtered);
-}
-
-    const filtered = allAdminComments.filter(c => 
-        (c.comment || '').toLowerCase().includes(q) ||
-        (c.user_name || '').toLowerCase().includes(q) ||
-        (c.user_email || '').toLowerCase().includes(q)
-    );
-    renderAdminComments(filtered);
-}
-
 function openAdminEditUserModal(uid, name, email, phone, role, avatar) {
     document.getElementById("admin-edit-target-uid").value = uid;
     document.getElementById("admin-edit-username").value = name;
