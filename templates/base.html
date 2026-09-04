@@ -833,20 +833,6 @@
                     </div>
                 </div>
                 <div class="cat-detail-footer">
-                    <div class="cat-detail-actions">
-                        <button type="button" id="modal-like-btn" onclick="toggleModalLike(event)" class="viewer-like-button"
-                                aria-label="Like cat" aria-pressed="false">
-                            <span id="modal-heart-icon" aria-hidden="true">🤍</span>
-                            <span id="modal-like-count">0</span>
-                        </button>
-                        <time id="modal-cat-date"></time>
-                        <button type="button" id="modal-save-btn" class="save-cat-button" onclick="toggleFavorite(activeModalCatId, event)"
-                                aria-label="Save cat" aria-pressed="false">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                <path d="M6 3h12v18l-6-4-6 4V3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-                            </svg>
-                        </button>
-                    </div>
                     <div id="modal-reply-banner" class="comment-reply-composer hidden">
                         <div class="comment-reply-composer__copy">
                             <i class="fa-solid fa-reply" aria-hidden="true"></i>
@@ -866,6 +852,20 @@
                             <span data-i18n="comment_submit_btn">Send</span>
                         </button>
                     </form>
+                    <div class="cat-detail-actions">
+                        <button type="button" id="modal-like-btn" onclick="toggleModalLike(event)" class="viewer-like-button"
+                                aria-label="Like cat" aria-pressed="false">
+                            <span id="modal-heart-icon" aria-hidden="true">🤍</span>
+                            <span id="modal-like-count">0</span>
+                        </button>
+                        <time id="modal-cat-date"></time>
+                        <button type="button" id="modal-save-btn" class="save-cat-button" onclick="toggleFavorite(activeModalCatId, event)"
+                                aria-label="Save cat" aria-pressed="false">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path d="M6 3h12v18l-6-4-6 4V3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                    </div>
                     <p id="modal-login-prompt" class="viewer-login-prompt">
                         <a id="modal-login-link" href="/login" data-i18n="nav_signin">Sign In</a>
                         <span data-i18n="login_to_interact">to like, save or comment.</span>
