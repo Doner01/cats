@@ -2296,20 +2296,7 @@ body { padding-top: 80px; }
     justify-content: center !important;
 }
 
-/* 6. Align textarea text to top */
-#modal-comment-input {
-    padding-top: 10px !important;
-    padding-bottom: 10px !important;
-    min-height: 60px !important;
-}
-
 @media (max-width: 480px) { .comment-reply-button span { display: inline-block !important; } }
-
-#modal-comment-input,
-.comment-inline-editor__textarea {
-    padding-top: 12px !important;
-    align-items: flex-start !important;
-}
 
 /* Remove pencil icon from Edit Post title */
 .profile-cat-editor-title i,
