@@ -2310,3 +2310,14 @@ body { padding-top: 80px; }
 .comment-inline-editor__top {
     margin-bottom: 2px !important;
 }
+
+
+/* FIX INLINE EDITOR OVERLAP */
+.comment-inline-editor__top {
+    margin-bottom: 6px !important;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+}
+.comment-inline-editor {
+    gap: 8px !important;
+}
