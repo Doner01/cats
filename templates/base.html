@@ -843,15 +843,6 @@
                             <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                         </button>
                     </div>
-                    <div id="modal-comment-status" class="comment-composer-status hidden" role="status" aria-live="polite"></div>
-                    <form id="modal-comment-form" onsubmit="submitComment(event)" class="cat-detail-form hidden">
-                        <textarea id="modal-comment-input" rows="1" aria-label="Add a comment" required maxlength="300"
-                                  placeholder="Add a comment..." data-i18n-placeholder="comment_placeholder"></textarea>
-                        <button type="submit" id="modal-comment-submit-btn" aria-label="Send comment">
-                            <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
-                            <span data-i18n="comment_submit_btn">Send</span>
-                        </button>
-                    </form>
                     <div class="cat-detail-actions">
                         <button type="button" id="modal-like-btn" onclick="toggleModalLike(event)" class="viewer-like-button"
                                 aria-label="Like cat" aria-pressed="false">
@@ -866,6 +857,15 @@
                             </svg>
                         </button>
                     </div>
+                    <div id="modal-comment-status" class="comment-composer-status hidden" role="status" aria-live="polite"></div>
+                    <form id="modal-comment-form" onsubmit="submitComment(event)" class="cat-detail-form hidden">
+                        <textarea id="modal-comment-input" rows="1" aria-label="Add a comment" required maxlength="300"
+                                  placeholder="Add a comment..." data-i18n-placeholder="comment_placeholder"></textarea>
+                        <button type="submit" id="modal-comment-submit-btn" aria-label="Send comment">
+                            <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+                            <span data-i18n="comment_submit_btn">Send</span>
+                        </button>
+                    </form>
                     <p id="modal-login-prompt" class="viewer-login-prompt">
                         <a id="modal-login-link" href="/login" data-i18n="nav_signin">Sign In</a>
                         <span data-i18n="login_to_interact">to like, save or comment.</span>
