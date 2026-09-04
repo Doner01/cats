@@ -2282,3 +2282,25 @@ body { padding-top: 80px; }
 .comment-inline-editor__textarea {
     min-height: 60px !important;
 }
+
+/* 5. Icon-only comment action buttons (except Reply) */
+.comment-edit-button span,
+.comment-delete-button span {
+    display: none !important;
+}
+.comment-edit-button,
+.comment-delete-button {
+    padding: 6px !important;
+    width: 28px !important;
+    height: 28px !important;
+    justify-content: center !important;
+}
+
+/* 6. Align textarea text to top */
+#modal-comment-input {
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+    min-height: 60px !important;
+}
+
+@media (max-width: 480px) { .comment-reply-button span { display: inline-block !important; } }

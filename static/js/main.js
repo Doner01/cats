@@ -717,7 +717,7 @@ async function loadCatComments(catId, append = false, posted = null) {
                             <p class="comment-text">${escapeHtml(formatCommentText(r.comment).text)}</p>
                             <div class="comment-actions">
                                 ${renderCommentLikeControl(r)}
-                                <button type="button" onclick="startReply('${r.id}', '${jsSafeRAuthorName}', '${rootId}')" class="comment-action-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
+                                <button type="button" onclick="startReply('${r.id}', '${jsSafeRAuthorName}', '${rootId}')" class="comment-action-button comment-reply-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
                                 ${rIsOwner ? `
                                     ${renderCommentEditControl(r)}
                                     <button type="button" onclick="deleteComment('${r.id}', event)" class="comment-action-button comment-delete-button" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
@@ -747,7 +747,7 @@ async function loadCatComments(catId, append = false, posted = null) {
                         <p class="comment-text">${escapeHtml(formatCommentText(c.comment).text)}</p>
                         <div class="comment-actions">
                             ${renderCommentLikeControl(c)}
-                            <button type="button" onclick="startReply('${rootId}', '${jsSafeAuthorDisplayName}', '${rootId}')" class="comment-action-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
+                            <button type="button" onclick="startReply('${rootId}', '${jsSafeAuthorDisplayName}', '${rootId}')" class="comment-action-button comment-reply-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
                             ${isOwner ? `
                                 ${renderCommentEditControl(c)}
                                 <button type="button" onclick="deleteComment('${c.id}', event)" class="comment-action-button comment-delete-button" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
@@ -1353,7 +1353,7 @@ function editComment(commentId) {
 
     const status = document.createElement('span');
     status.className = 'comment-inline-editor__status';
-    status.innerHTML = '<i class="fa-regular fa-pen-to-square" aria-hidden="true"></i><span></span>';
+    status.innerHTML = '<span></span>';
     status.querySelector('span').textContent = commentEditorLabel('Editing comment', 'Редактирование');
 
     const counter = document.createElement('span');
