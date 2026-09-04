@@ -2304,3 +2304,9 @@ body { padding-top: 80px; }
 }
 
 @media (max-width: 480px) { .comment-reply-button span { display: inline-block !important; } }
+
+#modal-comment-input,
+.comment-inline-editor__textarea {
+    padding-top: 12px !important;
+    align-items: flex-start !important;
+}
