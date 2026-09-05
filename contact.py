@@ -9,7 +9,7 @@ import time
 from email.message import EmailMessage
 from urllib.parse import urlparse
 
-from typing import Any, Callable, cast, Type
+from typing import Any, Callable, cast
 from flask import Flask, Blueprint, current_app, redirect, render_template, request, session, url_for
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from redis.exceptions import RedisError
@@ -103,10 +103,11 @@ def init_contact(app: Flask, limiter: Any, get_store: Callable[[], Any], env_fla
         if available:
             session.setdefault("contact_csrf", secrets.token_urlsafe(32))
             token = serializer().dumps({"csrf": session["contact_csrf"], "nonce": secrets.token_urlsafe(24), "issued": time.time()})
+        cfg = cast(dict[str, Any], current_app.config)
         return render_template(
-            "contact.html", telegram_url=public_link(str(current_app.config.get("TELEGRAM_URL", ""))),
-            discord_url=public_link(str(current_app.config.get("DISCORD_URL", ""))),
-            contact_email=str(current_app.config.get("CONTACT_EMAIL", "")) if valid_email(str(current_app.config.get("CONTACT_EMAIL", ""))) else "",
+            "contact.html", telegram_url=public_link(str(cfg.get("TELEGRAM_URL", ""))),
+            discord_url=public_link(str(cfg.get("DISCORD_URL", ""))),
+            contact_email=str(cfg.get("CONTACT_EMAIL", "")) if valid_email(str(cfg.get("CONTACT_EMAIL", ""))) else "",
             mail_available=available, contact_token=token, values=values or {}, errors=errors or {}, sent=sent,
         ), status
 
@@ -123,7 +124,7 @@ def init_contact(app: Flask, limiter: Any, get_store: Callable[[], Any], env_fla
         if request.content_length and request.content_length > 64 * 1024:
             return render_page(errors={"form": "Your message is too large. Please shorten it."}, status=413)
         values = {key: request.form.get(key, "").strip() for key in ("name", "email", "subject", "message")}
-        errors = {}
+        errors: dict[str, str] = {}
         for key, maximum in (("name", 80), ("email", 254), ("subject", 120), ("message", 5000)):
             raw = request.form.get(key, "")
             if not values[key] or len(raw) > maximum:
@@ -132,6 +133,8 @@ def init_contact(app: Flask, limiter: Any, get_store: Callable[[], Any], env_fla
                 errors[key] = "Remove unsupported control characters."
         if not valid_email(values["email"]):
             errors["email"] = "Enter a valid email address, such as you@example.com."
+        
+        token: dict[str, Any] = {}
         try:
             token = serializer().loads(request.form.get("contact_token", ""), max_age=3600)
             if not secrets.compare_digest(token.get("csrf", ""), session.get("contact_csrf", "missing")):
@@ -143,7 +146,8 @@ def init_contact(app: Flask, limiter: Any, get_store: Callable[[], Any], env_fla
         if errors:
             return render_page(values, errors, 400)
         # A shared claim prevents double sends across tabs and Gunicorn workers.
-        key = "catrank:contact:" + hashlib.sha256(str(token["nonce"]).encode()).hexdigest()
+        nonce_val = str(token.get("nonce", ""))
+        key = "catrank:contact:" + hashlib.sha256(nonce_val.encode()).hexdigest()
         try:
             if not get_store().set(key, "submitted", nx=True, ex=3600):
                 return render_page(values, {"form": "This form was already submitted. Check for a confirmation before sending again."}, 409)
