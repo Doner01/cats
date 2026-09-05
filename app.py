@@ -3218,6 +3218,7 @@ def ensure_auth_profile(user: Any) -> None:
         existing = rows[0] if rows else None
     except Exception as exc:
         app.logger.warning("Could not inspect profile before bootstrap for %s: %s", user_id, exc)
+        raise
 
     if existing is None:
         initial_avatar = google_avatar or generate_default_avatar(name)
@@ -3269,7 +3270,7 @@ def ensure_auth_profile(user: Any) -> None:
         contact_updates["phone"] = auth_phone
     synchronized = safe_db_update("profiles", contact_updates, "id", user_id)
     if synchronized is None or not getattr(synchronized, "data", None):
-        app.logger.debug("Could not synchronize profile contact details for %s", user_id)
+        raise RuntimeError(f"Could not synchronize profile contact details for {user_id}")
 
     invalidate_profile_cache(user_id)
 
