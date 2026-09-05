@@ -9,7 +9,7 @@ function configureProfileCats(cats, own) {
 
 function profileGridMessage(title, description, retry = false) {
     const grid = document.getElementById('user-cats-grid');
-    grid.innerHTML = `<div class="profile-grid-message"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(description)}</p>${retry ? `<button type="button" onclick="loadFavoriteCats(profileCatsState.page)">${escapeHtml(t('try_again'))}</button>` : ''}</div>`;
+    grid.innerHTML = `<div class="profile-grid-message"><i class="fa-solid fa-cat"></i><h3>${escapeHtml(title)}</h3><p>${escapeHtml(description)}</p>${retry ? `<button type="button" onclick="loadFavoriteCats(profileCatsState.page)">${escapeHtml(t('try_again'))}</button>` : ''}</div>`;
 }
 
 function renderProfileCats(cats, ownUploads = false) {
