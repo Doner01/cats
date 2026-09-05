@@ -151,7 +151,7 @@
                 </div>
 
                 <div class="divide-y divide-slate-100">
-                    <div class="p-3 sm:p-3.5 flex flex-col gap-3">
+                    <div class="p-3 sm:p-3.5 grid grid-cols-1 gap-3">
                         <div class="flex items-center justify-between gap-2 w-full min-w-0">
                             <div class="flex items-center gap-2.5 min-w-0">
                                 <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
@@ -245,8 +245,8 @@
             </section>
 
             <section id="password-security-note" class="hidden rounded-2xl sm:rounded-3xl border border-slate-200 bg-slate-50 p-3 sm:p-3.5">
-                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 w-full">
-                    <div class="min-w-0">
+                <div class="security-action-row">
+                    <div class="security-text-container">
                         <p class="text-[11px] sm:text-xs font-bold text-slate-800 leading-tight">No password is connected yet.</p>
                         <p class="mt-0.5 sm:mt-1 text-[10px] sm:text-[11px] leading-snug sm:leading-relaxed text-slate-500">A password is optional for Google/phone accounts. Add one only if you also want email/password sign-in.</p>
                     </div>
@@ -257,10 +257,10 @@
                 </div>
             </section>
 
-            <section id="sessions-security-card" class="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-3 sm:p-3.5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <section id="sessions-security-card" class="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-3 sm:p-3.5 shadow-sm security-action-row">
+                <div class="flex items-center gap-2.5 sm:gap-3 security-text-container">
                     <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-laptop-file text-[10px] sm:text-xs"></i></div>
-                    <div class="min-w-0">
+                    <div class="security-text-container">
                         <h4 class="text-[11px] sm:text-xs font-black text-slate-900 leading-tight" data-i18n="sessions_title">Other sessions</h4>
                         <p class="text-[10px] sm:text-[11px] text-slate-500 leading-snug sm:leading-relaxed" data-i18n="sessions_desc">Sign out CatRank on your other browsers and devices.</p>
                     </div>

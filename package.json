@@ -1,0 +1,25 @@
+{
+  "name": "catrank_final_v1.0.6",
+  "version": "1.0.0",
+  "description": "Flask application deployed with Gunicorn and Nginx on an Ubuntu VPS, Supabase Auth/PostgreSQL, Cloudflare R2, local Redis, and Cloudflare proxy/static caching. The repository also retains its optional Vercel deployment support.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Doner01/cats.git"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Doner01/cats/issues"
+  },
+  "homepage": "https://github.com/Doner01/cats#readme",
+  "dependencies": {
+    "puppeteer": "^25.10.0"
+  }
+}

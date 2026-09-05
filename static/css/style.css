@@ -2370,3 +2370,23 @@ body { padding-top: 80px; }
     #edit-profile-dialog > .flex.border-b { gap: 0; }
     #tab-btn-basic, #tab-btn-security { padding-left: 10px; padding-right: 10px; }
 }
+
+/* Security Account Section Mobile Regression Fixes */
+.security-action-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    width: 100%;
+}
+@media (min-width: 640px) {
+    .security-action-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+    }
+}
+.security-text-container {
+    min-width: 0;
+    width: 100%;
+    overflow-wrap: break-word;
+}
+.flex-col { flex-direction: column !important; }
