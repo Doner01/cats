@@ -52,14 +52,12 @@ function handleFileSelect(file) {
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     if (!ALLOWED_IMAGE_EXTS.includes(ext) || (!ALLOWED_IMAGE_TYPES.includes(file.type) && file.type !== '')) {
         showToast(typeof t === 'function' ? t('file_error_invalid_type') : "Invalid image format. Allowed: JPG, JPEG, PNG, WEBP, GIF.", "error");
-        fileInput.value = "";
-        if (previewContainer) previewContainer.classList.add("hidden");
+        clearUploadPreview();
         return;
     }
     if (file.size > MAX_IMAGE_SIZE) {
         showToast(`Image must be smaller than ${MAX_IMAGE_MB}MB.`, "error");
-        fileInput.value = "";
-        if (previewContainer) previewContainer.classList.add("hidden");
+        clearUploadPreview();
         return;
     }
 

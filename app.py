@@ -24,7 +24,8 @@ from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 from supabase import create_client, Client, ClientOptions
 from postgrest.types import CountMethod
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, SecurityError
+from redis.exceptions import RedisError
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 BASE_DIR: Path = Path(__file__).resolve().parent
@@ -38,6 +39,8 @@ app: Flask = Flask(
 )
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or secrets.token_hex(32)
 app.config["MAX_CONTENT_LENGTH"] = (4 * 1024 * 1024 + 128 * 1024) if os.getenv("VERCEL") == "1" else 6 * 1024 * 1024                                
+app.config["MAX_FORM_MEMORY_SIZE"] = 64 * 1024
+app.config["MAX_FORM_PARTS"] = 20
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["RATELIMIT_HEADERS_ENABLED"] = True
@@ -68,7 +71,7 @@ ADMIN_EMAIL_CONFIG: str = os.getenv("ADMIN_EMAILS", os.getenv("ADMIN_EMAIL", "")
 PUBLIC_SITE_URL: str = (os.getenv("PUBLIC_SITE_URL") or "").strip().rstrip("/")
 ENABLE_DEMO_DATA: bool = env_flag("ENABLE_DEMO_DATA", False)
 APP_ENV: str = (os.getenv("APP_ENV") or "development").strip().lower()
-IS_PRODUCTION: bool = APP_ENV == "production"
+IS_PRODUCTION: bool = APP_ENV == "production" or os.getenv("VERCEL_ENV") == "production"
 GOOGLE_AUTH_ENABLED: bool = env_flag("GOOGLE_AUTH_ENABLED", False)
 ALLOWED_COUNTRIES = frozenset(code.strip().upper() for code in os.getenv("ALLOWED_COUNTRIES", "").split(",") if code.strip())
 COUNTRY_ACCESS_ENABLED: bool = env_flag("COUNTRY_ACCESS_ENABLED", False)
@@ -93,14 +96,25 @@ def validate_production_configuration() -> None:
 
     errors: List[str] = []
     configured_secret = (os.getenv("SECRET_KEY") or "").strip()
-    if len(configured_secret) < 32:
-        errors.append("SECRET_KEY must be set to at least 32 characters")
+    if len(configured_secret) < 32 or configured_secret == "generate-a-random-32-char-string-here":
+        errors.append("SECRET_KEY must be a generated secret of at least 32 characters")
     if not SUPABASE_URL:
         errors.append("SUPABASE_URL is required")
     if not SUPABASE_ANON_KEY:
         errors.append("SUPABASE_ANON_KEY is required")
     if not SUPABASE_SERVICE_KEY:
         errors.append("SUPABASE_SERVICE_KEY is required")
+    if SUPABASE_ANON_KEY and (
+        SUPABASE_ANON_KEY == SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY.startswith("sb_secret_")
+    ):
+        errors.append("SUPABASE_ANON_KEY must be a public key, never the service key")
+    try:
+        payload = SUPABASE_ANON_KEY.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        if isinstance(claims, dict) and claims.get("role") == "service_role":
+            errors.append("SUPABASE_ANON_KEY contains a privileged service-role token")
+    except (IndexError, ValueError, UnicodeDecodeError):
+        pass  # Publishable keys are opaque; this only detects misconfigured legacy JWTs.
     if not PUBLIC_SITE_URL:
         errors.append("PUBLIC_SITE_URL is required")
     else:
@@ -131,6 +145,8 @@ def validate_production_configuration() -> None:
         errors.append("ENABLE_DEMO_DATA must be false")
     if env_flag("FLASK_DEBUG", False):
         errors.append("FLASK_DEBUG must be false")
+    if not RATE_LIMIT_STORAGE_URI.startswith(("redis://", "rediss://")):
+        errors.append("RATE_LIMIT_STORAGE_URI must use shared Redis in production")
 
     r2_settings = [os.getenv(key, "").strip() for key in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_PUBLIC_DOMAIN")]
     if any(r2_settings) and not all(r2_settings):
@@ -147,15 +163,24 @@ def validate_production_configuration() -> None:
 
 validate_production_configuration()
 
+trusted_hosts = [host.strip() for host in os.getenv("TRUSTED_HOSTS", "").split(",") if host.strip()]
+if IS_PRODUCTION and not trusted_hosts:
+    trusted_hosts = [cast(str, urlparse(PUBLIC_SITE_URL).hostname)]
+    trusted_hosts.extend(host for host in (
+        os.getenv("VERCEL_URL", ""), os.getenv("VERCEL_PROJECT_PRODUCTION_URL", "")
+    ) if host)
+if trusted_hosts:
+    app.config["TRUSTED_HOSTS"] = trusted_hosts
+
 limiter = Limiter(
     key_func=get_remote_address,
     app=app,
     default_limits=[],
     storage_uri=RATE_LIMIT_STORAGE_URI,
-    in_memory_fallback_enabled=True,
+    in_memory_fallback_enabled=not IS_PRODUCTION,
+    storage_options={"socket_connect_timeout": 2, "socket_timeout": 2}
+    if RATE_LIMIT_STORAGE_URI.startswith(("redis://", "rediss://")) else {},
 )
-if IS_PRODUCTION and RATE_LIMIT_STORAGE_URI.startswith("memory://"):
-    app.logger.warning("RATE_LIMIT_STORAGE_URI uses memory:// in production; use shared Redis for multi-worker/multi-replica deployments.")
 
 # Reuse the same Redis endpoint for application caching unless a dedicated
 # CACHE_REDIS_URL is provided. If Redis is unavailable, every helper below
@@ -249,9 +274,9 @@ def invalidate_profile_cache(user_id: Any) -> None:
     if not uid:
         return
     cache_delete(
-        make_cache_key("profile", uid),
         make_cache_key("identity", uid),
     )
+    bump_cache_counter(f"profile:{uid}")
 
 def invalidate_attribution(user_id: Any) -> None:
     invalidate_profile_cache(user_id)
@@ -284,13 +309,13 @@ supabase_auth: Optional[Client] = None
 
 try:
     if SUPABASE_URL and SUPABASE_SERVICE_KEY:
-        supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False))
+        supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False, postgrest_client_timeout=10, storage_client_timeout=10))
 except Exception as init_err:
     app.logger.warning("Failed to init supabase_admin: %s", init_err)
 
 try:
     if SUPABASE_URL and SUPABASE_ANON_KEY:
-        supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False))
+        supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False, postgrest_client_timeout=10, storage_client_timeout=10))
 except Exception as init_err:
     app.logger.warning("Failed to init supabase_auth: %s", init_err)
 
@@ -312,7 +337,8 @@ if R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY:
             aws_access_key_id=R2_ACCESS_KEY_ID,
             aws_secret_access_key=R2_SECRET_ACCESS_KEY,
             region_name="auto",
-            config=config_factory(signature_version="s3v4")
+            config=config_factory(signature_version="s3v4", connect_timeout=2, read_timeout=5,
+                                  retries={"total_max_attempts": 2, "mode": "standard"})
         )
         app.logger.info("Cloudflare R2 Storage client initialized successfully")
     except Exception as r2_err:
@@ -414,7 +440,7 @@ def validate_image_file(file_bytes: bytes, filename: Optional[str]) -> Tuple[boo
                     img.load()
             else:
                 img.load()
-    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+    except (UnidentifiedImageError, OSError, ValueError, EOFError, SyntaxError, Image.DecompressionBombError):
         return False, "Uploaded file is not a valid image."
 
     return True, ""
@@ -555,7 +581,7 @@ def is_admin_user(user: Any) -> bool:
         return False
     user_email = str(getattr(user, "email", "") or "").strip().lower()
     admin_emails = {e.strip().lower() for e in ADMIN_EMAIL_CONFIG.split(",") if e.strip()}
-    if user_email and user_email in admin_emails:
+    if user_email and user_email in admin_emails and getattr(user, "email_confirmed_at", None):
         return True
 
     raw_app_meta = getattr(user, "app_metadata", {})
@@ -681,6 +707,13 @@ def public_site_url() -> str:
 
 def escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+def postgrest_search_literal(value: str) -> str:
+    # PostgREST OR expressions have their own grammar in addition to SQL LIKE.
+    # Quote the entire value so commas/parentheses cannot introduce filters.
+    # Preserve PostgREST's documented '*' wildcard; '%' and '_' are literal.
+    pattern = "%" + escape_like(value) + "%"
+    return '"' + pattern.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 def as_row_list(value: Any) -> List[Dict[str, Any]]:
     """Narrow a Supabase/PostgREST JSON result to a list of object rows."""
@@ -908,7 +941,11 @@ def google_oauth_matches_current_email(user: Any, token: str) -> bool:
 
     account_email = clean_text(_auth_field(user, "email", ""), max_length=254).lower()
     google_email = _identity_email(identity)
-    return bool(account_email and google_email and account_email == google_email)
+    # Identity timestamps belong to the account, not to this JWT. A later
+    # matching sign-in must not authorize an older mismatched Google session.
+    google_identities = [item for item in _auth_identities(user) if _identity_provider(item) == "google"]
+    return bool(account_email and google_email and account_email == google_email
+                and all(_identity_email(item) == account_email for item in google_identities))
 
 
 def require_auth(f: Callable[..., Any]) -> Callable[..., Any]:
@@ -927,7 +964,7 @@ def require_auth(f: Callable[..., Any]) -> Callable[..., Any]:
 
         auth_user = None
         last_error: Optional[Exception] = None
-        for client in (supabase_auth, supabase_admin):
+        for client in (supabase_auth or supabase_admin,):
             if not client:
                 continue
             try:
@@ -941,6 +978,9 @@ def require_auth(f: Callable[..., Any]) -> Callable[..., Any]:
         if not auth_user:
             if last_error:
                 app.logger.info("Rejected invalid auth token: %s", type(last_error).__name__)
+                status = str(getattr(last_error, "status", None) or getattr(last_error, "status_code", None))
+                if status not in {"400", "401", "403", "404", "422"}:
+                    return jsonify({"error": "Authentication service is temporarily unavailable."}), 503
             return jsonify({"error": "Invalid or expired session. Please sign in again."}), 401
 
         if not google_oauth_matches_current_email(auth_user, token):
@@ -1011,6 +1051,13 @@ def rate_limit_exceeded(_error: Any) -> Any:
         return jsonify({"error": "Too many requests. Please try again shortly."}), 429
     return Response("Too many requests. Please try again shortly.", status=429, mimetype="text/plain")
 
+@app.errorhandler(RedisError)
+def rate_limit_storage_unavailable(_error: Any) -> Any:
+    app.logger.warning("Shared rate-limit storage is unavailable")
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Service is temporarily unavailable. Please try again."}), 503
+    return Response("Service is temporarily unavailable. Please try again.", status=503, mimetype="text/plain")
+
 @app.errorhandler(413)
 def request_too_large(_error: Any) -> Any:
     if request.path.startswith("/api/"):
@@ -1024,6 +1071,10 @@ def http_error(error: HTTPException) -> Any:
         response.data = app.json.dumps({"error": error.description if error.code == 403 else error.name})
         response.content_type = "application/json"
         return response
+    if isinstance(error, SecurityError):
+        # Host validation fails before Flask creates a URL adapter. Rendering
+        # base.html would call url_for and turn this rejection into a 500.
+        return Response("Bad request.", status=400, mimetype="text/plain")
     return render_template("error.html", status=error.code, message=error.description), error.code
 
 @app.errorhandler(500)
@@ -1048,6 +1099,8 @@ def healthz() -> Any:
     if admin is not None and auth_client is not None:
         try:
             admin.table("profiles").select("id").limit(1).execute()
+            if IS_PRODUCTION and not limiter.storage.check():
+                ready = False
         except Exception:
             ready = False
     return jsonify({"status": "ok" if ready else "unavailable"}), (200 if ready else 503)
@@ -1251,6 +1304,8 @@ def upload_cat() -> Any:
             "cat": cat_record
         }), 201
 
+    except HTTPException:
+        raise
     except Exception:
         app.logger.exception("Cat upload failed")
         return jsonify({"error": "Upload failed unexpectedly. Please try again."}), 500
@@ -1909,6 +1964,8 @@ def upload_user_avatar() -> Any:
 
         return jsonify({"message": "Avatar uploaded successfully.", "avatar_url": public_url}), 200
 
+    except HTTPException:
+        raise
     except Exception:
         app.logger.exception("Avatar upload failed")
         return jsonify({"error": "Avatar upload failed unexpectedly."}), 500
@@ -1929,6 +1986,8 @@ def signup_rate_key() -> str:
 @limiter.limit("10 per hour", key_func=signup_rate_key)
 @limiter.limit("30 per hour", key_func=get_remote_address)
 def register_user() -> Any:
+    signup_client = None
+    email = ""
     try:
         if not supabase_auth:
             return jsonify({"error": "Registration service is not configured."}), 503
@@ -1956,7 +2015,7 @@ def register_user() -> Any:
             },
             "email_redirect_to": f"{public_site_url()}/login?confirmed=1",
         }
-        signup_client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False))
+        signup_client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False, postgrest_client_timeout=10, storage_client_timeout=10))
         signup_credentials: Any = {
             "email": email,
             "password": password,
@@ -1996,11 +2055,17 @@ def register_user() -> Any:
         msg = str(exc)
         low = msg.lower()
         if "already registered" in low or "already exists" in low or "user already registered" in low:
-            return jsonify({"error": "An account with this email already exists."}), 409
+            return jsonify({
+                "message": "If this email is new, check your inbox to confirm your account.",
+                "email": email,
+                "requires_email_confirmation": True,
+            }), 201
         if "rate limit" in low or "429" in low:
             return jsonify({"error": "Too many signup emails were requested. Please try again later."}), 429
         app.logger.exception("Registration failed")
         return jsonify({"error": "Registration failed. Please try again."}), 400
+    finally:
+        close_auth_client(signup_client)
 
 @app.route("/api/user/email", methods=["PUT"])
 @require_auth
@@ -2257,8 +2322,9 @@ def admin_force_delete_user(user_id: str) -> Any:
         return jsonify({"error": "Could not delete this account right now."}), 500
 
 @app.route("/api/user/<user_id>/profile", methods=["GET"])
+@limiter.limit("60 per minute")
 def get_public_profile(user_id: str) -> Any:
-    profile_key = make_cache_key("profile", user_id, cache_counter_value("cats"))
+    profile_key = make_cache_key("profile", user_id, cache_counter_value("cats"), cache_counter_value(f"profile:{user_id}"))
     cached_profile = cache_get_dict(profile_key)
     if cached_profile is not None:
         return jsonify(cached_profile), 200
@@ -2294,7 +2360,7 @@ def get_public_profile(user_id: str) -> Any:
         except Exception as exc:
             service_error = True
             app.logger.warning("Profile cat lookup failed for %s: %s", user_id, exc)
-            cats = []
+            return jsonify({"error": "Profile service is temporarily unavailable."}), 503
 
         # Auth is the final source of truth that the account exists. This also
         # keeps Google-only and phone-only accounts visible before their profile
@@ -2317,7 +2383,7 @@ def get_public_profile(user_id: str) -> Any:
                         if isinstance(raw_map_meta, dict):
                             meta = cast(Dict[str, Any], raw_map_meta)
                     email_local = auth_email.split("@", 1)[0] if "@" in auth_email else ""
-                    fallback = email_local or (auth_phone[-4:] and f"Cat Lover {auth_phone[-4:]}" if auth_phone else "Cat Lover")
+                    fallback = email_local or "Cat Lover"
                     user_name = clean_text(
                         meta.get("display_name") or meta.get("full_name") or meta.get("name"),
                         max_length=40,
@@ -2479,114 +2545,115 @@ def get_favorites() -> Any:
 @require_auth
 @limiter.limit("30 per minute", key_func=authenticated_user_rate_key)
 def get_admin_overview() -> Any:
+    if not is_admin_user(g.user):
+        return jsonify({"error": "Admin access required."}), 403
+    if supabase_admin is None:
+        if ENABLE_DEMO_DATA:
+            return jsonify({
+                "total_cats": len(MOCK_CATS),
+                "total_likes": sum(int(cat.get("likes_count") or 0) for cat in MOCK_CATS),
+                "total_users": len({cat.get("user_id") for cat in MOCK_CATS}),
+                "total_comments": len(MOCK_COMMENTS),
+            })
+        return jsonify({"error": "Database service is unavailable."}), 503
     try:
-        if not is_admin_user(getattr(g, "user", None)):
-            return jsonify({"error": "Admin access required."}), 403
-        admin = supabase_admin
-        if admin is None and not ENABLE_DEMO_DATA:
-            return jsonify({"error": "Database service is unavailable."}), 503
-
-        total_cats = 0
-        total_likes = 0
-        total_users = 0
-        total_comments = 0
-
-        if admin is not None:
-            try:
-                cat_count_res = admin.table("cats").select("id,likes_count", count=cast(Any, "exact")).execute()
-                total_cats = int(getattr(cat_count_res, "count", 0) or 0)
-                cats_data = as_row_list(getattr(cat_count_res, "data", None))
-                total_likes = sum(int(c.get("likes_count", 0) or 0) for c in cats_data)
-
-                user_count_res = admin.table("profiles").select("id", count=cast(Any, "exact"), head=True).execute()
-                total_users = int(getattr(user_count_res, "count", 0) or 0)
-
-                comment_count_res = admin.table("comments").select("id", count=cast(Any, "exact"), head=True).execute()
-                total_comments = int(getattr(comment_count_res, "count", 0) or 0)
-            except Exception as e:
-                app.logger.warning("Admin overview count failed: %s", e)
-
-        return jsonify({
-            "total_cats": total_cats,
-            "total_likes": total_likes,
-            "total_users": total_users,
-            "total_comments": total_comments
-        }), 200
+        # Aggregate in Postgres so PostgREST's response row limit cannot truncate totals.
+        result = supabase_admin.rpc("admin_overview_counts").execute()
+        rows = as_row_list(getattr(result, "data", None))
+        if not rows:
+            raise RuntimeError("Admin overview returned no counts")
+        return jsonify({key: int(rows[0][key]) for key in (
+            "total_cats", "total_likes", "total_users", "total_comments"
+        )})
     except Exception:
         app.logger.exception("Failed to load admin overview")
-        return jsonify({"error": "Failed to load admin overview."}), 500
+        return jsonify({"error": "Admin statistics are temporarily unavailable."}), 503
+
+
+def admin_collection(table: str, response_key: str, search_columns: Tuple[str, ...]) -> Any:
+    if not is_admin_user(g.user):
+        return jsonify({"error": "Admin access required."}), 403
+    if supabase_admin is None:
+        return jsonify({"error": "Database service is unavailable."}), 503
+    try:
+        page = int(request.args.get("page", "1"))
+        limit = int(request.args.get("limit", "50"))
+        if not 1 <= page <= 10000 or not 1 <= limit <= 100:
+            raise ValueError("Pagination is out of bounds")
+    except (ValueError, TypeError):
+        return jsonify({"error": "Page must be 1–10000 and limit must be 1–100."}), 400
+    search = clean_text(request.args.get("search"), max_length=80)
+    try:
+        query = supabase_admin.table(table).select("*", count=CountMethod.exact)
+        if search:
+            if len(search_columns) == 1:
+                query = query.ilike(search_columns[0], "%" + escape_like(search) + "%")
+            else:
+                literal = postgrest_search_literal(search)
+                query = query.or_(",".join(f"{column}.ilike.{literal}" for column in search_columns))
+        if table != "profiles":
+            query = query.order("created_at", desc=True)
+        result = query.order("id").range((page - 1) * limit, page * limit - 1).execute()
+        rows = as_row_list(getattr(result, "data", None))
+        if table == "profiles":
+            counts = {}
+            if rows:
+                count_result = supabase_admin.rpc("admin_user_counts", {"p_user_ids": [str(row["id"]) for row in rows]}).execute()
+                counts = {str(row["user_id"]): row for row in as_row_list(getattr(count_result, "data", None))}
+            rows = [{
+                "user_id": str(row.get("id")),
+                "user_name": str(row.get("display_name") or "Cat Lover"),
+                "display_name": str(row.get("display_name") or "Cat Lover"),
+                "user_avatar": str(row.get("avatar_url") or ""),
+                "avatar_url": str(row.get("avatar_url") or ""),
+                "email": str(row.get("email") or ""),
+                "phone": str(row.get("phone") or ""),
+                "phone_number": str(row.get("phone") or ""),
+                "role": str(row.get("role") or "user"),
+                "cats_count": int(counts.get(str(row["id"]), {}).get("cats_count", 0)),
+                "total_likes": int(counts.get(str(row["id"]), {}).get("total_likes", 0)),
+            } for row in rows]
+        return jsonify({response_key: rows, "total": int(getattr(result, "count", 0) or 0),
+                        "page": page, "limit": limit})
+    except Exception:
+        app.logger.exception("Could not load admin collection %s", table)
+        return jsonify({"error": "Admin data is temporarily unavailable."}), 503
+
 
 @app.route("/api/admin/cats", methods=["GET"])
 @require_auth
+@limiter.limit("60 per minute", key_func=authenticated_user_rate_key)
 def admin_get_cats() -> Any:
-    if not is_admin_user(getattr(g, "user", None)): return jsonify({"error": "Admin access required."}), 403
-    if not supabase_admin: return jsonify({"cats": [], "total": 0, "page": 1, "limit": 50})
-    
-    page = max(1, int(request.args.get("page", 1)))
-    limit = min(100, max(1, int(request.args.get("limit", 50))))
-    search = request.args.get("search", "").strip()
-    
-    query = supabase_admin.table("cats").select("*", count=cast(Any, "exact"))
-    if search: query = query.ilike("name", f"%{search}%")
-        
-    res = query.order("created_at", desc=True).range((page-1)*limit, page*limit - 1).execute()
-    cats = as_row_list(getattr(res, "data", None))
-    return jsonify({"cats": cats, "total": int(getattr(res, "count", 0) or 0), "page": page, "limit": limit})
+    return admin_collection("cats", "cats", ("name",))
+
 
 @app.route("/api/admin/users", methods=["GET"])
 @require_auth
+@limiter.limit("60 per minute", key_func=authenticated_user_rate_key)
 def admin_get_users() -> Any:
-    if not is_admin_user(getattr(g, "user", None)): return jsonify({"error": "Admin access required."}), 403
-    if not supabase_admin: return jsonify({"users": [], "total": 0, "page": 1, "limit": 50})
-    
-    page = max(1, int(request.args.get("page", 1)))
-    limit = min(100, max(1, int(request.args.get("limit", 50))))
-    search = request.args.get("search", "").strip()
-    
-    query = supabase_admin.table("profiles").select("*", count=cast(Any, "exact"))
-    if search: query = query.or_(f"display_name.ilike.%{search}%,email.ilike.%{search}%,phone.ilike.%{search}%")
-        
-    res = query.order("id").range((page-1)*limit, page*limit - 1).execute()
-    profiles = as_row_list(getattr(res, "data", None))
-    
-    users: List[Dict[str, Any]] = []
-    for p in profiles:
-        users.append({
-            "user_id": str(p.get("id")),
-            "user_name": str(p.get("display_name") or "Cat Lover"),
-            "display_name": str(p.get("display_name") or "Cat Lover"),
-            "user_avatar": str(p.get("avatar_url") or ""),
-            "avatar_url": str(p.get("avatar_url") or ""),
-            "email": str(p.get("email") or ""),
-            "phone": str(p.get("phone") or ""),
-            "phone_number": str(p.get("phone") or ""),
-            "role": str(p.get("role") or "user"),
-            "cats_count": 0,
-            "total_likes": 0
-        })
-    return jsonify({"users": users, "total": int(getattr(res, "count", 0) or 0), "page": page, "limit": limit})
+    return admin_collection("profiles", "users", ("display_name", "email", "phone"))
+
 
 @app.route("/api/admin/comments", methods=["GET"])
 @require_auth
+@limiter.limit("60 per minute", key_func=authenticated_user_rate_key)
 def admin_get_comments() -> Any:
-    if not is_admin_user(getattr(g, "user", None)): return jsonify({"error": "Admin access required."}), 403
-    if not supabase_admin: return jsonify({"comments": [], "total": 0, "page": 1, "limit": 50})
-    
-    page = max(1, int(request.args.get("page", 1)))
-    limit = min(100, max(1, int(request.args.get("limit", 50))))
-    search = request.args.get("search", "").strip()
-    
-    query = supabase_admin.table("comments").select("*", count=cast(Any, "exact"))
-    if search: query = query.ilike("comment", f"%{search}%")
-        
-    res = query.order("created_at", desc=True).range((page-1)*limit, page*limit - 1).execute()
-    comments = as_row_list(getattr(res, "data", None))
-    return jsonify({"comments": comments, "total": int(getattr(res, "count", 0) or 0), "page": page, "limit": limit})
+    return admin_collection("comments", "comments", ("comment",))
+
 
 def new_auth_client() -> Any:
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         raise RuntimeError("Authentication is not configured")
-    return create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False))
+    return create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False, postgrest_client_timeout=10, storage_client_timeout=10))
+
+
+def close_auth_client(client: Any) -> None:
+    """Release a request's HTTP connections without revoking its session."""
+    if client is not None:
+        try:
+            client.auth.close()
+        except Exception:
+            app.logger.debug("Could not close request authentication client", exc_info=True)
 
 
 def password_credentials_for_user(user: Any, password: str) -> Optional[Dict[str, str]]:
@@ -2624,14 +2691,11 @@ def mark_password_access(user: Any) -> None:
     if not user_id:
         return
 
-    raw_meta = getattr(user, "app_metadata", None)
-    app_meta: Dict[str, Any] = (
-        dict(cast(Dict[str, Any], raw_meta))
-        if isinstance(raw_meta, dict)
-        else {}
+    # Auth merges metadata keys. Sending the login response's full snapshot can
+    # restore a stale administrator role after a concurrent role revocation.
+    supabase_admin.auth.admin.update_user_by_id(
+        user_id, {"app_metadata": {"catrank_password_enabled": True}}
     )
-    app_meta["catrank_password_enabled"] = True
-    supabase_admin.auth.admin.update_user_by_id(user_id, {"app_metadata": app_meta})
 
 
 def _auth_identities(value: Any) -> List[Any]:
@@ -2816,6 +2880,7 @@ def password_login() -> Any:
         return jsonify({"error": "Enter your email and password."}), 400
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         return jsonify({"error": "Sign-in is unavailable."}), 503
+    client = None
     try:
         client = new_auth_client()
         result = client.auth.sign_in_with_password({"email": email, "password": password})
@@ -2853,6 +2918,8 @@ def password_login() -> Any:
         if str(status) == "429":
             return jsonify({"error": "Too many sign-in attempts. Please try again later."}), 429
         return jsonify({"error": "Sign-in failed. Check your details and email confirmation."}), 401
+    finally:
+        close_auth_client(client)
 
 
 @app.route("/api/auth/password-reset", methods=["POST"])
@@ -2862,12 +2929,16 @@ def request_password_reset() -> Any:
     email = clean_text(request_json().get("email"), max_length=254).lower()
     if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
         return jsonify({"error": "Enter a valid email address."}), 400
+    client = None
     try:
-        new_auth_client().auth.reset_password_email(email, {"redirect_to": f"{public_site_url()}/reset-password"})
+        client = new_auth_client()
+        client.auth.reset_password_email(email, {"redirect_to": f"{public_site_url()}/reset-password"})
     except Exception as exc:
         # Do not disclose whether a registered address exists.
         app.logger.warning("Password reset delivery failed (%s)", type(exc).__name__)
         return jsonify({"error": "Password reset is temporarily unavailable. Please try again later."}), 503
+    finally:
+        close_auth_client(client)
     return jsonify({"message": "If an account exists for that email, a reset link has been sent."})
 
 
@@ -2912,6 +2983,7 @@ def prove_password_access() -> Any:
                 client.auth.sign_out({"scope": "local"})
             except Exception:
                 pass
+        close_auth_client(client)
 
 
 @app.route("/api/auth/bootstrap", methods=["POST"])
@@ -3005,6 +3077,7 @@ def update_account_security() -> Any:
                 client.auth.sign_out({"scope": "local"})
             except Exception:
                 pass
+        close_auth_client(client)
 
 
 def normalize_phone(value: Any) -> Optional[str]:

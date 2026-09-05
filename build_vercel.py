@@ -1,5 +1,5 @@
 from pathlib import Path
-from shutil import copytree, rmtree
+from shutil import copytree, ignore_patterns
 from tempfile import TemporaryDirectory
 
 PUBLIC_EXTENSIONS = {
@@ -18,6 +18,8 @@ def validate_assets(directory: Path) -> None:
             continue  # silently skip dotfiles like .DS_Store, .gitkeep
         if path.is_symlink():
             raise ValueError(f"Unsafe public asset: {relative}")
+        if not path.is_file() and not path.is_dir():
+            raise ValueError(f"Unsupported public asset type: {relative}")
         if path.is_file() and path.suffix.lower() not in PUBLIC_EXTENSIONS:
             raise ValueError(f"Non-public file found in assets: {relative}")
 
@@ -40,12 +42,22 @@ def build_static(root: Path) -> None:
     # A failed source validation must never damage the previous build.
     with TemporaryDirectory(prefix="catrank-assets-", dir=root) as temporary:
         staged = Path(temporary) / "static"
-        copytree(source, staged)
+        # Validation skips hidden entries, so copying must skip them too. In
+        # particular, nested .env files and .git directories must never reach
+        # the public CDN even if their contents have an allowed extension.
+        copytree(source, staged, ignore=ignore_patterns(".*"))
+        validate_assets(staged)
         public.mkdir(exist_ok=True)
         output = public / "static"
+        previous = Path(temporary) / "previous-static"
         if output.exists():
-            rmtree(output)
-        staged.replace(output)
+            output.replace(previous)
+        try:
+            staged.replace(output)
+        except OSError:
+            if previous.exists():
+                previous.replace(output)
+            raise
 
 
 if __name__ == "__main__":

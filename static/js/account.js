@@ -84,7 +84,7 @@ async function startGoogleSignIn() {
         });
         if (error) throw error;
     } catch (error) {
-        sessionStorage.removeItem('catrank_oauth_intent');
+        try { sessionStorage.removeItem('catrank_oauth_intent'); } catch (_) {}
         if (typeof showToast === 'function') showToast(error?.message || 'Google sign-in failed.', 'error');
         buttons.forEach(button => { button.disabled = false; });
     }
@@ -210,7 +210,7 @@ async function completeGoogleSignIn() {
         const destination = safeLocalDestination(intent.next, '/');
         window.location.replace(destination);
     } catch (error) {
-        sessionStorage.removeItem('catrank_oauth_intent');
+        try { sessionStorage.removeItem('catrank_oauth_intent'); } catch (_) {}
         // Do not leave a half-initialized authenticated browser behind if
         // Supabase OAuth succeeded but CatRank profile bootstrap failed.
         if (sessionEstablished) {
@@ -360,9 +360,12 @@ async function refreshAccountSecuritySession() {
     // Keep the access/refresh tokens, but replace the embedded user with the
     // authoritative getUser() result so the rest of the UI sees the new email.
     const freshSession = user === session.user ? session : {...session, user};
+    if (typeof currentSession !== 'undefined' && currentSession?.user?.id !== session.user.id) {
+        throw new Error('Your session changed. Please reopen account settings.');
+    }
     accountSecurityState.session = freshSession;
     accountSecurityState.user = user;
-    if (typeof currentSession !== 'undefined') currentSession = freshSession;
+    if (typeof setCurrentSession === 'function') setCurrentSession(freshSession);
     return {session: freshSession, user};
 }
 

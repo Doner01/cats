@@ -1,4 +1,23 @@
 let currentSession = null;
+let authCheckVersion = 0;
+
+function setCurrentSession(session) {
+    const previousAccountId = currentSession?.user?.id;
+    const accountChanged = currentSession?.user?.id !== session?.user?.id;
+    currentSession = session;
+    if (accountChanged) {
+        if (typeof resetFavorites === 'function') resetFavorites();
+        if (typeof resetPrivateViewerState === 'function') resetPrivateViewerState();
+        const path = window.location.pathname;
+        if (previousAccountId && (['/profile', '/admin', '/upload'].includes(path) || path.startsWith('/user/'))) {
+            // These pages hold contact details, moderation data or forms in
+            // the DOM. Rebuild them for the new account, including cross-tab logout.
+            if (document.body) document.body.style.visibility = 'hidden';
+            window.location.reload();
+        }
+    }
+    return accountChanged;
+}
 
 function getLoginDestination() {
     const next = new URLSearchParams(window.location.search).get('next') || '/';
@@ -109,9 +128,12 @@ function getUserDisplayName(user) {
 async function checkAuth() {
     if (window.location.pathname === "/auth/callback") return;
     if (typeof supabaseClient === "undefined" || !supabaseClient) return;
+    const version = ++authCheckVersion;
     try {
         const { data: { session } } = await supabaseClient.auth.getSession();
-        currentSession = session;
+        if (version !== authCheckVersion) return;
+        const accountChanged = setCurrentSession(session);
+        if (accountChanged) window.dispatchEvent(new CustomEvent('catrank_auth_changed'));
         if (typeof updateModalAuth === 'function') updateModalAuth();
         if (typeof syncUserFavorites === 'function' && session) syncUserFavorites(session);
         const authSection = document.getElementById("auth-section");
@@ -119,6 +141,7 @@ async function checkAuth() {
         
         if (session && session.user) {
             await uploadPendingRegistrationAvatar(session);
+            if (version !== authCheckVersion || session.user.id !== currentSession?.user?.id) return;
             const path = window.location.pathname;
             if (path === "/login" || path === "/register") {
                 window.location.replace(getLoginDestination());
@@ -340,16 +363,10 @@ document.addEventListener("DOMContentLoaded", checkAuth);
 
 if (supabaseClient) {
     supabaseClient.auth.onAuthStateChange((event, session) => {
-        const previousUserId = currentSession?.user?.id;
-        currentSession = session;
-        if (previousUserId !== session?.user?.id && typeof resetFavorites === 'function') resetFavorites();
+        authCheckVersion++;
+        setCurrentSession(session);
         if (typeof updateModalAuth === 'function') updateModalAuth();
         window.dispatchEvent(new CustomEvent('catrank_auth_changed'));
-        if (event === 'SIGNED_OUT') {
-            if (typeof userLikedCatIds !== 'undefined') userLikedCatIds.clear();
-            document.querySelectorAll('[id^="heart-icon-"]').forEach(el => el.textContent = '🤍');
-            document.getElementById('notif-badge')?.classList.add('hidden');
-        }
-        if (['SIGNED_IN', 'USER_UPDATED', 'SIGNED_OUT'].includes(event)) setTimeout(checkAuth, 0);
+        if (['INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED', 'SIGNED_OUT'].includes(event)) setTimeout(checkAuth, 0);
     });
 }

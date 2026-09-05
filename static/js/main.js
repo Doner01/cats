@@ -1,4 +1,4 @@
-const pendingLikes = new Set();
+const pendingLikes = new Map();
 let modalRequestVersion = 0;
 let lastCommentTime = 0;
 const COOLDOWN_MS = 2000; // 2s anti-spam cooldown
@@ -15,6 +15,32 @@ let activeReplyAuthorName = null;
 let serverClockOffsetMs = 0;
 let commentEditExpiryTimer = null;
 const userLikedCatIds = new Set();
+let viewerAccountEpoch = 0;
+let likedCatsRequestVersion = 0;
+let likedCatsSync = null;
+
+function resetPrivateViewerState() {
+    viewerAccountEpoch++;
+    likedCatsRequestVersion++;
+    likedCatsSync = null;
+    userLikedCatIds.clear();
+    pendingLikes.clear();
+    document.querySelectorAll('[id^="heart-icon-"]').forEach(heart => {
+        heart.innerText = '🤍';
+        document.getElementById(`like-btn-${heart.id.slice('heart-icon-'.length)}`)?.setAttribute('aria-pressed', 'false');
+    });
+    const modalHeart = document.getElementById('modal-heart-icon');
+    if (modalHeart) modalHeart.innerText = '🤍';
+    document.getElementById('modal-like-btn')?.setAttribute('aria-pressed', 'false');
+    notificationsRequestVersion++;
+    notificationsFetchTask = null;
+    notificationsCache = [];
+    notificationsUnreadCount = 0;
+    closeNotificationsDropdown();
+    renderNotifications();
+    closeCommentEditModal();
+    cancelReply();
+}
 
 function getModalCatIds() {
     const ids = [];
@@ -173,6 +199,7 @@ function resetCatModalState() {
 
 async function openCatModal(catId) {
     if (!catId) return;
+    catId = String(catId);
     activeModalCatId = String(catId);
     const requestVersion = ++modalRequestVersion;
 
@@ -188,7 +215,7 @@ async function openCatModal(catId) {
     updateModalNavigation();
     updateModalAuth();
     if (typeof updateFavoriteButtons === 'function') updateFavoriteButtons();
-    const card = document.querySelector(`[data-cat-id="${catId}"]`);
+    const card = document.querySelector(`[data-cat-id="${CSS.escape(catId)}"]`);
     const countElem = document.getElementById(`like-count-${catId}`);
     const heartElem = document.getElementById(`heart-icon-${catId}`);
     const modalNameElem = document.getElementById("modal-cat-name");
@@ -213,7 +240,7 @@ async function openCatModal(catId) {
         modalHeartIcon.innerText = isLiked ? "❤️" : "🤍";
     }
     try {
-        const res = await fetch(`/api/cats/${catId}`);
+        const res = await fetch(`/api/cats/${encodeURIComponent(catId)}`);
         if (res.ok) {
             const data = await res.json();
             if (requestVersion !== modalRequestVersion) return;
@@ -379,13 +406,18 @@ function toggleModalLike(event) {
 }
 
 async function syncUserLikes() {
-    if (!currentSession || !currentSession.access_token) return;
-    try {
+    const session = currentSession;
+    if (!session?.access_token) return;
+    if (likedCatsSync) return likedCatsSync;
+    const epoch = viewerAccountEpoch;
+    const version = ++likedCatsRequestVersion;
+    const task = (async () => { try {
         const res = await fetch("/api/user/liked-cats", {
-            headers: { "Authorization": `Bearer ${currentSession.access_token}` }
+            headers: { "Authorization": `Bearer ${session.access_token}` }
         });
         if (!res.ok) return;
         const data = await res.json();
+        if (epoch !== viewerAccountEpoch || version !== likedCatsRequestVersion || session.user?.id !== currentSession?.user?.id) return;
         userLikedCatIds.clear();
         (data.liked_cat_ids || []).forEach(id => userLikedCatIds.add(String(id)));
 
@@ -402,26 +434,50 @@ async function syncUserLikes() {
         }
     } catch (e) {
         console.error("Failed to sync liked cats:", e);
-    }
+    } })();
+    likedCatsSync = task;
+    try { return await task; }
+    finally { if (likedCatsSync === task) likedCatsSync = null; }
 }
 
 async function toggleLike(catId, event) {
     if (event) event.stopPropagation();
+    catId = String(catId || '');
+    if (!catId || pendingLikes.has(catId)) return;
 
     if (typeof supabaseClient === "undefined" || !supabaseClient) {
         showToast("Supabase client not initialized.", "error");
         return;
     }
 
-    const { data: { session } } = await supabaseClient.auth.getSession();
+    const epoch = viewerAccountEpoch;
+    const mutation = Symbol(catId);
+    pendingLikes.set(catId, mutation);
+    const releasePending = () => {
+        if (pendingLikes.get(catId) === mutation) pendingLikes.delete(catId);
+    };
+    let session;
+    try {
+        const result = await supabaseClient.auth.getSession();
+        session = result?.data?.session;
+    } catch (_) {
+        releasePending();
+        showToast('Could not check your session. Please try again.', 'error');
+        return;
+    }
+    if (epoch !== viewerAccountEpoch || (session && session.user?.id !== currentSession?.user?.id)) {
+        releasePending();
+        return;
+    }
     if (!session) {
+        releasePending();
         showToast(typeof t === "function" ? t("toast_need_signin_vote") : "Please sign in to vote for cats!", "info");
         setTimeout(() => window.location.href = getCatLoginUrl(catId), 800);
         return;
     }
 
-    if (pendingLikes.has(String(catId))) return;
-    pendingLikes.add(String(catId));
+    // A snapshot started before this mutation must not overwrite the vote.
+    likedCatsRequestVersion++;
     const countElem = document.getElementById(`like-count-${catId}`);
     const heartElem = document.getElementById(`heart-icon-${catId}`);
     const modalCount = document.getElementById("modal-like-count");
@@ -450,11 +506,12 @@ async function toggleLike(catId, event) {
     }
 
     try {
-        const res = await fetch(`/api/cats/${catId}/like`, {
+        const res = await fetch(`/api/cats/${encodeURIComponent(catId)}/like`, {
             method: "POST",
             headers: { "Authorization": `Bearer ${session.access_token}` }
         });
         const data = await res.json();
+        if (epoch !== viewerAccountEpoch || session.user?.id !== currentSession?.user?.id) return;
         if (res.ok) {
             const serverLiked = data.status === "liked";
             if (serverLiked) userLikedCatIds.add(String(catId));
@@ -465,7 +522,7 @@ async function toggleLike(catId, event) {
             if (modalHeart && String(activeModalCatId) === String(catId)) modalHeart.innerText = serverLiked ? "❤️" : "🤍";
             if (modalCount && String(activeModalCatId) === String(catId)) modalCount.innerText = data.likes_count;
             document.getElementById(`like-btn-${catId}`)?.setAttribute('aria-pressed', String(serverLiked));
-            const card = document.querySelector(`[data-cat-id="${catId}"]`);
+            const card = document.querySelector(`[data-cat-id="${CSS.escape(catId)}"]`);
             if (card) card.dataset.likes = String(data.likes_count);
             document.getElementById('modal-like-btn')?.setAttribute('aria-pressed', String(userLikedCatIds.has(String(activeModalCatId))));
             window.dispatchEvent(new CustomEvent('catrank_like_changed', {detail: {id: String(catId), likes_count: data.likes_count}}));
@@ -481,6 +538,7 @@ async function toggleLike(catId, event) {
             showToast(data.error || "Failed to update vote.", "error");
         }
     } catch (err) {
+        if (epoch !== viewerAccountEpoch || session.user?.id !== currentSession?.user?.id) return;
         if (isCurrentlyLiked) userLikedCatIds.add(String(catId));
         else userLikedCatIds.delete(String(catId));
 
@@ -490,7 +548,8 @@ async function toggleLike(catId, event) {
         if (modalCount && String(activeModalCatId) === String(catId)) modalCount.innerText = prevCount;
         showToast("Network error. Please try again.", "error");
     } finally {
-        pendingLikes.delete(String(catId));
+        if (epoch === viewerAccountEpoch) likedCatsRequestVersion++;
+        releasePending();
     }
 }
 
@@ -543,22 +602,25 @@ function commentCanBeEdited(comment) {
 
 function renderCommentEditControl(comment) {
     const id = escapeHtml(comment?.id || '');
+    const actionId = escapeJsString(comment?.id || '');
     const allowed = commentCanBeEdited(comment);
     const title = allowed ? '' : (typeof t === 'function' ? t('comment_edit_expired') : 'Editing is available for two minutes after posting.');
     const label = typeof t === 'function' ? t('edit_btn') : 'Edit';
-    return `<button type="button" data-edit-comment-id="${id}" ${allowed ? `onclick="editComment('${id}')"` : 'disabled aria-disabled="true"'} class="comment-action-button comment-edit-button ${allowed ? '' : 'is-disabled'}" title="${escapeHtml(title)}"><i class="fa-regular fa-pen-to-square" aria-hidden="true"></i><span>${escapeHtml(label)}</span></button>`;
+    return `<button type="button" data-edit-comment-id="${id}" ${allowed ? `onclick="editComment('${actionId}')"` : 'disabled aria-disabled="true"'} class="comment-action-button comment-edit-button ${allowed ? '' : 'is-disabled'}" title="${escapeHtml(title)}"><i class="fa-regular fa-pen-to-square" aria-hidden="true"></i><span>${escapeHtml(label)}</span></button>`;
 }
 
 function renderCommentLikeControl(comment) {
     const id = escapeHtml(comment?.id || '');
+    const actionId = escapeJsString(comment?.id || '');
     const count = Math.max(0, Number(comment?.likes_count) || 0);
     const label = typeof t === 'function' ? t('like_comment') : 'Like comment';
-    return `<button type="button" class="comment-action-button comment-like-button" data-comment-like-id="${id}" data-comment-like-count="${count}" aria-pressed="false" aria-label="${escapeHtml(label)}" onclick="toggleCommentLike('${id}', event)"><span data-comment-like-icon aria-hidden="true">♡</span><span data-comment-like-count>${count}</span></button>`;
+    return `<button type="button" class="comment-action-button comment-like-button" data-comment-like-id="${id}" data-comment-like-count="${count}" aria-pressed="false" aria-label="${escapeHtml(label)}" onclick="toggleCommentLike('${actionId}', event)"><span data-comment-like-icon aria-hidden="true">♡</span><span data-comment-like-count>${count}</span></button>`;
 }
 
 function updateCommentEditControls() {
+    const commentsById = new Map(loadedComments.map(comment => [String(comment.id), comment]));
     document.querySelectorAll('[data-edit-comment-id]').forEach(button => {
-        const comment = loadedComments.find(c => String(c.id) === String(button.dataset.editCommentId));
+        const comment = commentsById.get(String(button.dataset.editCommentId));
         if (!comment) return;
         const allowed = commentCanBeEdited(comment);
         button.disabled = !allowed;
@@ -591,7 +653,7 @@ async function loadCatComments(catId, append = false, posted = null) {
     const cursor = append ? nextCommentsCursor : null;
     try {
         const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-        const res = await fetch(`/api/cats/${catId}/comments${query}`);
+        const res = await fetch(`/api/cats/${encodeURIComponent(catId)}/comments${query}`);
         const data = await res.json();
         if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion || commentsVersion !== commentsRequestVersion) return;
         if (!res.ok) throw new Error(data.error || 'Could not load comments.');
@@ -649,7 +711,7 @@ async function loadCatComments(catId, append = false, posted = null) {
         }
 
         const rootComments = [];
-        const repliesByParent = {};
+        const repliesByParent = Object.create(null);
         const allCommentIds = new Set(comments.map(c => String(c.id)));
         const commentsById = new Map(comments.map(c => [String(c.id), c]));
 
@@ -681,15 +743,16 @@ async function loadCatComments(catId, append = false, posted = null) {
         container.innerHTML = rootComments.map(c => {
             const authorDisplayName = c.user_name || "Cat Lover";
             const userTarget = c.user_id || c.user_name || '';
-            const avatar = escapeHtml(c.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(authorDisplayName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`);
+            const avatar = escapeHtml(safeImageUrl(c.user_avatar, authorDisplayName));
             const isOwner = currentUserId && String(c.user_id) === String(currentUserId);
             const replies = repliesByParent[String(c.id)] || [];
-            const rootId = String(c.id);
+            const rootId = escapeJsString(c.id);
 
             const repliesHtml = replies.map(r => {
                 const rAuthorName = r.user_name || "Cat Lover";
                 const rUserTarget = r.user_id || r.user_name || '';
-                const rAvatar = escapeHtml(r.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(rAuthorName)}&backgroundColor=b6e3f4,c0aede,d1d4f9`);
+                const rAvatar = escapeHtml(safeImageUrl(r.user_avatar, rAuthorName));
+                const replyId = escapeJsString(r.id);
                 const rIsOwner = currentUserId && String(r.user_id) === String(currentUserId);
                 const safeRAuthorName = escapeHtml(rAuthorName);
                 const jsSafeRAuthorName = escapeJsString(rAuthorName);
@@ -717,10 +780,10 @@ async function loadCatComments(catId, append = false, posted = null) {
                             <p class="comment-text">${escapeHtml(formatCommentText(r.comment).text)}</p>
                             <div class="comment-actions">
                                 ${renderCommentLikeControl(r)}
-                                <button type="button" onclick="startReply('${r.id}', '${jsSafeRAuthorName}', '${rootId}')" class="comment-action-button comment-reply-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
+                                <button type="button" onclick="startReply('${replyId}', '${jsSafeRAuthorName}', '${rootId}')" class="comment-action-button comment-reply-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
                                 ${rIsOwner ? `
                                     ${renderCommentEditControl(r)}
-                                    <button type="button" onclick="deleteComment('${r.id}', event)" class="comment-action-button comment-delete-button" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
+                                    <button type="button" onclick="deleteComment('${replyId}', event)" class="comment-action-button comment-delete-button" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
                                 ` : ''}
                             </div>
                         </div>
@@ -750,7 +813,7 @@ async function loadCatComments(catId, append = false, posted = null) {
                             <button type="button" onclick="startReply('${rootId}', '${jsSafeAuthorDisplayName}', '${rootId}')" class="comment-action-button comment-reply-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
                             ${isOwner ? `
                                 ${renderCommentEditControl(c)}
-                                <button type="button" onclick="deleteComment('${c.id}', event)" class="comment-action-button comment-delete-button" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
+                                <button type="button" onclick="deleteComment('${rootId}', event)" class="comment-action-button comment-delete-button" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
                             ` : ''}
                         </div>
                         ${replies.length > 0 ? `
@@ -918,6 +981,7 @@ async function deleteComment(commentId, event) {
 let notificationsCache = [];
 let notificationsUnreadCount = 0;
 let notificationsRequestVersion = 0;
+let notificationsFetchTask = null;
 
 function notificationUiText(enText, ruText) {
     return (typeof currentLang !== 'undefined' && currentLang === 'ru') ? ruText : enText;
@@ -1056,7 +1120,7 @@ function renderNotifications() {
         const actorId = escapeJsString(String(n.actor_id || ''));
         const commentId = escapeJsString(String(n.comment_id || ''));
         const actorName = escapeHtml(String(n.actor_name || 'CatRank user'));
-        const avatar = escapeHtml(n.actor_avatar || getFallbackAvatarSvg(n.actor_name));
+        const avatar = escapeHtml(safeImageUrl(n.actor_avatar, n.actor_name));
         const message = escapeHtml(notificationMessage(n));
         const relative = escapeHtml(notificationRelativeTime(n.created_at));
         const fullDate = escapeHtml(String(n.created_at || '').replace('T', ' ').replace('Z', '').slice(0, 19));
@@ -1116,26 +1180,30 @@ function renderNotifications() {
 }
 
 async function fetchNotifications() {
-    if (!currentSession || !currentSession.access_token) return;
+    const session = currentSession;
+    if (!session?.access_token) return;
+    if (notificationsFetchTask) return notificationsFetchTask;
+    const epoch = viewerAccountEpoch;
     const version = ++notificationsRequestVersion;
     const listContainer = document.getElementById("notifications-list");
 
-    try {
+    const task = (async () => { try {
         if (listContainer && notificationsCache.length === 0) {
             listContainer.innerHTML = `<div class="notification-loading"><i class="fa-solid fa-spinner fa-spin"></i><span>${escapeHtml(notificationUiText('Loading activity…', 'Загрузка…'))}</span></div>`;
         }
         const res = await fetch("/api/notifications", {
-            headers: { "Authorization": `Bearer ${currentSession.access_token}` }
+            headers: { "Authorization": `Bearer ${session.access_token}` }
         });
         if (version !== notificationsRequestVersion) return;
         if (!res.ok) throw new Error(notificationUiText('Could not load notifications.', 'Не удалось загрузить уведомления.'));
 
         const data = await res.json();
+        if (version !== notificationsRequestVersion || epoch !== viewerAccountEpoch || session.user?.id !== currentSession?.user?.id) return;
         notificationsCache = Array.isArray(data.notifications) ? data.notifications : [];
         notificationsUnreadCount = Math.max(0, Number(data.unread_count) || 0);
         renderNotifications();
     } catch (e) {
-        if (version !== notificationsRequestVersion) return;
+        if (version !== notificationsRequestVersion || epoch !== viewerAccountEpoch || session.user?.id !== currentSession?.user?.id) return;
         if (listContainer) {
             listContainer.innerHTML = `
                 <div class="notification-empty-state notification-empty-state--error">
@@ -1146,12 +1214,17 @@ async function fetchNotifications() {
             `;
         }
         console.error("Failed to fetch notifications:", e);
-    }
+    } })();
+    notificationsFetchTask = task;
+    try { return await task; }
+    finally { if (notificationsFetchTask === task) notificationsFetchTask = null; }
 }
 
 async function markNotificationRead(notificationId, event = null) {
     if (event) event.stopPropagation();
     if (!currentSession || !notificationId) return false;
+    const epoch = viewerAccountEpoch;
+    const session = currentSession;
 
     const item = notificationsCache.find(n => String(n.id) === String(notificationId));
     if (item?.is_read) return true;
@@ -1159,12 +1232,18 @@ async function markNotificationRead(notificationId, event = null) {
     try {
         const res = await fetch(`/api/notifications/${encodeURIComponent(notificationId)}/read`, {
             method: "POST",
-            headers: { "Authorization": `Bearer ${currentSession.access_token}` }
+            headers: { "Authorization": `Bearer ${session.access_token}` }
         });
+        if (epoch !== viewerAccountEpoch || session.user?.id !== currentSession?.user?.id) return false;
         if (!res.ok) throw new Error(notificationUiText('Could not mark notification as read.', 'Не удалось отметить уведомление прочитанным.'));
 
-        if (item) item.is_read = true;
-        notificationsUnreadCount = Math.max(0, notificationsUnreadCount - 1);
+        notificationsRequestVersion++;
+        notificationsFetchTask = null;
+        const currentItem = notificationsCache.find(n => String(n.id) === String(notificationId));
+        if (currentItem && !currentItem.is_read) {
+            currentItem.is_read = true;
+            notificationsUnreadCount = Math.max(0, notificationsUnreadCount - 1);
+        }
         renderNotifications();
         return true;
     } catch (e) {
@@ -1175,16 +1254,21 @@ async function markNotificationRead(notificationId, event = null) {
 
 async function markAllNotificationsRead() {
     if (!currentSession || notificationsUnreadCount === 0) return;
+    const epoch = viewerAccountEpoch;
+    const session = currentSession;
     const button = document.getElementById('notifications-mark-all-btn');
     if (button) button.disabled = true;
 
     try {
         const res = await fetch("/api/notifications/read-all", {
             method: "POST",
-            headers: { "Authorization": `Bearer ${currentSession.access_token}` }
+            headers: { "Authorization": `Bearer ${session.access_token}` }
         });
+        if (epoch !== viewerAccountEpoch || session.user?.id !== currentSession?.user?.id) return;
         if (!res.ok) throw new Error(notificationUiText('Could not mark notifications read.', 'Не удалось отметить уведомления прочитанными.'));
 
+        notificationsRequestVersion++;
+        notificationsFetchTask = null;
         notificationsCache.forEach(n => { n.is_read = true; });
         notificationsUnreadCount = 0;
         renderNotifications();
@@ -1198,14 +1282,19 @@ async function markAllNotificationsRead() {
 async function clearNotification(notificationId, event = null) {
     if (event) event.stopPropagation();
     if (!currentSession || !notificationId) return;
+    const epoch = viewerAccountEpoch;
+    const session = currentSession;
 
     try {
         const res = await fetch(`/api/notifications/${encodeURIComponent(notificationId)}`, {
             method: "DELETE",
-            headers: { "Authorization": `Bearer ${currentSession.access_token}` }
+            headers: { "Authorization": `Bearer ${session.access_token}` }
         });
+        if (epoch !== viewerAccountEpoch || session.user?.id !== currentSession?.user?.id) return;
         if (!res.ok) throw new Error(notificationUiText('Could not remove notification.', 'Не удалось удалить уведомление.'));
 
+        notificationsRequestVersion++;
+        notificationsFetchTask = null;
         const removed = notificationsCache.find(n => String(n.id) === String(notificationId));
         notificationsCache = notificationsCache.filter(n => String(n.id) !== String(notificationId));
         if (removed && !removed.is_read) notificationsUnreadCount = Math.max(0, notificationsUnreadCount - 1);
@@ -1217,6 +1306,8 @@ async function clearNotification(notificationId, event = null) {
 
 async function clearAllNotifications() {
     if (!currentSession || notificationsCache.length === 0) return;
+    const epoch = viewerAccountEpoch;
+    const session = currentSession;
 
     const confirmed = typeof showConfirmModal === 'function'
         ? await showConfirmModal({
@@ -1226,17 +1317,20 @@ async function clearAllNotifications() {
             danger: true
         })
         : confirm(notificationUiText('Clear all notifications?', 'Очистить все уведомления?'));
-    if (!confirmed) return;
+    if (!confirmed || epoch !== viewerAccountEpoch || session.user?.id !== currentSession?.user?.id) return;
 
     const button = document.getElementById('notifications-clear-all-btn');
     if (button) button.disabled = true;
     try {
         const res = await fetch("/api/notifications/clear-all", {
             method: "DELETE",
-            headers: { "Authorization": `Bearer ${currentSession.access_token}` }
+            headers: { "Authorization": `Bearer ${session.access_token}` }
         });
+        if (epoch !== viewerAccountEpoch || session.user?.id !== currentSession?.user?.id) return;
         if (!res.ok) throw new Error(notificationUiText('Could not clear notifications.', 'Не удалось очистить уведомления.'));
 
+        notificationsRequestVersion++;
+        notificationsFetchTask = null;
         notificationsCache = [];
         notificationsUnreadCount = 0;
         renderNotifications();

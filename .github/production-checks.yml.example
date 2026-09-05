@@ -1,0 +1,44 @@
+name: Production checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install runtime dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check dependency compatibility
+        run: python -m pip check
+      - name: Run regression tests
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python -m unittest discover -s tests -v
+      - name: Test browser state and request races
+        run: node tests/frontend_regressions.test.cjs
+      - name: Check browser JavaScript syntax
+        run: find static/js -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Build public assets
+        run: python build_vercel.py
+      - name: Audit pinned dependencies
+        run: |
+          python -m venv /tmp/catrank-audit
+          /tmp/catrank-audit/bin/python -m pip install pip-audit==2.10.1
+          /tmp/catrank-audit/bin/python -m pip_audit --strict --no-deps --disable-pip -r requirements.txt --progress-spinner off

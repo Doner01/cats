@@ -339,7 +339,7 @@ async function loadProfile() {
             const fresh = await supabaseClient.auth.getUser();
             if (!fresh.error && fresh.data?.user && String(fresh.data.user.id) === String(session.user.id)) {
                 session = {...session, user: fresh.data.user};
-                if (typeof currentSession !== "undefined") currentSession = session;
+                if (typeof setCurrentSession === 'function' && currentSession?.user?.id === session.user.id) setCurrentSession(session);
             }
         } catch (_) {}
     }
