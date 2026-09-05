@@ -250,7 +250,7 @@ async function openCatModal(catId) {
         // Handle synchronously started errors
     }
 
-    let commentsFetchPromise = loadCatComments(catId, requestVersion); // We need to update loadCatComments to optionally not update if version changed
+    let commentsFetchPromise = loadCatComments(catId);
 
     try {
         if (catFetchPromise) {
