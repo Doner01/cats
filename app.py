@@ -111,7 +111,7 @@ def validate_production_configuration() -> None:
     try:
         payload = SUPABASE_ANON_KEY.split(".")[1]
         claims: Dict[str, Any] = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-        if isinstance(claims, dict) and claims.get("role") == "service_role":
+        if claims.get("role") == "service_role":
             errors.append("SUPABASE_ANON_KEY contains a privileged service-role token")
     except (IndexError, ValueError, UnicodeDecodeError):
         pass  # Publishable keys are opaque; this only detects misconfigured legacy JWTs.
