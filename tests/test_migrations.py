@@ -156,3 +156,26 @@ class MigrationIntegrationTests(unittest.TestCase):
         self.assertEqual(by_user[self.owner]['total_likes'], 1)
         self.assertEqual(by_user[self.actor]['cats_count'], 0)
         self.sql(f"SET ROLE authenticated; SELECT * FROM public.admin_user_counts(ARRAY['{self.owner}']::uuid[]);", success=False)
+
+    def test_concurrent_duplicate_comments_insert_once(self):
+        def attempt(_):
+            payload = json.dumps({'id': str(uuid.uuid4()), 'cat_id': self.cat,
+                                  'user_id': self.actor, 'comment': 'Same comment'})
+            return self.sql(f"SET ROLE service_role; SELECT status FROM public.insert_comment_once('{payload}'::jsonb);")
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(attempt, range(16)))
+        self.assertEqual(results.count('inserted'), 1)
+        self.assertEqual(results.count('duplicate'), 15)
+        self.assertEqual(self.sql(f"SELECT count(*) FROM public.comments WHERE cat_id='{self.cat}';"), '1')
+
+    def test_comment_deduplication_expires_and_is_scoped_to_account(self):
+        payload = {'id': str(uuid.uuid4()), 'cat_id': self.cat, 'user_id': self.actor, 'comment': 'Hello'}
+        def insert_as(user_id):
+            payload.update(id=str(uuid.uuid4()), user_id=user_id)
+            return self.sql(f"SELECT status FROM public.insert_comment_once('{json.dumps(payload)}'::jsonb);")
+        self.assertEqual(insert_as(self.actor), 'inserted')
+        self.assertEqual(insert_as(self.owner), 'inserted')
+        self.sql(f"UPDATE public.comments SET created_at=now()-interval '61 seconds' WHERE cat_id='{self.cat}';")
+        self.assertEqual(insert_as(self.actor), 'inserted')
+        for role in ('anon', 'authenticated'):
+            self.sql(f"SET ROLE {role}; SELECT * FROM public.insert_comment_once('{json.dumps(payload)}'::jsonb);", success=False)

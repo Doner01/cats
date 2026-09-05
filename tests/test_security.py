@@ -52,7 +52,7 @@ class AuthenticationSecurityTests(unittest.TestCase):
         auth_client.auth.sign_in_with_password.side_effect = RuntimeError("provider failure")
         with patch.object(self.module, "new_auth_client", return_value=auth_client):
             response = self.client.post("/api/auth/login", json={"email": self.user.email, "password": "bad"})
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, 503)
         auth_client.auth.close.assert_called_once_with()
         self.assertNotIn("provider failure", response.get_data(as_text=True))
 

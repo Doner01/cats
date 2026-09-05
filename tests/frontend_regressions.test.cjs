@@ -77,7 +77,7 @@ function browser(commentIds = []) {
         onAuthStateChange: callback => { context.authCallback = callback; },
     }};
     const run = source => vm.runInContext(source, context);
-    for (const file of ['auth.js', 'main.js', 'comment-likes.js']) {
+    for (const file of ['auth.js', 'main.js', 'comment-likes.js', 'favorites.js']) {
         run(fs.readFileSync(path.join(root, 'static/js', file), 'utf8'));
     }
     context.setCurrentSession(context.__session);
@@ -264,4 +264,60 @@ test('account switches hide and reload pages containing private profile or admin
         assert.equal(reloads, 1);
         assert.equal(context.document.body.style.visibility, 'hidden');
     }
+});
+
+test('favorites ignore a session lookup that resolves after an account switch', async () => {
+    const {context, run, changeAccount} = browser();
+    const lookup = deferred();
+    context.supabaseClient.auth.getSession = () => lookup.promise;
+    let requests = 0;
+    context.fetch = async () => { requests++; return response({favorite_cat_ids: ['private-cat']}); };
+    const pending = context.toggleFavorite('cat-1');
+    changeAccount('bob');
+    lookup.resolve({data: {session: session('alice')}});
+    await pending;
+    assert.equal(requests, 0);
+    assert.equal(run('userFavoriteCatIds.size'), 0);
+});
+
+test('favorites refuse a stale explicit session', async () => {
+    const {context, run, changeAccount} = browser();
+    changeAccount('bob');
+    context.fetch = async () => response({favorite_cat_ids: ['alice-private-cat']});
+    assert.equal(await context.syncUserFavorites(session('alice')), false);
+    assert.equal(run('userFavoriteCatIds.size'), 0);
+});
+
+test('a prior account pending favorite cannot block or unlock a new mutation', async () => {
+    const {context, run, changeAccount} = browser();
+    const alice = deferred();
+    const bob = deferred();
+    let writes = 0;
+    context.fetch = (url, options = {}) => options.method
+        ? (++writes === 1 ? alice.promise : bob.promise)
+        : Promise.resolve(response({favorite_cat_ids: []}));
+    const first = context.toggleFavorite('cat-1');
+    await flush();
+    changeAccount('bob');
+    const second = context.toggleFavorite('cat-1');
+    await flush();
+    assert.equal(writes, 2);
+    alice.resolve(response({saved: true}));
+    await first;
+    assert.equal(run('pendingFavorites.size'), 1);
+    bob.resolve(response({saved: true}));
+    await second;
+    assert.equal(run('pendingFavorites.size'), 0);
+});
+
+test('the first favorites synchronization preserves the double-click guard', async () => {
+    const {context, run} = browser();
+    run('favoritesOwnerId = null;');
+    let writes = 0;
+    context.fetch = async (url, options = {}) => {
+        if (options.method) { writes++; return response({saved: true}); }
+        return response({favorite_cat_ids: []});
+    };
+    await Promise.all([context.toggleFavorite('cat-1'), context.toggleFavorite('cat-1')]);
+    assert.equal(writes, 1);
 });

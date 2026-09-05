@@ -120,9 +120,11 @@ def validate_production_configuration() -> None:
     else:
         try:
             parsed_public = urlparse(PUBLIC_SITE_URL)
+            _ = parsed_public.port  # Validate malformed/out-of-range ports too.
             if (
                 parsed_public.scheme != "https"
-                or not parsed_public.netloc
+                or not parsed_public.hostname
+                or any(ch.isspace() for ch in PUBLIC_SITE_URL)
                 or parsed_public.username
                 or parsed_public.password
                 or parsed_public.path not in {"", "/"}
@@ -137,8 +139,13 @@ def validate_production_configuration() -> None:
     if SUPABASE_URL:
         try:
             parsed_supabase = urlparse(SUPABASE_URL)
-            if parsed_supabase.scheme != "https" or not parsed_supabase.netloc:
-                errors.append("SUPABASE_URL must use HTTPS in production")
+            _ = parsed_supabase.port
+            if (parsed_supabase.scheme != "https" or not parsed_supabase.hostname
+                    or parsed_supabase.username or parsed_supabase.password
+                    or parsed_supabase.path not in {"", "/"} or parsed_supabase.params
+                    or parsed_supabase.query or parsed_supabase.fragment
+                    or any(ch.isspace() for ch in SUPABASE_URL)):
+                errors.append("SUPABASE_URL must be a clean HTTPS origin in production")
         except ValueError:
             errors.append("SUPABASE_URL is invalid")
     if ENABLE_DEMO_DATA:
@@ -147,6 +154,14 @@ def validate_production_configuration() -> None:
         errors.append("FLASK_DEBUG must be false")
     if not RATE_LIMIT_STORAGE_URI.startswith(("redis://", "rediss://")):
         errors.append("RATE_LIMIT_STORAGE_URI must use shared Redis in production")
+    else:
+        try:
+            redis_origin = urlparse(RATE_LIMIT_STORAGE_URI)
+            _ = redis_origin.port
+            if not redis_origin.hostname:
+                errors.append("RATE_LIMIT_STORAGE_URI must specify a Redis host")
+        except ValueError:
+            errors.append("RATE_LIMIT_STORAGE_URI is invalid")
 
     r2_settings = [os.getenv(key, "").strip() for key in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_PUBLIC_DOMAIN")]
     if any(r2_settings) and not all(r2_settings):
@@ -154,7 +169,9 @@ def validate_production_configuration() -> None:
     if r2_settings[-1]:
         try:
             origin = urlparse(r2_settings[-1])
-            if origin.scheme != "https" or not origin.netloc or origin.username or origin.password or origin.query or origin.fragment:
+            _ = origin.port
+            if (origin.scheme != "https" or not origin.hostname or origin.username or origin.password
+                    or origin.query or origin.fragment or any(ch.isspace() for ch in r2_settings[-1])):
                 errors.append("R2_PUBLIC_DOMAIN must be a public HTTPS URL")
         except ValueError:
             errors.append("R2_PUBLIC_DOMAIN is invalid")
@@ -723,13 +740,18 @@ def as_row_list(value: Any) -> List[Dict[str, Any]]:
     return [cast(Dict[str, Any], item) for item in items if isinstance(item, dict)]
 
 def fetch_all_rows(query_factory: Callable[[], Any], *, max_rows: int = 10000) -> List[Dict[str, Any]]:
+    if max_rows < 1:
+        raise ValueError("Row limit must be positive")
     result: List[Dict[str, Any]] = []
     while True:
-        response = query_factory().range(len(result), len(result) + 499).execute()
+        batch_size = min(500, max_rows + 1 - len(result))
+        response = query_factory().range(len(result), len(result) + batch_size - 1).execute()
         rows = as_row_list(getattr(response, "data", None))
         result.extend(rows)
-        if len(rows) < 500 or len(result) >= max_rows:
-            return result[:max_rows]
+        if len(result) > max_rows:
+            raise RuntimeError("Collection exceeds the supported synchronous row limit")
+        if len(rows) < batch_size:
+            return result
 
 def get_db_row(query: Any) -> Optional[Dict[str, Any]]:
     rows = getattr(query.limit(1).execute(), "data", []) or []
@@ -1014,7 +1036,7 @@ def assign_request_id() -> None:
         for key, value in (request.view_args or {}).items():
             if key.endswith("_id"):
                 try:
-                    uuid.UUID(str(value))
+                    request.view_args[key] = str(uuid.UUID(str(value)))
                 except (ValueError, TypeError):
                     from flask import abort
                     abort(404)
@@ -1368,7 +1390,7 @@ def edit_cat(cat_id: str) -> Any:
             try:
                 cat_row = get_db_row(supabase_admin.table("cats").select("id,user_id").eq("id", cat_id))
             except Exception:
-                cat_row = None
+                return jsonify({"error": "Database service is temporarily unavailable."}), 503
             if not cat_row:
                 return jsonify({"error": "Cat not found."}), 404
             if str(cat_row.get("user_id")) != user_id and not is_admin:
@@ -1389,6 +1411,8 @@ def edit_cat(cat_id: str) -> Any:
 
         invalidate_cat_content(cat_id=cat_id, user_id=owner_user_id)
         return jsonify({"message": "Cat updated successfully."}), 200
+    except HTTPException:
+        raise
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid update values."}), 400
     except Exception:
@@ -1433,6 +1457,7 @@ def delete_cat(cat_id: str) -> Any:
             app.logger.warning("Cat row deleted but image cleanup failed for %s", cat_id)
 
         invalidate_cat_content(cat_id=cat_id, user_id=cat_row.get("user_id"))
+        invalidate_comments(cat_id)
         return jsonify({"message": "Cat deleted successfully."}), 200
     except Exception:
         app.logger.exception("Failed to delete cat %s", cat_id)
@@ -1458,6 +1483,7 @@ def admin_force_delete(cat_id: str) -> Any:
         except Exception:
             app.logger.warning("Admin deleted cat %s but storage cleanup failed", cat_id)
         invalidate_cat_content(cat_id=cat_id, user_id=cat_row.get("user_id"))
+        invalidate_comments(cat_id)
         return jsonify({"message": "Cat force deleted by admin successfully."}), 200
     except Exception:
         app.logger.exception("Admin force-delete failed for cat %s", cat_id)
@@ -1604,7 +1630,7 @@ def add_comment(cat_id: str) -> Any:
                     supabase_admin.table("cats").select("id,user_id,name,image_url").eq("id", cat_id)
                 )
             except Exception:
-                cat_row_for_notification = None
+                return jsonify({"error": "Comments service is temporarily unavailable."}), 503
             if not cat_row_for_notification:
                 return jsonify({"error": "Cat not found."}), 404
 
@@ -1631,10 +1657,6 @@ def add_comment(cat_id: str) -> Any:
                         return jsonify({"error": "Reply thread no longer exists."}), 400
                     root = ancestor
                 parent_id = str(root["id"])
-            since = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
-            duplicate = get_db_row(supabase_admin.table("comments").select("id").eq("cat_id", cat_id).eq("user_id", user_id).eq("comment", comment_text).gte("created_at", since))
-            if duplicate:
-                return jsonify({"error": "You just posted this comment. Please wait before repeating it."}), 429
 
         comment_id = str(uuid.uuid4())
         comment_payload: Dict[str, Any] = {
@@ -1652,8 +1674,13 @@ def add_comment(cat_id: str) -> Any:
         }
 
         if supabase_admin:
-            if safe_db_insert("comments", comment_payload) is None:
+            result = supabase_admin.rpc("insert_comment_once", {"p_comment": comment_payload}).execute()
+            rows = as_row_list(getattr(result, "data", None))
+            if rows and rows[0].get("status") == "duplicate":
+                return jsonify({"error": "You just posted this comment. Please wait before repeating it."}), 429
+            if not rows or rows[0].get("status") != "inserted":
                 return jsonify({"error": "Could not save comment."}), 503
+            comment_payload["created_at"] = rows[0]["created_at"]
 
             try:
                 cat_row = cat_row_for_notification
@@ -1701,9 +1728,11 @@ def add_comment(cat_id: str) -> Any:
             "comment": {k: v for k, v in comment_payload.items() if k != "user_email"}
         }), 201
 
+    except HTTPException:
+        raise
     except Exception:
         app.logger.exception("Could not add comment to cat %s", cat_id)
-        return jsonify({"error": "Could not post comment right now."}), 500
+        return jsonify({"error": "Could not post comment right now."}), 503
 
 def mutate_comment(comment_id: str, *, delete: bool = False, admin_only: bool = False) -> Any:
     user = g.user
@@ -1726,6 +1755,8 @@ def mutate_comment(comment_id: str, *, delete: bool = False, admin_only: bool = 
         if not isinstance(raw, str) or not raw.strip() or len(raw.strip()) > 300:
             return jsonify({"error": "Comments must contain 1–300 characters."}), 400
         text = clean_text(raw, max_length=300)
+        if not text:
+            return jsonify({"error": "Comment text cannot be empty."}), 400
         # Enforce the two-minute edit window in the API as well as in Postgres.
         # This protects lightweight/fallback clients too and means a missing RPC
         # can never silently turn into an unlimited edit endpoint.
@@ -1757,6 +1788,8 @@ def mutate_comment(comment_id: str, *, delete: bool = False, admin_only: bool = 
             return jsonify({"error": "Comment not found."}), 404
         invalidate_comments(updated.get("cat_id"))
         return jsonify({"message": "Comment updated.", "comment_id": comment_id, "comment": updated["comment"], "updated_at": updated["updated_at"]})
+    except HTTPException:
+        raise
     except Exception:
         app.logger.exception("Could not change comment %s", comment_id)
         return jsonify({"error": "Could not change this comment. Please retry."}), 503
@@ -2165,6 +2198,8 @@ def sync_user_profile() -> Any:
             "avatar_url": new_avatar if has_avatar else None,
             "bio": new_bio if has_bio else None,
         }), 200
+    except HTTPException:
+        raise
     except Exception:
         app.logger.exception("Profile synchronization failed")
         return jsonify({"error": "Could not save profile changes right now."}), 500
@@ -2274,6 +2309,8 @@ def admin_edit_user_profile(user_id: str) -> Any:
             "phone": new_phone if has_phone else None,
             "role": new_role if has_role else None,
         }), 200
+    except HTTPException:
+        raise
     except Exception:
         app.logger.exception("Admin user profile update failed for %s", user_id)
         return jsonify({"error": "Could not update this user right now."}), 500
@@ -2315,6 +2352,7 @@ def admin_force_delete_user(user_id: str) -> Any:
         for deleted_cat_id in user_cat_ids:
             cache_delete(make_cache_key("cat", deleted_cat_id))
         invalidate_cat_content(user_id=user_id)
+        bump_cache_counter("attribution")
 
         return jsonify({"message": "User and all associated data deleted successfully.", "user_id": user_id}), 200
     except Exception:
@@ -2392,8 +2430,9 @@ def get_public_profile(user_id: str) -> Any:
                     user_avatar = sanitize_image_url(meta.get("avatar_url"), fallback_name=user_name)
                     user_bio = clean_text(meta.get("bio"), max_length=150)
             except Exception as exc:
-                service_error = True
-                app.logger.warning("Auth fallback lookup failed for profile %s: %s", user_id, exc)
+                if str(getattr(exc, "status", None) or getattr(exc, "status_code", None)) != "404":
+                    service_error = True
+                    app.logger.warning("Auth fallback lookup failed for profile %s: %s", user_id, exc)
 
     elif not ENABLE_DEMO_DATA:
         return jsonify({"error": "Profile service is unavailable."}), 503
@@ -2917,6 +2956,8 @@ def password_login() -> Any:
         status = getattr(exc, "status", None)
         if str(status) == "429":
             return jsonify({"error": "Too many sign-in attempts. Please try again later."}), 429
+        if str(status) not in {"400", "401", "403", "422"}:
+            return jsonify({"error": "Sign-in is temporarily unavailable. Please try again."}), 503
         return jsonify({"error": "Sign-in failed. Check your details and email confirmation."}), 401
     finally:
         close_auth_client(client)
@@ -3130,15 +3171,15 @@ def ensure_auth_profile(user: Any) -> None:
 
     if existing is None:
         initial_avatar = google_avatar or generate_default_avatar(name)
-        supabase_admin.table("profiles").insert({
+        inserted = supabase_admin.table("profiles").upsert({
             "id": user_id,
             "email": auth_email,
             "display_name": name,
             "avatar_url": initial_avatar,
             "role": "user",
-        }).execute()
+        }, on_conflict="id", ignore_duplicates=True).execute()
 
-        if google_avatar:
+        if google_avatar and as_row_list(getattr(inserted, "data", None)):
             try:
                 merged_meta = _merged_auth_user_metadata(
                     user_id,
@@ -3155,28 +3196,30 @@ def ensure_auth_profile(user: Any) -> None:
             and avatar_source not in {"default", "custom"}
         )
         if should_repair_google_avatar:
-            safe_db_update(
-                "profiles",
-                {
-                    "avatar_url": google_avatar,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                },
-                "id",
-                user_id,
-            )
-            try:
-                merged_meta = _merged_auth_user_metadata(
-                    user_id,
-                    {"avatar_url": google_avatar, "catrank_avatar_source": "google"},
-                )
-                supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": merged_meta})
-            except Exception:
-                app.logger.debug("Could not repair Google avatar metadata for %s", user_id, exc_info=True)
+            query = supabase_admin.table("profiles").update({
+                "avatar_url": google_avatar,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", user_id)
+            # A concurrent upload/reset must win over this stale read.
+            query = query.is_("avatar_url", "null") if existing.get("avatar_url") is None else query.eq("avatar_url", existing["avatar_url"])
+            repaired = query.execute()
+            if as_row_list(getattr(repaired, "data", None)):
+                invalidate_attribution(user_id)
+                try:
+                    merged_meta = _merged_auth_user_metadata(
+                        user_id,
+                        {"avatar_url": google_avatar, "catrank_avatar_source": "google"},
+                    )
+                    supabase_admin.auth.admin.update_user_by_id(user_id, {"user_metadata": merged_meta})
+                except Exception:
+                    app.logger.debug("Could not repair Google avatar metadata for %s", user_id, exc_info=True)
 
-    if safe_db_update("profiles", {"email": auth_email}, "id", user_id) is None:
-        app.logger.debug("Could not sync profile email for %s", user_id)
-    if auth_phone and safe_db_update("profiles", {"phone": auth_phone}, "id", user_id) is None:
-        app.logger.debug("Profiles table has no writable phone field or phone sync failed for %s", user_id)
+    contact_updates: Dict[str, Any] = {"email": auth_email}
+    if auth_phone:
+        contact_updates["phone"] = auth_phone
+    synchronized = safe_db_update("profiles", contact_updates, "id", user_id)
+    if synchronized is None or not getattr(synchronized, "data", None):
+        app.logger.debug("Could not synchronize profile contact details for %s", user_id)
 
     invalidate_profile_cache(user_id)
 

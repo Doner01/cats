@@ -1,5 +1,5 @@
 const userFavoriteCatIds = new Set();
-const pendingFavorites = new Set();
+const pendingFavorites = new Map();
 let favoritesOwnerId = null;
 let favoritesReady = false;
 let favoritesRevision = 0;
@@ -27,7 +27,8 @@ function updateFavoriteButtons() {
 function resetFavorites() {
     favoritesEpoch++;
     userFavoriteCatIds.clear();
-    favoritesOwnerId = null;
+    pendingFavorites.clear();
+    favoritesOwnerId = typeof currentSession !== 'undefined' ? currentSession?.user?.id || null : null;
     favoritesReady = false;
     favoritesSync = null;
     favoritesRevision++;
@@ -37,6 +38,7 @@ function resetFavorites() {
 async function syncUserFavorites(session = currentSession) {
     if (!session?.user?.id || !session.access_token) return false;
     const owner = String(session.user.id);
+    if (owner !== currentSession?.user?.id) return false;
     if (favoritesOwnerId !== owner) {
         resetFavorites();
         favoritesOwnerId = owner;
@@ -49,7 +51,7 @@ async function syncUserFavorites(session = currentSession) {
             const response = await fetch('/api/user/favorite-ids', {headers: {Authorization: `Bearer ${session.access_token}`}});
             if (!response.ok) return false;
             const data = await response.json();
-            if (owner !== favoritesOwnerId || revision !== favoritesRevision) return false;
+            if (owner !== favoritesOwnerId || owner !== currentSession?.user?.id || revision !== favoritesRevision) return false;
             userFavoriteCatIds.clear();
             (data.favorite_cat_ids || []).forEach(id => userFavoriteCatIds.add(String(id)));
             favoritesReady = true;
@@ -64,9 +66,11 @@ async function syncUserFavorites(session = currentSession) {
 
 async function toggleFavorite(catId, event) {
     event?.stopPropagation();
+    if (currentSession?.user?.id && favoritesOwnerId !== currentSession.user.id) resetFavorites();
     if (!catId || pendingFavorites.has(String(catId))) return;
     const id = String(catId);
-    pendingFavorites.add(id);
+    const mutation = Symbol(id);
+    pendingFavorites.set(id, mutation);
     updateFavoriteButtons();
     let owner = null;
     let previous = false;
@@ -76,13 +80,14 @@ async function toggleFavorite(catId, event) {
         const result = typeof supabaseClient !== 'undefined' && supabaseClient
             ? await supabaseClient.auth.getSession() : null;
         const session = result?.data?.session;
+        if (epoch !== favoritesEpoch || (session && session.user?.id !== currentSession?.user?.id)) return;
         if (!session) {
             window.location.href = getCatLoginUrl(id);
             return;
         }
         owner = String(session.user.id);
         if (!await syncUserFavorites(session)) throw new Error(favoriteLabel('favorites_error'));
-        if (owner !== favoritesOwnerId) return;
+        if (owner !== favoritesOwnerId || owner !== currentSession?.user?.id) return;
         epoch = favoritesEpoch;
         previous = userFavoriteCatIds.has(id);
         changed = true;
@@ -102,13 +107,14 @@ async function toggleFavorite(catId, event) {
         showToast(favoriteLabel(data.saved ? 'favorite_saved' : 'favorite_removed'), 'success');
         window.dispatchEvent(new CustomEvent('catrank_favorites_changed'));
     } catch (error) {
+        if (epoch !== favoritesEpoch || (owner && owner !== currentSession?.user?.id)) return;
         if (owner === favoritesOwnerId && epoch === favoritesEpoch && changed) {
             if (previous) userFavoriteCatIds.add(id);
             else userFavoriteCatIds.delete(id);
         }
         showToast(error.message || favoriteLabel('favorites_error'), 'error');
     } finally {
-        pendingFavorites.delete(id);
+        if (pendingFavorites.get(id) === mutation) pendingFavorites.delete(id);
         updateFavoriteButtons();
     }
 }
