@@ -77,18 +77,19 @@ async function main() {
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), label + ': page overflow');
         assert(await page.$eval('.profile-header', el => el.scrollWidth <= el.clientWidth + 1), label + ': header overflow');
     };
-    for (const width of [320, 390, 640, 768, 1024, 1440]) {
+    for (const width of [320, 390, 471, 640, 768, 1024, 1440]) {
         await page.setViewport({width, height: 900});
         await loaded();
         await noOverflow(String(width));
         const layout = await page.evaluate(() => {
-            const rect = selector => {const r = document.querySelector(selector).getBoundingClientRect(); return {x: r.x, y: r.y, right: r.right};};
-            return {avatar: rect('.profile-avatar-wrap'), details: rect('.profile-details'), actions: rect('#profile-actions'), stats: rect('.profile-stats')};
+            const rect = selector => {const r = document.querySelector(selector).getBoundingClientRect(); return {x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height};};
+            return {avatar: rect('.profile-avatar-wrap'), details: rect('.profile-details'), actions: rect('#profile-actions'), stats: rect('.profile-stats'), uploads: rect('.profile-stats > div'), votes: rect('.profile-stats > div + div'), edit: rect('#profile-actions button'), upload: rect('#profile-actions a')};
         });
-        if (width >= 640) {
-            assert(layout.details.x >= layout.avatar.right, 'Desktop identity must sit beside avatar');
-            assert(Math.abs(layout.details.y - layout.avatar.y) < 2, 'Desktop identity must align with avatar');
-        } else assert(layout.details.y > layout.avatar.y, 'Mobile identity stacks beneath avatar');
+        assert(layout.details.x >= layout.avatar.right, 'Identity sits beside the avatar at every width');
+        assert(Math.abs((layout.details.y + layout.details.height / 2) - (layout.avatar.y + layout.avatar.height / 2)) < 2, 'Identity and avatar are vertically centered');
+        assert(Math.abs(layout.uploads.width - layout.votes.width) < 2, 'Statistics have equal space');
+        assert(layout.edit.height >= 44 && layout.upload.height >= 44, 'Profile actions have accessible touch targets');
+        if (width < 1024) assert(layout.actions.y >= layout.stats.bottom + 16, 'Actions follow the statistics with breathing room');
         assert.equal(await page.$eval('#profile-bio', el => el.offsetHeight), 0, 'Empty bio must not leave a gap');
         assert.equal(await page.$eval('.profile-grid-message a', el => el.getAttribute('href')), '/upload');
         if ([390, 1440].includes(width)) await page.screenshot({path: path.join(output, `profile-${width}.png`), fullPage: true});
@@ -198,6 +199,8 @@ async function main() {
     await page.click('#profile-favorites-tab');
     await page.waitForSelector('.profile-grid-message button');
     favoritesFail = false;
+    // Keep the retry action above the fixed mobile navigation when the name wraps.
+    await page.$eval('.profile-grid-message button', el => el.scrollIntoView({block: 'center', behavior: 'instant'}));
     await page.click('.profile-grid-message button');
     await page.waitForFunction(() => !document.querySelector('.profile-grid-message button'));
     assert.equal(await page.$('.profile-grid-message a'), null, 'Empty favorites must not show upload action');

@@ -4,7 +4,7 @@
 <div id="profile-container" class="max-w-4xl mx-auto px-4 sm:px-6 py-8 animate-fade-in space-y-6 sm:space-y-8" data-view-user-id="{{ view_user_id or '' }}" data-initial-tab="uploads">
     <section class="profile-header" aria-labelledby="profile-name">
         <div class="profile-avatar-wrap relative group/avatar">
-            <img id="profile-avatar" src="" alt="Profile Photo" class="w-full h-full rounded-full object-cover border-2 border-white shadow bg-slate-50 transition-transform duration-300 group-hover/avatar:scale-105">
+            <img id="profile-avatar" src="" alt="Profile Photo" class="w-full h-full rounded-full object-cover bg-slate-50">
             <div id="avatar-edit-overlay" class="hidden absolute inset-0 rounded-full border border-slate-200 overflow-hidden">
                 <button id="avatar-edit-overlay-btn" type="button" onclick="openEditProfileModal()" aria-label="Edit profile photo" class="hidden absolute inset-0 bg-black/50 text-white flex-col items-center justify-center gap-1 opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-200 cursor-pointer">
                     <i class="fa-solid fa-camera"></i>
@@ -13,36 +13,30 @@
             </div>
         </div>
         <div class="profile-details">
-            <div class="profile-heading">
-                <div class="min-w-0">
-                    <h1 id="profile-name" class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Loading...</h1>
-                    <div id="profile-meta-info" class="mt-1 flex flex-wrap items-center gap-2">
-                        <span class="inline-flex items-center gap-1.5 text-slate-500 text-[11px] sm:text-xs">
-                            <i class="fa-solid fa-ranking-star text-indigo-500"></i>
-                            <span data-i18n="member_badge">CatRank Member</span>
-                        </span>
-                        <span id="profile-email-badge" class="hidden items-center gap-1 text-slate-500 text-[11px] sm:text-xs">
-                            <span class="w-1 h-1 rounded-full bg-slate-300 hidden sm:block"></span>
-                            <i class="fa-solid fa-envelope text-indigo-400"></i>
-                            <span id="profile-email-text"></span>
-                        </span>
-                    </div>
-                </div>
-                <div id="profile-actions" class="profile-actions">
-                </div>
-            </div>
-            <p id="profile-bio" class="text-xs sm:text-sm text-slate-600 max-w-2xl leading-relaxed"></p>
-            <div class="profile-stats">
-                <div class="flex flex-col items-center sm:items-start">
-                    <span id="stat-uploaded-count" class="text-xl sm:text-2xl font-black text-slate-900">0</span>
-                    <span class="text-[11px] sm:text-xs font-medium text-slate-500" data-i18n="stat_uploads">Uploads</span>
-                </div>
-                <div class="flex flex-col items-center sm:items-start">
-                    <span id="stat-likes-count" class="text-xl sm:text-2xl font-black text-slate-900">0</span>
-                    <span class="text-[11px] sm:text-xs font-medium text-slate-500" data-i18n="stat_total_votes">Total Votes</span>
-                </div>
+            <h1 id="profile-name">Loading...</h1>
+            <div id="profile-meta-info">
+                <span class="inline-flex items-center gap-1.5 text-slate-500 text-[11px] sm:text-xs">
+                    <i class="fa-solid fa-ranking-star text-indigo-500"></i>
+                    <span data-i18n="member_badge">CatRank Member</span>
+                </span>
+                <span id="profile-email-badge" class="hidden items-center gap-1 text-slate-500 text-[11px] sm:text-xs">
+                    <i class="fa-solid fa-envelope text-indigo-400"></i>
+                    <span id="profile-email-text"></span>
+                </span>
             </div>
         </div>
+        <p id="profile-bio" class="text-xs sm:text-sm text-slate-600 leading-relaxed"></p>
+        <div class="profile-stats">
+            <div>
+                <span id="stat-uploaded-count" class="text-xl sm:text-2xl font-black text-slate-900">0</span>
+                <span class="text-[11px] sm:text-xs font-medium text-slate-500" data-i18n="stat_uploads">Uploads</span>
+            </div>
+            <div>
+                <span id="stat-likes-count" class="text-xl sm:text-2xl font-black text-slate-900">0</span>
+                <span class="text-[11px] sm:text-xs font-medium text-slate-500" data-i18n="stat_total_votes">Total Votes</span>
+            </div>
+        </div>
+        <div id="profile-actions" class="profile-actions"></div>
     </section>
     <div class="space-y-4">
         <div class="profile-tabs" role="group" aria-label="Profile cats">
@@ -409,12 +403,12 @@ async function loadProfile() {
         const editProfileText = typeof t === "function" ? t("edit_profile_btn") : "Edit Profile";
         const uploadCatText = typeof t === "function" ? t("nav_upload") : "Upload Cat";
         actionsElem.innerHTML = `
-            <button onclick="openEditProfileModal()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition shadow-xs flex items-center gap-1.5">
-                <i class="fa-solid fa-pen-to-square text-xs text-slate-500"></i>
+            <button type="button" onclick="openEditProfileModal()" class="secondary-button">
+                <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
                 <span data-i18n="edit_profile_btn">${editProfileText}</span>
             </button>
-            <a href="/upload" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition inline-flex items-center gap-1.5">
-                <i class="fa-solid fa-cloud-arrow-up text-xs"></i>
+            <a href="/upload" class="primary-button">
+                <i class="fa-solid fa-plus" aria-hidden="true"></i>
                 <span data-i18n="nav_upload">${uploadCatText}</span>
             </a>
         `;
