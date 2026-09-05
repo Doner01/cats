@@ -221,7 +221,7 @@ if CACHE_REDIS_URL.startswith(("redis://", "rediss://")):
 
 CACHE_PREFIX = "catrank:v4"
 cache_retry_after = 0.0
-FEED_CACHE_TTL = 15
+FEED_CACHE_TTL = 60
 LEADERBOARD_CACHE_TTL = 45
 CAT_CACHE_TTL = 45
 PROFILE_CACHE_TTL = 45
