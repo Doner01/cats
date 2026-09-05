@@ -334,15 +334,41 @@ if not SUPABASE_SERVICE_KEY:
 supabase_admin: Optional[Client] = None
 supabase_auth: Optional[Client] = None
 
+def make_supabase_client_options() -> ClientOptions:
+    """Build server-side Supabase options without confusing older type stubs.
+
+    The runtime ClientOptions supports these values; routing construction through
+    an Any-typed factory keeps Pylance from reporting false reportCallIssue
+    diagnostics when its installed supabase stubs lag behind the runtime package.
+    """
+    options_factory: Any = ClientOptions
+    return cast(
+        ClientOptions,
+        options_factory(
+            persist_session=False,
+            auto_refresh_token=False,
+            postgrest_client_timeout=10,
+            storage_client_timeout=10,
+        ),
+    )
+
 try:
     if SUPABASE_URL and SUPABASE_SERVICE_KEY:
-        supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False, postgrest_client_timeout=10, storage_client_timeout=10))
+        supabase_admin = create_client(
+            SUPABASE_URL,
+            SUPABASE_SERVICE_KEY,
+            options=make_supabase_client_options(),
+        )
 except Exception as init_err:
     app.logger.warning("Failed to init supabase_admin: %s", init_err)
 
 try:
     if SUPABASE_URL and SUPABASE_ANON_KEY:
-        supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False, postgrest_client_timeout=10, storage_client_timeout=10))
+        supabase_auth = create_client(
+            SUPABASE_URL,
+            SUPABASE_ANON_KEY,
+            options=make_supabase_client_options(),
+        )
 except Exception as init_err:
     app.logger.warning("Failed to init supabase_auth: %s", init_err)
 
