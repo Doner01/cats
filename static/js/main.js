@@ -1,5 +1,6 @@
 const pendingLikes = new Map();
 let modalRequestVersion = 0;
+let modalAbortController = null;
 let lastCommentTime = 0;
 const COOLDOWN_MS = 2000; // 2s anti-spam cooldown
 
@@ -199,6 +200,13 @@ function resetCatModalState() {
 
 async function openCatModal(catId) {
     if (!catId) return;
+
+    if (modalAbortController) {
+        modalAbortController.abort();
+    }
+    modalAbortController = new AbortController();
+    const abortSignal = modalAbortController.signal;
+
     catId = String(catId);
     activeModalCatId = String(catId);
     const requestVersion = ++modalRequestVersion;
@@ -242,7 +250,7 @@ async function openCatModal(catId) {
 
     let catFetchPromise = null;
     try {
-        catFetchPromise = fetch(`/api/cats/${encodeURIComponent(catId)}`).then(res => {
+        catFetchPromise = fetch(`/api/cats/${encodeURIComponent(catId)}`, { signal: abortSignal }).then(res => {
             if (!res.ok) throw new Error("Cat load failed");
             return res.json();
         });
@@ -250,7 +258,7 @@ async function openCatModal(catId) {
         // Handle synchronously started errors
     }
 
-    let commentsFetchPromise = loadCatComments(catId);
+    let commentsFetchPromise = loadCatComments(catId, false, null, abortSignal);
 
     try {
         if (catFetchPromise) {
@@ -277,6 +285,7 @@ async function openCatModal(catId) {
             }
         }
     } catch (err) {
+        if (err.name === 'AbortError') return;
         if (requestVersion === modalRequestVersion) showToast("Could not load this cat. Please try again.", "error");
     }
     
@@ -656,7 +665,7 @@ function scheduleCommentEditExpiry() {
     }, delay);
 }
 
-async function loadCatComments(catId, append = false, posted = null) {
+async function loadCatComments(catId, append = false, posted = null, abortSignal = null) {
     if (append && (commentsLoading || !nextCommentsCursor)) return;
     const requestVersion = modalRequestVersion;
     const commentsVersion = ++commentsRequestVersion;
@@ -664,7 +673,8 @@ async function loadCatComments(catId, append = false, posted = null) {
     const cursor = append ? nextCommentsCursor : null;
     try {
         const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-        const res = await fetch(`/api/cats/${encodeURIComponent(catId)}/comments${query}`);
+        const fetchOpts = abortSignal ? { signal: abortSignal } : {};
+        const res = await fetch(`/api/cats/${encodeURIComponent(catId)}/comments${query}`, fetchOpts);
         const data = await res.json();
         if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion || commentsVersion !== commentsRequestVersion) return;
         if (!res.ok) throw new Error(data.error || 'Could not load comments.');
@@ -861,6 +871,7 @@ async function loadCatComments(catId, append = false, posted = null) {
             container.appendChild(more);
         }
     } catch (e) {
+        if (e.name === 'AbortError') return;
         if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion || commentsVersion !== commentsRequestVersion) return;
         const container = document.getElementById('modal-comments-items');
         if (container) {

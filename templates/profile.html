@@ -132,57 +132,59 @@
             </div>
         </div>
         <div id="tab-content-security" class="hidden space-y-3.5">
-            <div class="rounded-3xl border border-slate-200 bg-slate-50 p-3.5">
-                <div class="flex items-start gap-3">
-                    <div class="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
-                        <i class="fa-solid fa-shield-halved text-sm"></i>
+            <div class="rounded-2xl sm:rounded-3xl border border-slate-200 bg-slate-50 p-3 sm:p-3.5">
+                <div class="flex items-start gap-2.5 sm:gap-3">
+                    <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+                        <i class="fa-solid fa-shield-halved text-xs sm:text-sm"></i>
                     </div>
                     <div class="min-w-0">
-                        <h4 class="text-sm font-black text-slate-900" data-i18n="security_title">Sign-in & security</h4>
-                        <p class="mt-1 text-xs leading-relaxed text-slate-500" data-i18n="security_subtitle">Google is a fast sign-in/registration option. For protection, Google works only when its verified email matches your current CatRank email.</p>
+                        <h4 class="text-[13px] sm:text-sm font-black text-slate-900 leading-tight" data-i18n="security_title">Sign-in & security</h4>
+                        <p class="mt-0.5 sm:mt-1 text-[11px] sm:text-xs leading-snug sm:leading-relaxed text-slate-500" data-i18n="security_subtitle">Google is a fast sign-in/registration option. For protection, Google works only when its verified email matches your current CatRank email.</p>
                     </div>
                 </div>
             </div>
 
-            <section class="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-                <div class="px-3.5 py-2.5 border-b border-slate-100">
+            <section class="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                <div class="px-3 sm:px-3.5 py-2.5 border-b border-slate-100">
                     <h4 class="text-xs font-black text-slate-900" data-i18n="signin_methods_title">Sign-in methods</h4>
                     <p id="connected-methods" class="sr-only" role="status">Loading…</p>
                 </div>
 
                 <div class="divide-y divide-slate-100">
-                    <div class="p-3.5">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
-                                <i class="fa-solid fa-envelope text-sm"></i>
-                            </div>
-                            <div class="min-w-0 flex-grow">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <h5 class="text-xs font-black text-slate-900" data-i18n="email_signin_title">Email & password</h5>
-                                    <span id="security-email-status" class="text-[10px] font-black rounded-full px-2 py-0.5 bg-slate-100 text-slate-500">…</span>
+                    <div class="p-3 sm:p-3.5 flex flex-col gap-3">
+                        <div class="flex items-center justify-between gap-2 w-full min-w-0">
+                            <div class="flex items-center gap-2.5 min-w-0">
+                                <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
+                                    <i class="fa-solid fa-envelope text-xs sm:text-sm"></i>
                                 </div>
-                                <p id="security-email-value" class="mt-0.5 text-xs text-slate-500 truncate" data-i18n="loading_label">Loading…</p>
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                                        <h5 class="text-[11px] sm:text-xs font-black text-slate-900 leading-tight" data-i18n="email_signin_title">Email & password</h5>
+                                        <span id="security-email-status" class="text-[9px] sm:text-[10px] font-black rounded-full px-1.5 sm:px-2 py-0.5 bg-slate-100 text-slate-500 flex-shrink-0">…</span>
+                                    </div>
+                                    <p id="security-email-value" class="mt-0.5 text-[11px] sm:text-xs text-slate-500 truncate" data-i18n="loading_label">Loading…</p>
+                                </div>
                             </div>
-                            <button id="security-email-action" type="button" data-security-toggle="email" aria-controls="security-email-panel" aria-expanded="false" class="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 transition">
+                            <button id="security-email-action" type="button" data-security-toggle="email" aria-controls="security-email-panel" aria-expanded="false" class="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-[11px] sm:text-xs font-bold text-slate-700 transition flex-shrink-0 ml-1">
                                 <span data-i18n="manage_btn">Manage</span>
                             </button>
                         </div>
 
-                        <div id="security-email-panel" class="hidden mt-4 p-3.5 rounded-2xl border border-slate-200 bg-slate-50 space-y-3">
+                        <div id="security-email-panel" class="hidden rounded-xl sm:rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-3.5 space-y-3">
                             <p id="security-email-help" class="text-[11px] leading-relaxed text-slate-500"></p>
-                            <div id="security-email-input-wrap" class="space-y-2">
+                            <div id="security-email-input-wrap" class="space-y-1.5 sm:space-y-2">
                                 <label for="security-email-input" class="text-[11px] font-bold text-slate-700" data-i18n="new_email_label">New email address</label>
-                                <input id="security-email-input" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" class="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <input id="security-email-input" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" class="w-full px-3 py-2 sm:px-3.5 sm:py-2.5 text-[11px] sm:text-xs font-medium border border-slate-200 bg-white rounded-lg sm:rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
                             </div>
 
-                            <div id="security-email-password-auth" class="hidden space-y-2">
+                            <div id="security-email-password-auth" class="hidden space-y-1.5 sm:space-y-2">
                                 <label for="security-email-current-password" class="text-[11px] font-bold text-slate-700" data-i18n="current_password_label">Current password</label>
                                 <div class="relative">
-                                    <input id="security-email-current-password" type="password" maxlength="128" autocomplete="current-password" class="w-full pl-3.5 pr-10 py-2 text-xs font-medium border border-slate-200 bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                    <input id="security-email-current-password" type="password" maxlength="128" autocomplete="current-password" class="w-full pl-3 pr-10 py-2 sm:pl-3.5 sm:py-2.5 text-[11px] sm:text-xs font-medium border border-slate-200 bg-white rounded-lg sm:rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
                                     <button type="button" aria-label="Show or hide password" onclick="togglePasswordVisibility('security-email-current-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"><i class="fa-solid fa-eye text-xs"></i></button>
                                 </div>
                             </div>
-                            <div id="security-email-google-only" class="hidden rounded-2xl border border-indigo-200 bg-indigo-50 p-3 text-[11px] leading-relaxed text-indigo-800">
+                            <div id="security-email-google-only" class="hidden rounded-lg sm:rounded-2xl border border-indigo-200 bg-indigo-50 p-2.5 sm:p-3 text-[11px] leading-relaxed text-indigo-800">
                                 <p>This account does not have a CatRank password yet. Add one only if you want email/password as an additional sign-in option.</p>
                                 <a href="/set-password" class="mt-2 inline-flex items-center gap-1.5 font-black text-indigo-700 underline">
                                     <i class="fa-solid fa-key text-[10px]"></i>
@@ -190,80 +192,80 @@
                                 </a>
                             </div>
 
-                            <div style="padding-top: 12px;">
-                                <button id="security-email-save" type="button" onclick="saveEmailSignInMethod()" class="w-full px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition" data-i18n="save_email_method_btn">Continue</button>
+                            <div class="pt-1 sm:pt-2">
+                                <button id="security-email-save" type="button" onclick="saveEmailSignInMethod()" class="w-full px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] sm:text-xs font-bold shadow-sm transition" data-i18n="save_email_method_btn">Continue</button>
                             </div>
                         </div>
                     </div>
 
-                    <div class="p-3.5">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-2xl bg-white border border-slate-200 flex items-center justify-center flex-shrink-0">
+                    <div class="p-3 sm:p-3.5">
+                        <div class="flex items-start sm:items-center gap-2.5 sm:gap-3 w-full min-w-0">
+                            <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-white border border-slate-200 flex items-center justify-center flex-shrink-0 mt-0.5 sm:mt-0">
                                 <img src="{{ url_for('static', filename='images/google-g.svg') }}" alt="" class="w-4 h-4">
                             </div>
                             <div class="min-w-0 flex-grow">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <h5 class="text-xs font-black text-slate-900">Google</h5>
-                                    <span id="security-google-status" class="text-[10px] font-black rounded-full px-2 py-0.5 bg-slate-100 text-slate-500">…</span>
+                                <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                                    <h5 class="text-[11px] sm:text-xs font-black text-slate-900 leading-tight">Google</h5>
+                                    <span id="security-google-status" class="text-[9px] sm:text-[10px] font-black rounded-full px-1.5 sm:px-2 py-0.5 bg-slate-100 text-slate-500 flex-shrink-0">…</span>
                                 </div>
-                                <p id="security-google-value" class="mt-0.5 text-xs text-slate-500">Checking Google sign-in…</p>
-                                <p id="security-google-note" class="mt-1 text-[10px] leading-relaxed text-slate-400">Changing your CatRank email resets Google sign-in if the Google email no longer matches.</p>
+                                <p id="security-google-value" class="mt-0.5 text-[11px] sm:text-xs text-slate-500 truncate">Checking Google sign-in…</p>
+                                <p id="security-google-note" class="mt-1 text-[10px] leading-snug sm:leading-relaxed text-slate-400">Changing your CatRank email resets Google sign-in if the Google email no longer matches.</p>
                             </div>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <section id="password-security-card" class="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm space-y-3">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center"><i class="fa-solid fa-key text-xs"></i></div>
-                    <div>
-                        <h4 class="text-xs font-black text-slate-900" data-i18n="change_password_label">Change password</h4>
-                        <p class="text-[11px] text-slate-500" data-i18n="password_security_desc">Use a unique password you do not use on other sites.</p>
+            <section id="password-security-card" class="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-3 sm:p-3.5 shadow-sm space-y-2.5 sm:space-y-3">
+                <div class="flex items-center gap-2.5 sm:gap-3">
+                    <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-key text-[10px] sm:text-xs"></i></div>
+                    <div class="min-w-0">
+                        <h4 class="text-[11px] sm:text-xs font-black text-slate-900 leading-tight" data-i18n="change_password_label">Change password</h4>
+                        <p class="text-[10px] sm:text-[11px] text-slate-500 leading-snug" data-i18n="password_security_desc">Use a unique password you do not use on other sites.</p>
                     </div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
                     <div class="relative">
-                        <input type="password" maxlength="128" autocomplete="current-password" id="edit-old-password" placeholder="Current password" data-i18n-placeholder="current_password_placeholder" class="w-full pl-3.5 pr-10 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="password" maxlength="128" autocomplete="current-password" id="edit-old-password" placeholder="Current password" data-i18n-placeholder="current_password_placeholder" class="w-full pl-3 pr-10 py-2 sm:pl-3.5 sm:py-2.5 text-[11px] sm:text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-lg sm:rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <button type="button" aria-label="Show password" aria-pressed="false" onclick="togglePasswordVisibility('edit-old-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"><i class="fa-solid fa-eye text-xs"></i></button>
                     </div>
                     <div class="relative">
-                        <input type="password" maxlength="128" autocomplete="new-password" id="edit-new-password" minlength="8" placeholder="New password" data-i18n-placeholder="new_password_placeholder" class="w-full pl-3.5 pr-10 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <input type="password" maxlength="128" autocomplete="new-password" id="edit-new-password" minlength="8" placeholder="New password" data-i18n-placeholder="new_password_placeholder" class="w-full pl-3 pr-10 py-2 sm:pl-3.5 sm:py-2.5 text-[11px] sm:text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-lg sm:rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <button type="button" aria-label="Show password" aria-pressed="false" onclick="togglePasswordVisibility('edit-new-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"><i class="fa-solid fa-eye text-xs"></i></button>
                     </div>
-                    <div class="relative">
-                        <input type="password" maxlength="128" autocomplete="new-password" id="edit-confirm-new-password" minlength="8" placeholder="Confirm password" data-i18n-placeholder="confirm_new_password_label" class="w-full pl-3.5 pr-10 py-2.5 text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <div class="relative sm:col-span-2">
+                        <input type="password" maxlength="128" autocomplete="new-password" id="edit-confirm-new-password" minlength="8" placeholder="Confirm password" data-i18n-placeholder="confirm_new_password_label" class="w-full pl-3 pr-10 py-2 sm:pl-3.5 sm:py-2.5 text-[11px] sm:text-xs font-medium border border-slate-200 bg-slate-50 focus:bg-white rounded-lg sm:rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <button type="button" aria-label="Show password" aria-pressed="false" onclick="togglePasswordVisibility('edit-confirm-new-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"><i class="fa-solid fa-eye text-xs"></i></button>
                     </div>
                 </div>
                 <p id="password-security-status" class="hidden text-[11px] font-semibold leading-relaxed"></p>
-                <div class="flex justify-end pt-1">
-                    <button type="button" id="update-password-btn" onclick="handleUserPasswordChange()" class="px-4 py-2.5 bg-slate-900  text-white text-xs font-bold rounded-xl transition" data-i18n="change_password_btn">Change Password</button>
+                <div class="flex justify-start sm:justify-end pt-1">
+                    <button type="button" id="update-password-btn" onclick="handleUserPasswordChange()" class="w-full sm:w-auto px-4 py-2 sm:py-2.5 bg-slate-900 text-white text-[11px] sm:text-xs font-bold rounded-lg sm:rounded-xl transition" data-i18n="change_password_btn">Change Password</button>
                 </div>
             </section>
 
-            <section id="password-security-note" class="hidden rounded-3xl border border-slate-200 bg-slate-50 p-3.5">
-                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                        <p class="text-xs font-bold text-slate-800">No password is connected yet.</p>
-                        <p class="mt-1 text-[11px] leading-relaxed text-slate-500">A password is optional for Google/phone accounts. Add one only if you also want email/password sign-in.</p>
+            <section id="password-security-note" class="hidden rounded-2xl sm:rounded-3xl border border-slate-200 bg-slate-50 p-3 sm:p-3.5">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 w-full">
+                    <div class="min-w-0">
+                        <p class="text-[11px] sm:text-xs font-bold text-slate-800 leading-tight">No password is connected yet.</p>
+                        <p class="mt-0.5 sm:mt-1 text-[10px] sm:text-[11px] leading-snug sm:leading-relaxed text-slate-500">A password is optional for Google/phone accounts. Add one only if you also want email/password sign-in.</p>
                     </div>
-                    <a href="/set-password" class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition flex-shrink-0">
+                    <a href="/set-password" class="inline-flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] sm:text-xs font-bold transition flex-shrink-0 w-full sm:w-auto text-center">
                         <i class="fa-solid fa-key text-[10px]"></i>
                         Set password
                     </a>
                 </div>
             </section>
 
-            <section id="sessions-security-card" class="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center"><i class="fa-solid fa-laptop-file text-xs"></i></div>
-                    <div>
-                        <h4 class="text-xs font-black text-slate-900" data-i18n="sessions_title">Other sessions</h4>
-                        <p class="text-[11px] text-slate-500" data-i18n="sessions_desc">Sign out CatRank on your other browsers and devices.</p>
+            <section id="sessions-security-card" class="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-3 sm:p-3.5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                    <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center flex-shrink-0"><i class="fa-solid fa-laptop-file text-[10px] sm:text-xs"></i></div>
+                    <div class="min-w-0">
+                        <h4 class="text-[11px] sm:text-xs font-black text-slate-900 leading-tight" data-i18n="sessions_title">Other sessions</h4>
+                        <p class="text-[10px] sm:text-[11px] text-slate-500 leading-snug sm:leading-relaxed" data-i18n="sessions_desc">Sign out CatRank on your other browsers and devices.</p>
                     </div>
                 </div>
-                <button id="signout-other-sessions-btn" type="button" onclick="signOutOtherSessions()" class="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 transition" data-i18n="signout_other_sessions_btn">Sign out other sessions</button>
+                <button id="signout-other-sessions-btn" type="button" onclick="signOutOtherSessions()" class="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-[11px] sm:text-xs font-bold text-slate-700 transition flex-shrink-0" data-i18n="signout_other_sessions_btn">Sign out other sessions</button>
             </section>
         </div>
     </div>
