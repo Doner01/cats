@@ -126,6 +126,46 @@ async function main() {
         if ([390, 1440].includes(width)) await page.screenshot({path: path.join(output, `security-${width}.png`)});
         await page.evaluate(() => openSecurityMethod('email'));
         assert(await page.$eval('#edit-profile-dialog', el => el.scrollWidth <= el.clientWidth + 1), 'Expanded email manager fits the dialog');
+        if (width < 640) {
+            for (const height of [900, 480]) {
+                await page.setViewport({width, height});
+                await page.waitForFunction(() => {
+                    const rect = document.getElementById('edit-profile-dialog').getBoundingClientRect();
+                    return Math.abs(rect.height - (innerHeight - 32)) < 1 && Math.abs(rect.top - 16) < 1;
+                });
+                const fixedControls = await page.evaluate(async () => {
+                    const body = document.getElementById('profile-dialog-body');
+                    const close = document.querySelector('.profile-dialog-heading > button');
+                    const tabs = document.querySelector('.profile-dialog-tabs');
+                    const before = close.getBoundingClientRect();
+                    const tabsTop = tabs.getBoundingClientRect().top;
+                    body.scrollTop = body.scrollHeight;
+                    await new Promise(requestAnimationFrame);
+                    const after = close.getBoundingClientRect();
+                    const lastAction = document.getElementById('signout-other-sessions-btn').getBoundingClientRect();
+                    return {
+                        scrolled: body.scrollTop > 0,
+                        stationary: before.top === after.top && before.left === after.left && tabsTop === tabs.getBoundingClientRect().top,
+                        tappable: close.contains(document.elementFromPoint(after.left + after.width / 2, after.top + after.height / 2)),
+                        targetSize: Math.min(after.width, after.height),
+                        lastActionVisible: lastAction.top >= body.getBoundingClientRect().top && lastAction.bottom <= body.getBoundingClientRect().bottom,
+                    };
+                });
+                assert(fixedControls.scrolled, 'Mobile security content must scroll');
+                assert(fixedControls.stationary, 'Close button and tabs must stay in place while scrolling');
+                assert(fixedControls.tappable && fixedControls.targetSize >= 44, `Close button stays tappable with a 44px target: ${JSON.stringify(fixedControls)}`);
+                assert(fixedControls.lastActionVisible, 'Last security action remains reachable');
+                if (width === 390) await page.screenshot({path: path.join(output, `security-scrolled-${width}-${height}.png`)});
+            }
+            await page.click('.profile-dialog-heading > button');
+            await page.waitForSelector('#edit-profile-modal.hidden');
+            assert(await page.evaluate(() => !document.body.classList.contains('overflow-hidden')), 'Tapping close restores page scrolling');
+            await page.setViewport({width, height: 900});
+            await page.click('#profile-actions button');
+            assert.equal(await page.$eval('#profile-dialog-body', el => el.scrollTop), 0, 'Reopening resets content scroll');
+            await page.click('#tab-btn-security');
+            await page.waitForFunction(() => document.querySelector('#security-google-status').textContent !== '…');
+        }
         if ([390, 1440].includes(width)) {
             await page.evaluate(async () => {
                 closeSecurityMethod('email');

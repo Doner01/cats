@@ -2361,12 +2361,13 @@ body { padding-top: 80px; }
 #profile-email-badge { min-width: 0; max-width: 100%; }
 #profile-email-text, #profile-bio { overflow-wrap: anywhere; }
 #profile-name { max-width: 100%; }
-#edit-profile-dialog { min-width: 0; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 24px; }
-.profile-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 16px; }
+#edit-profile-dialog { display: flex; flex-direction: column; min-width: 0; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: hidden; }
+.profile-dialog-heading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 24px 16px; }
 .profile-dialog-heading h3 { min-width: 0; line-height: 1.4; }
-.profile-dialog-heading > button { flex: 0 0 32px; }
-.profile-dialog-tabs { display: flex; gap: 8px; border-bottom: 1px solid #e2e8f0; margin-bottom: 20px; }
+.profile-dialog-heading > button { flex: 0 0 44px; width: 44px; height: 44px; }
+.profile-dialog-tabs { display: flex; flex-shrink: 0; gap: 8px; border-bottom: 1px solid #e2e8f0; margin: 0 24px; }
 .profile-dialog-tabs > button { min-height: 40px; }
+#profile-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 24px 24px; }
 #tab-content-security { display: flex; flex-direction: column; gap: 20px; }
 #tab-content-security.hidden { display: none; }
 .security-section { border-top: 1px solid #e2e8f0; padding-top: 20px; }
@@ -2385,10 +2386,11 @@ body { padding-top: 80px; }
 #edit-profile-dialog .security-action-row { gap: 16px; }
 #signout-other-sessions-btn { width: auto; min-height: 40px; }
 @media (max-width: 639px) {
-    #edit-profile-dialog { padding: 18px; border-radius: 22px; }
-    .profile-dialog-heading { gap: 12px; padding-bottom: 12px; }
+    #edit-profile-dialog { border-radius: 22px; }
+    .profile-dialog-heading { gap: 12px; padding: 18px 18px 12px; }
     .profile-dialog-heading h3 { font-size: 16px; }
-    .profile-dialog-tabs { gap: 0; }
+    .profile-dialog-tabs { gap: 0; margin: 0 18px; }
+    #profile-dialog-body { padding: 20px 18px 18px; }
     .security-method { padding: 14px; }
     #signout-other-sessions-btn { width: 100%; }
 }

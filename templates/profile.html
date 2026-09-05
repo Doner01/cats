@@ -76,7 +76,7 @@
     </div>
 </div>
 <div id="edit-profile-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop overscroll-none">
-    <div id="edit-profile-dialog" class="bg-white rounded-3xl border border-slate-200 max-w-xl w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 overflow-y-auto overscroll-contain">
+    <div id="edit-profile-dialog" class="bg-white rounded-3xl border border-slate-200 max-w-xl w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150">
         <div class="profile-dialog-heading">
             <h3 class="text-lg font-black text-slate-900 flex items-center gap-2">
                 <i class="fa-solid fa-user-pen text-indigo-500"></i>
@@ -90,6 +90,7 @@
             <button id="tab-btn-basic" onclick="switchProfileModalTab('basic')" class="px-4 py-2 text-xs font-bold text-indigo-600 border-b-2 border-indigo-600 transition" data-i18n="tab_basic_info">Basic Info</button>
             <button id="tab-btn-security" onclick="switchProfileModalTab('security')" class="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition" data-i18n="tab_security">Account & Security</button>
         </div>
+        <div id="profile-dialog-body">
         <div id="tab-content-basic" class="space-y-4">
             <div class="space-y-1.5">
                 <label for="edit-avatar-file" class="block text-xs font-bold text-slate-700" data-i18n="profile_photo_label">Profile Photo</label>
@@ -271,6 +272,7 @@
                 </div>
             </section>
         </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -307,6 +309,8 @@ function switchProfileModalTab(tab) {
     const secTab = document.getElementById("tab-content-security");
     const basicBtn = document.getElementById("tab-btn-basic");
     const secBtn = document.getElementById("tab-btn-security");
+    const body = document.getElementById("profile-dialog-body");
+    if (body) body.scrollTop = 0;
     if (tab === 'basic') {
         if (typeof window.closeSecurityMethod === "function") {
             for (const method of ["email", "google"]) window.closeSecurityMethod(method);
@@ -452,8 +456,6 @@ function openEditProfileModal() {
     modal.classList.remove("hidden");
     document.documentElement.classList.add("overflow-hidden");
     document.body.classList.add("overflow-hidden");
-    const dialog = document.getElementById("edit-profile-dialog");
-    if (dialog) dialog.scrollTop = 0;
     switchProfileModalTab('basic');
     const nameInput = document.getElementById("edit-display-name");
     const bioInput = document.getElementById("edit-user-bio");
