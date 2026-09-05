@@ -1863,13 +1863,14 @@ def get_notifications() -> Any:
     notifications: List[Dict[str, Any]] = []
 
     unread_count = 0
-    if supabase_admin:
+    admin = supabase_admin
+    if admin is not None:
         def fetch_notifs() -> Any:
             notif_columns = "id,actor_id,actor_name,actor_avatar,type,cat_id,cat_name,cat_image,comment_id,message,created_at,is_read"
-            return supabase_admin.table("notifications").select(notif_columns).eq("user_id", user_id).order("created_at", desc=True).limit(50).execute()
+            return admin.table("notifications").select(notif_columns).eq("user_id", user_id).order("created_at", desc=True).limit(50).execute()
 
         def fetch_unread() -> Any:
-            return supabase_admin.table("notifications").select("id", count=CountMethod.exact).eq("user_id", user_id).eq("is_read", False).limit(1).execute()
+            return admin.table("notifications").select("id", count=CountMethod.exact).eq("user_id", user_id).eq("is_read", False).limit(1).execute()
 
         try:
             with ThreadPoolExecutor(max_workers=2) as executor:
