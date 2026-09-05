@@ -110,7 +110,7 @@ def validate_production_configuration() -> None:
         errors.append("SUPABASE_ANON_KEY must be a public key, never the service key")
     try:
         payload = SUPABASE_ANON_KEY.split(".")[1]
-        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        claims: Dict[str, Any] = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
         if isinstance(claims, dict) and claims.get("role") == "service_role":
             errors.append("SUPABASE_ANON_KEY contains a privileged service-role token")
     except (IndexError, ValueError, UnicodeDecodeError):
@@ -1033,13 +1033,15 @@ def assign_request_id() -> None:
             from flask import abort
             abort(403, description="CatRank is not available in your country or your location could not be verified.")
     if request.path.startswith("/api/") and not ENABLE_DEMO_DATA:
-        for key, value in (request.view_args or {}).items():
-            if key.endswith("_id"):
-                try:
-                    request.view_args[key] = str(uuid.UUID(str(value)))
-                except (ValueError, TypeError):
-                    from flask import abort
-                    abort(404)
+        view_args = request.view_args
+        if view_args is not None:
+            for key, value in view_args.items():
+                if key.endswith("_id"):
+                    try:
+                        view_args[key] = str(uuid.UUID(str(value)))
+                    except (ValueError, TypeError):
+                        from flask import abort
+                        abort(404)
 
 @app.after_request
 def apply_response_headers(response: Response) -> Response:
@@ -2639,7 +2641,7 @@ def admin_collection(table: str, response_key: str, search_columns: Tuple[str, .
             if rows:
                 count_result = supabase_admin.rpc("admin_user_counts", {"p_user_ids": [str(row["id"]) for row in rows]}).execute()
                 counts = {str(row["user_id"]): row for row in as_row_list(getattr(count_result, "data", None))}
-            rows = [{
+            rows: List[Dict[str, Any]] = [{
                 "user_id": str(row.get("id")),
                 "user_name": str(row.get("display_name") or "Cat Lover"),
                 "display_name": str(row.get("display_name") or "Cat Lover"),
@@ -3168,6 +3170,7 @@ def ensure_auth_profile(user: Any) -> None:
         existing = rows[0] if rows else None
     except Exception as exc:
         app.logger.warning("Could not inspect profile before bootstrap for %s: %s", user_id, exc)
+        raise
 
     if existing is None:
         initial_avatar = google_avatar or generate_default_avatar(name)
@@ -3219,6 +3222,7 @@ def ensure_auth_profile(user: Any) -> None:
         contact_updates["phone"] = auth_phone
     synchronized = safe_db_update("profiles", contact_updates, "id", user_id)
     if synchronized is None or not getattr(synchronized, "data", None):
+        raise RuntimeError("Could not synchronize profile contact details")
         app.logger.debug("Could not synchronize profile contact details for %s", user_id)
 
     invalidate_profile_cache(user_id)
