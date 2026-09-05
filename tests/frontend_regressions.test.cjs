@@ -58,7 +58,7 @@ function browser(commentIds = []) {
         body: {style: {}}
     };
     const context = vm.createContext({
-        document, console, URL, URLSearchParams, Date, Set, Map,
+        document, console, URL, URLSearchParams, Date, Set, Map, AbortController,
         CSS: {escape: value => String(value).replace(/"/g, '\\"')},
         CustomEvent: class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } },
         setTimeout: () => 0, clearTimeout() {}, showToast() {},
@@ -320,4 +320,119 @@ test('the first favorites synchronization preserves the double-click guard', asy
     };
     await Promise.all([context.toggleFavorite('cat-1'), context.toggleFavorite('cat-1')]);
     assert.equal(writes, 1);
+});
+
+
+function commentsBrowser() {
+    const b = browser();
+    const container = element('modal-comments-items');
+    container.children = [];
+    container.appendChild = node => container.children.push(node);
+    b.nodes.set(container.id, container);
+    b.context.document.createElement = () => element();
+    b.run("activeModalCatId = 'cat-a';");
+    return {...b, container};
+}
+
+test('stalled comment response headers time out with a retry and release the loading guard', async () => {
+    const {context, container, run} = commentsBrowser();
+    let expire;
+    context.setTimeout = callback => { expire = callback; return 1; };
+    context.fetch = (_url, {signal}) => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), {name:'AbortError'})));
+    });
+    const pending = context.loadCatComments('cat-a');
+    assert.equal(run('commentsLoading'), true);
+    expire();
+    await pending;
+    assert.equal(run('commentsLoading'), false);
+    assert.match(container.textContent, /Could not load comments/);
+    assert.equal(container.children[0].textContent, 'Try again');
+});
+
+test('a stalled comment JSON body is also covered by the deadline', async () => {
+    const {context, container, run} = commentsBrowser();
+    let expire;
+    context.setTimeout = callback => { expire = callback; return 1; };
+    context.fetch = async (_url, {signal}) => ({ok:true, json:()=>new Promise((_resolve,reject)=>{
+        signal.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'})));
+    })});
+    const pending = context.loadCatComments('cat-a');
+    await flush(); expire(); await pending;
+    assert.equal(run('commentsLoading'), false);
+    assert.match(container.textContent, /Could not load comments/);
+});
+
+test('an obsolete aborted comments request cannot replace the next cat or release its loading guard', async () => {
+    const {context, container, run} = commentsBrowser();
+    const controller = new AbortController();
+    context.fetch = (_url,{signal})=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'}))));
+    const pending = context.loadCatComments('cat-a',false,null,controller.signal);
+    run("activeModalCatId='cat-b'; modalRequestVersion++; commentsRequestVersion++; commentsLoading=true;");
+    container.textContent = 'Cat B is loading';
+    controller.abort(); await pending;
+    assert.equal(container.textContent, 'Cat B is loading');
+    assert.equal(run('commentsLoading'), true);
+});
+
+test('a current aborted comments request offers retry rather than leaving its loading placeholder', async () => {
+    const {context, container, run} = commentsBrowser();
+    context.fetch = async()=>{throw Object.assign(new Error('aborted'),{name:'AbortError'})};
+    await context.loadCatComments('cat-a');
+    assert.equal(run('commentsLoading'),false);
+    assert.equal(container.children[0].textContent,'Try again');
+});
+
+test('stale response bodies cannot overwrite a newer comments request', async () => {
+    const {context, container, run} = commentsBrowser();
+    const body = deferred();
+    context.fetch = async()=>({ok:true,json:()=>body.promise});
+    const pending = context.loadCatComments('cat-a');
+    await flush();
+    run('commentsRequestVersion++;');
+    container.textContent='Newer comments';
+    body.resolve({comments:[],total:0}); await pending;
+    assert.equal(container.textContent,'Newer comments');
+});
+
+test('closing or switching a modal resets the composer and stale sends cannot unlock a new submission', async () => {
+    const {context, nodes, run} = commentsBrowser();
+    const input = element('modal-comment-input'); input.value = 'hello';
+    const button = element('modal-comment-submit-btn'); button.disabled = false;
+    nodes.set(input.id, input); nodes.set(button.id, button);
+    const request = deferred(); context.fetch = () => request.promise;
+    const pending = context.submitComment(); await flush();
+    assert.equal(button.disabled, true);
+    run("modalRequestVersion++; activeModalCatId='cat-b'; resetCatModalState();");
+    assert.equal(button.disabled, false);
+    button.disabled = true;
+    request.resolve(response({comment:{id:'sent',comment:'hello'}})); await pending;
+    assert.equal(button.disabled, true);
+    assert.equal(input.value, '');
+});
+
+test('comment submit refuses an already busy composer even after the cooldown', async () => {
+    const {context,nodes,run} = commentsBrowser();
+    const input=element('modal-comment-input');input.value='hello';
+    const button=element('modal-comment-submit-btn');button.disabled=true;
+    nodes.set(input.id,input);nodes.set(button.id,button);
+    let writes=0;context.fetch=async()=>{writes++;return response({})};
+    run('lastCommentTime=0;');
+    await context.submitComment();
+    assert.equal(writes,0);
+});
+
+test('expired comment cursors recover by reloading the first page', async () => {
+    const {context,container,run}=commentsBrowser();
+    let retry;
+    context.document.createElement=()=>({...element(),addEventListener:(_type,handler)=>{retry=handler}});
+    run("nextCommentsCursor='expired';");
+    container.textContent='Previously loaded comments';
+    context.fetch=async()=>({ok:false,status:400,json:async()=>({error:'This comment page has expired. Reload the comments.'})});
+    await context.loadCatComments('cat-a',true);
+    assert.equal(container.textContent,'Previously loaded comments');
+    let requestedUrl;
+    context.fetch=async url=>{requestedUrl=url;return response({comments:[],total:0})};
+    await retry();
+    assert.equal(requestedUrl,'/api/cats/cat-a/comments');
 });

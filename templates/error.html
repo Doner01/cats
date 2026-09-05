@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ status }} | CatRank{% endblock %}
 {% block content %}
-<section class="feed-empty"><span class="eyebrow">{{ status }}</span><i class="fa-solid fa-cat" aria-hidden="true"></i><h1>{{ 'This page wandered off.' if status == 404 else 'We hit a little snag.' }}</h1><p>{{ message }}</p><a href="/" class="primary-button" data-i18n="back_to_feed">Back to the cats</a></section>
+<section class="feed-empty error-page">
+    <span class="eyebrow">{{ status }}</span><i class="fa-solid fa-cat" aria-hidden="true"></i>
+    <h1>{{ {404: 'This page wandered off.', 403: 'This door is closed.', 429: 'A little breather.', 503: 'The cats will be back soon.', 413: 'A little too much to carry.'}.get(status, 'We hit a little snag.') }}</h1>
+    <p>{{ message }}</p>
+    <div class="error-actions"><a href="/" class="primary-button" data-i18n="back_to_feed">Back to the cats</a><a href="{{ url_for('contact.page') }}" class="secondary-button">Contact support</a></div>
+    {% if status in (500, 503) %}<p class="error-reference">Support reference: {{ g.request_id }}</p>{% endif %}
+</section>
 {% endblock %}

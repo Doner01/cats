@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Contact & Community | CatRank{% endblock %}
+{% block content %}
+<div class="contact-page">
+    <header class="contact-intro">
+        <span class="eyebrow">The people behind the paws</span>
+        <h1>Let’s keep in touch.</h1>
+        <p>Find your fellow cat people, follow the latest updates, or get a little help with CatRank.</p>
+    </header>
+    <section class="contact-cards" aria-label="Community and support channels">
+        {% for name, description, link, icon in [
+            ('Telegram', 'News, updates and community', telegram_url, 'paper-plane'),
+            ('Discord', 'Chat with the CatRank community', discord_url, 'comments'),
+            ('Email', 'Contact CatRank support', 'mailto:' ~ (contact_email|urlencode) if contact_email else '', 'envelope')
+        ] %}
+        <article class="contact-card">
+            <span class="contact-icon"><i class="fa-solid fa-{{ icon }}" aria-hidden="true"></i></span>
+            <h2>{{ name }}</h2><p>{{ description }}</p>
+            {% if link %}
+            <a class="contact-channel" href="{{ link }}"{% if name != 'Email' %} target="_blank" rel="noopener noreferrer"{% endif %} aria-label="{{ 'Email CatRank support' if name == 'Email' else 'Open CatRank on ' ~ name ~ ' (opens in a new tab)' }}">
+                {{ contact_email if name == 'Email' else 'Join on ' ~ name }} <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+            </a>
+            {% else %}<span class="contact-unavailable">Currently unavailable</span>{% endif %}
+        </article>
+        {% endfor %}
+    </section>
+    <section class="contact-form-panel" aria-labelledby="contact-form-title">
+        <h2 id="contact-form-title">Send us a message</h2>
+        <p>Questions, feedback, or a cat that needs our attention? We’re here to help. Please don’t include passwords or other sensitive information.</p>
+        {% if sent %}<div class="contact-status contact-success" role="status">Thanks for reaching out. Your message was accepted by our email service.</div>{% endif %}
+        {% if errors %}<div id="contact-errors" class="contact-status contact-error" role="alert" tabindex="-1">
+            <p>{{ errors.get('form', 'Please check the highlighted fields below.') }}</p>
+        </div>{% endif %}
+        {% if mail_available %}
+        <form method="post" action="{{ url_for('contact.submit') }}" id="contact-form">
+            <input type="hidden" name="contact_token" value="{{ contact_token }}">
+            <div class="contact-honeypot" aria-hidden="true"><label for="contact-website">Leave this field empty</label><input id="contact-website" name="website" type="text" tabindex="-1" autocomplete="off"></div>
+            <div class="contact-fields">
+                {% for key, label, kind, maximum, autocomplete in [('name', 'Name', 'text', 80, 'name'), ('email', 'Email', 'email', 254, 'email'), ('subject', 'Subject', 'text', 120, 'off'), ('message', 'Message', 'textarea', 5000, 'off')] %}
+                <div class="contact-field{% if key in ('subject', 'message') %} contact-field-wide{% endif %}">
+                    <label for="contact-{{ key }}">{{ label }}</label>
+                    {% if kind == 'textarea' %}
+                    <textarea id="contact-{{ key }}" name="{{ key }}" rows="6" maxlength="{{ maximum }}" required{% if errors.get(key) %} aria-invalid="true" aria-describedby="contact-{{ key }}-error"{% endif %}>{{ values.get(key, '') }}</textarea>
+                    {% else %}
+                    <input id="contact-{{ key }}" name="{{ key }}" type="{{ kind }}" maxlength="{{ maximum }}" autocomplete="{{ autocomplete }}" value="{{ values.get(key, '') }}" required{% if errors.get(key) %} aria-invalid="true" aria-describedby="contact-{{ key }}-error"{% endif %}>
+                    {% endif %}
+                    {% if errors.get(key) %}<p class="contact-field-error" id="contact-{{ key }}-error">{{ errors[key] }}</p>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="contact-submit-row"><span>All fields are required.</span><button type="submit" class="primary-button">Send message <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button></div>
+        </form>
+        {% else %}
+        <div class="contact-status" role="status">Email sending is temporarily unavailable. You can still use any available contact option above.</div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/contact.js') }}?v={{ asset_fingerprint('js/contact.js') }}"></script>{% endblock %}

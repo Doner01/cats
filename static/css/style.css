@@ -2321,3 +2321,52 @@ body { padding-top: 80px; }
 .comment-inline-editor {
     gap: 8px !important;
 }
+
+/* Community and support */
+.contact-page { max-width: 960px; margin: 12px auto 0; }
+.contact-intro { max-width: 580px; margin-bottom: 30px; }
+.contact-intro h1 { margin: 14px 0; font-size: clamp(30px, 5vw, 46px); line-height: 1.15; letter-spacing: -1.5px; font-weight: 800; }
+.contact-intro p, .contact-form-panel > p { color: var(--muted); font-size: 14px; line-height: 1.8; }
+.contact-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.contact-card { display: flex; flex-direction: column; align-items: flex-start; padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: #fff; min-width: 0; }
+.contact-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: #eeeaf9; color: var(--accent); font-size: 18px; margin-bottom: 16px; }
+.contact-card h2, .contact-form-panel h2 { font-size: 20px; font-weight: 800; }
+.contact-card p { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 8px 0 16px; }
+.contact-channel { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--accent); font-size: 12px; font-weight: 800; overflow-wrap: anywhere; margin-top: auto; }
+.contact-channel i { flex-shrink: 0; }
+.contact-unavailable { color: var(--muted); background: #f5f3f7; font-size: 11px; border-radius: 8px; padding: 8px 10px; margin-top: auto; }
+.contact-form-panel { margin-top: 24px; padding: 28px; border: 1px solid var(--line); border-radius: 20px; background: #fff; }
+.contact-form-panel > p { margin: 10px 0 20px; font-size: 13px; max-width: 650px; }
+.contact-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.contact-field { min-width: 0; }
+.contact-field-wide { grid-column: 1 / -1; }
+.contact-field label { display: block; font-size: 12px; font-weight: 800; margin-bottom: 8px; }
+.contact-field input, .contact-field textarea { display: block; width: 100%; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; font-size: 16px; background: #fafbfc; }
+.contact-field textarea { resize: vertical; min-height: 140px; }
+.contact-field [aria-invalid=true] { border-color: #be123c; }
+.contact-field-error { color: #be123c; font-size: 12px; margin-top: 6px; }
+.contact-honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.contact-submit-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; }
+.contact-submit-row > span { font-size: 11px; color: var(--muted); }
+.contact-status { padding: 16px; border: 1px solid var(--line); border-radius: 12px; font-size: 13px; line-height: 1.7; background: #f7f5fa; margin: 16px 0; }
+.contact-success { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+.contact-error { background: #fff1f2; border-color: #fecdd3; color: #9f1239; }
+.error-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.error-reference { overflow-wrap: anywhere; }
+.site-footer { flex-wrap: wrap; gap: 12px 24px; align-items: center; }
+.site-footer a { display: inline-flex; align-items: center; min-height: 44px; }
+#profile-email-badge { min-width: 0; max-width: 100%; }
+#profile-email-text, #profile-bio { overflow-wrap: anywhere; }
+#profile-name { max-width: 100%; }
+#edit-profile-dialog { min-width: 0; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; }
+#tab-content-security { overflow-wrap: anywhere; }
+@media (max-width: 639px) {
+    .contact-cards, .contact-fields { grid-template-columns: minmax(0, 1fr); }
+    .feed-search { min-width: 0; flex: 1 1 0; }
+    .feed-sort { flex-shrink: 0; }
+    .contact-card, .contact-form-panel { padding: 20px; }
+    .contact-intro { margin-bottom: 22px; }
+    .contact-submit-row .primary-button { width: 100%; }
+    #edit-profile-dialog > .flex.border-b { gap: 0; }
+    #tab-btn-basic, #tab-btn-security { padding-left: 10px; padding-right: 10px; }
+}

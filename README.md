@@ -1,8 +1,11 @@
 # CatRank
 
-Flask application with Supabase Auth/PostgreSQL, Cloudflare R2 or Supabase Storage,
-Redis rate limiting/cache, and Vercel deployment. Python 3.12 is the deployment
-runtime; see `.python-version`.
+Flask application deployed with Gunicorn and Nginx on an Ubuntu VPS, Supabase
+Auth/PostgreSQL, Cloudflare R2, local Redis, and Cloudflare proxy/static caching.
+The repository also retains its optional Vercel deployment support.
+
+See [FINAL_POLISH.md](FINAL_POLISH.md) for contact/community configuration,
+the final verification results, and VPS deployment commands for this pass.
 
 ## Release requirements
 

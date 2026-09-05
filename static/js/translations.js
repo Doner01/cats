@@ -1,5 +1,6 @@
 const translations = {
     en: {
+        "contact_community": "Contact & community",
         "continue_google": "Continue with Google",
         "or_email": "Or use your email",
         "connected_methods": "Connected sign-in methods",
@@ -311,6 +312,7 @@ const translations = {
     },
 
     ru: {
+        "contact_community": "Контакты и сообщество",
         "continue_google": "Продолжить с Google",
         "or_email": "Или используйте почту",
         "connected_methods": "Способы входа",

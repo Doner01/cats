@@ -195,6 +195,11 @@ function resetCatModalState() {
     if (modalLikeCount) modalLikeCount.innerText = "0";
     if (modalHeartIcon) modalHeartIcon.innerText = "🤍";
     if (commentInput) commentInput.value = "";
+    const submitButton = document.getElementById('modal-comment-submit-btn');
+    if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.innerHTML = '<i class="fa-solid fa-paper-plane" aria-hidden="true"></i> <span>Send</span>';
+    }
     cancelReply();
 }
 
@@ -300,6 +305,8 @@ function closeCatModal() {
     document.body.style.overflow = "auto";
     activeModalCatId = null;
     modalRequestVersion++;
+    modalAbortController?.abort();
+    modalAbortController = null;
     resetCatModalState();
     updateModalNavigation();
     window.dispatchEvent(new CustomEvent('catrank_viewer_closed'));
@@ -626,7 +633,7 @@ function renderCommentEditControl(comment) {
     const allowed = commentCanBeEdited(comment);
     const title = allowed ? '' : (typeof t === 'function' ? t('comment_edit_expired') : 'Editing is available for two minutes after posting.');
     const label = typeof t === 'function' ? t('edit_btn') : 'Edit';
-    return `<button type="button" data-edit-comment-id="${id}" ${allowed ? `onclick="editComment('${actionId}')"` : 'disabled aria-disabled="true"'} class="comment-action-button comment-edit-button ${allowed ? '' : 'is-disabled'}" title="${escapeHtml(title)}"><i class="fa-regular fa-pen-to-square" aria-hidden="true"></i><span>${escapeHtml(label)}</span></button>`;
+    return `<button type="button" data-edit-comment-id="${id}" aria-label="${escapeHtml(label)}" ${allowed ? `onclick="editComment('${actionId}')"` : 'disabled aria-disabled="true"'} class="comment-action-button comment-edit-button ${allowed ? '' : 'is-disabled'}" title="${escapeHtml(title)}"><i class="fa-regular fa-pen-to-square" aria-hidden="true"></i><span>${escapeHtml(label)}</span></button>`;
 }
 
 function renderCommentLikeControl(comment) {
@@ -671,13 +678,24 @@ async function loadCatComments(catId, append = false, posted = null, abortSignal
     const commentsVersion = ++commentsRequestVersion;
     commentsLoading = true;
     const cursor = append ? nextCommentsCursor : null;
+    let restartPagination = false;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (abortSignal?.aborted) abort();
+    else abortSignal?.addEventListener('abort', abort, {once: true});
+    // Cover both response headers and body reads on stalled mobile connections.
+    const timeout = setTimeout(abort, 15000);
+    document.getElementById('comments-retry')?.remove();
     try {
         const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-        const fetchOpts = abortSignal ? { signal: abortSignal } : {};
+        const fetchOpts = { signal: controller.signal };
         const res = await fetch(`/api/cats/${encodeURIComponent(catId)}/comments${query}`, fetchOpts);
         const data = await res.json();
         if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion || commentsVersion !== commentsRequestVersion) return;
-        if (!res.ok) throw new Error(data.error || 'Could not load comments.');
+        if (!res.ok) {
+            restartPagination = append && res.status === 400;
+            throw new Error(data.error || 'Could not load comments.');
+        }
         const serverTime = Date.parse(String(data.server_time || ''));
         if (Number.isFinite(serverTime)) serverClockOffsetMs = serverTime - Date.now();
         const incoming = data.comments || [];
@@ -804,7 +822,7 @@ async function loadCatComments(catId, append = false, posted = null, abortSignal
                                 <button type="button" onclick="startReply('${replyId}', '${jsSafeRAuthorName}', '${rootId}')" class="comment-action-button comment-reply-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
                                 ${rIsOwner ? `
                                     ${renderCommentEditControl(r)}
-                                    <button type="button" onclick="deleteComment('${replyId}', event)" class="comment-action-button comment-delete-button" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
+                                    <button type="button" onclick="deleteComment('${replyId}', event)" class="comment-action-button comment-delete-button" aria-label="${escapeHtml(deleteBtnText)}" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
                                 ` : ''}
                             </div>
                         </div>
@@ -834,7 +852,7 @@ async function loadCatComments(catId, append = false, posted = null, abortSignal
                             <button type="button" onclick="startReply('${rootId}', '${jsSafeAuthorDisplayName}', '${rootId}')" class="comment-action-button comment-reply-button" title="${escapeHtml(replyBtnText)}"><i class="fa-regular fa-comment-dots" aria-hidden="true"></i><span>${escapeHtml(replyBtnText)}</span></button>
                             ${isOwner ? `
                                 ${renderCommentEditControl(c)}
-                                <button type="button" onclick="deleteComment('${rootId}', event)" class="comment-action-button comment-delete-button" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
+                                <button type="button" onclick="deleteComment('${rootId}', event)" class="comment-action-button comment-delete-button" aria-label="${escapeHtml(deleteBtnText)}" title="${escapeHtml(deleteBtnText)}"><i class="fa-regular fa-trash-can" aria-hidden="true"></i><span>${escapeHtml(deleteBtnText)}</span></button>
                             ` : ''}
                         </div>
                         ${replies.length > 0 ? `
@@ -871,20 +889,22 @@ async function loadCatComments(catId, append = false, posted = null, abortSignal
             container.appendChild(more);
         }
     } catch (e) {
-        if (e.name === 'AbortError') return;
         if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion || commentsVersion !== commentsRequestVersion) return;
         const container = document.getElementById('modal-comments-items');
         if (container) {
             if (!append) container.textContent = 'Could not load comments. ';
-            else showToast('Could not load more comments. Please retry.', 'error');
+            else showToast(restartPagination ? 'This comment page expired. Reload the comments to continue.' : 'Could not load more comments. Please retry.', 'error');
             const retry = document.createElement('button');
+            retry.id = 'comments-retry';
             retry.type = 'button';
             retry.className = 'text-indigo-600 font-bold';
-            retry.textContent = 'Try again';
-            retry.addEventListener('click', () => loadCatComments(catId, append));
+            retry.textContent = restartPagination ? 'Reload comments' : 'Try again';
+            retry.addEventListener('click', () => loadCatComments(catId, append && !restartPagination));
             container.appendChild(retry);
         }
     } finally {
+        clearTimeout(timeout);
+        abortSignal?.removeEventListener('abort', abort);
         if (commentsVersion === commentsRequestVersion) commentsLoading = false;
     }
 }
@@ -907,7 +927,7 @@ async function submitComment(event) {
 
     const input = document.getElementById("modal-comment-input");
     const submitBtn = document.getElementById("modal-comment-submit-btn");
-    if (!input || !activeModalCatId) return;
+    if (!input || !activeModalCatId || submitBtn?.disabled) return;
 
     const commentText = input.value.trim();
     if (!commentText) return;
@@ -960,7 +980,7 @@ async function submitComment(event) {
     } catch (e) {
         showToast("Error posting comment: " + e.message, "error");
     } finally {
-        if (submitBtn) {
+        if (submitBtn && submittedVersion === modalRequestVersion) {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane text-xs"></i> <span>Send</span>';
         }

@@ -20,6 +20,18 @@
     >
 
     <meta name="theme-color" content="#faf9f6">
+    {% if canonical_url and not status and not unavailable %}
+    <link rel="canonical" href="{{ canonical_url }}">
+    <meta property="og:url" content="{{ canonical_url }}">
+    {% endif %}
+    {% if not indexable_page or status or unavailable %}<meta name="robots" content="noindex, nofollow">{% endif %}
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="CatRank">
+    <meta property="og:title" content="{{ self.title()|striptags|trim }}">
+    <meta property="og:description" content="Share your cat, vote for your favorites, and meet the CatRank community.">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="{{ self.title()|striptags|trim }}">
+    <meta name="twitter:description" content="Share your cat, vote for your favorites, and meet the CatRank community.">
 
     <!-- Static CSS -->
     <link
@@ -624,6 +636,7 @@
             View rankings
         </a>
 
+        <a href="{{ url_for('contact.page') }}" data-i18n="contact_community">Contact & community</a>
     </footer>
 
     <!-- MOBILE NAV -->

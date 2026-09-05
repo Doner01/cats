@@ -28,6 +28,7 @@ from postgrest.types import CountMethod
 from werkzeug.exceptions import HTTPException, SecurityError
 from redis.exceptions import RedisError
 from PIL import Image, ImageOps, UnidentifiedImageError
+from contact import init_contact
 
 BASE_DIR: Path = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=BASE_DIR / ".env")
@@ -218,6 +219,8 @@ if CACHE_REDIS_URL.startswith(("redis://", "rediss://")):
         app.logger.info("Redis application cache configured")
     except Exception as redis_err:
         app.logger.warning("Redis application cache could not be initialized (%s)", type(redis_err).__name__)
+
+init_contact(app, limiter, lambda: redis_cache, env_flag)
 
 CACHE_PREFIX = "catrank:v4"
 cache_retry_after = 0.0
@@ -1074,20 +1077,20 @@ def apply_response_headers(response: Response) -> Response:
 def rate_limit_exceeded(_error: Any) -> Any:
     if request.path.startswith("/api/"):
         return jsonify({"error": "Too many requests. Please try again shortly."}), 429
-    return Response("Too many requests. Please try again shortly.", status=429, mimetype="text/plain")
+    return render_template("error.html", status=429, message="Too many requests. Please wait a little before trying again."), 429
 
 @app.errorhandler(RedisError)
 def rate_limit_storage_unavailable(_error: Any) -> Any:
     app.logger.warning("Shared rate-limit storage is unavailable")
     if request.path.startswith("/api/"):
         return jsonify({"error": "Service is temporarily unavailable. Please try again."}), 503
-    return Response("Service is temporarily unavailable. Please try again.", status=503, mimetype="text/plain")
+    return render_template("error.html", status=503, message="CatRank is temporarily unavailable. Please try again in a moment."), 503
 
 @app.errorhandler(413)
 def request_too_large(_error: Any) -> Any:
     if request.path.startswith("/api/"):
         return jsonify({"error": f"Upload is too large. Maximum image size is {MAX_FILE_SIZE // (1024 * 1024)}MB."}), 413
-    return Response("Request is too large.", status=413, mimetype="text/plain")
+    return render_template("error.html", status=413, message="This request is too large. Please use a smaller image or shorter message."), 413
 
 @app.errorhandler(HTTPException)
 def http_error(error: HTTPException) -> Any:
@@ -1110,7 +1113,28 @@ def server_error(error: Any) -> Any:
 
 @app.context_processor
 def shared_template_context() -> Dict[str, Any]:
-    return {"supabase_url": SUPABASE_URL, "supabase_anon_key": SUPABASE_ANON_KEY, "google_auth_enabled": GOOGLE_AUTH_ENABLED, "asset_fingerprint": asset_fingerprint}
+    canonical_paths = {"index": "/", "leaderboard_page": "/leaderboard", "contact.page": "/contact"}
+    canonical_path = canonical_paths.get(request.endpoint or "")
+    canonical_url = PUBLIC_SITE_URL + canonical_path if PUBLIC_SITE_URL and canonical_path else ""
+    return {"supabase_url": SUPABASE_URL, "supabase_anon_key": SUPABASE_ANON_KEY, "google_auth_enabled": GOOGLE_AUTH_ENABLED, "asset_fingerprint": asset_fingerprint,
+            "canonical_url": canonical_url, "indexable_page": canonical_path is not None}
+
+@app.route("/robots.txt")
+def robots() -> Response:
+    body = "User-agent: *\nAllow: /\n"
+    for path in ("/api/", "/admin", "/profile", "/user/", "/upload", "/login", "/register", "/auth/", "/forgot-password", "/reset-password", "/set-password", "/healthz", "/livez"):
+        body += f"Disallow: {path}\n"
+    if PUBLIC_SITE_URL:
+        body += f"Sitemap: {PUBLIC_SITE_URL}/sitemap.xml\n"
+    return Response(body, mimetype="text/plain")
+
+@app.route("/sitemap.xml")
+def sitemap() -> Response:
+    from xml.sax.saxutils import escape
+    urls = "".join(f"<url><loc>{escape(PUBLIC_SITE_URL + path)}</loc></url>"
+                   for path in ("/", "/leaderboard", "/contact")) if PUBLIC_SITE_URL else ""
+    return Response('<?xml version="1.0" encoding="UTF-8"?>\n'
+                    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls + '</urlset>', mimetype="application/xml")
 
 @app.route("/livez")
 def livez() -> Any:
