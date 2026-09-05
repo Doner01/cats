@@ -27,8 +27,8 @@ def get_model():
         _yolo_model = YOLO(model_path, task='detect')
         _model_loaded = True
         return _yolo_model
-    except Exception as e:
-        logger.error(f"Failed to load YOLO model: {e}")
+    except Exception:
+        logger.error("Failed to load YOLO model")
         _model_loaded = True
         return None
 
@@ -76,6 +76,6 @@ def detect_cats(image_bytes: bytes) -> bool:
         logger.info(log_msg)
         
         return accepted
-    except Exception as e:
+    except Exception:
         logger.exception("Cat detection inference failed")
         raise RuntimeError("Cat detector encountered an unexpected error.")
