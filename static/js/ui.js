@@ -53,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Do not also close the parent cat viewer.
             if (modal.id === 'cat-detail-modal' && modal.querySelector('.comment-inline-editor')) return;
             if (modal.id === 'cat-detail-modal') closeCatModal();
+            else if (modal.id === 'edit-profile-modal') closeEditProfileModal();
             else modal.classList.add('hidden');
         }
     });

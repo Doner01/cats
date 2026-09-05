@@ -2,21 +2,21 @@
 {% block title %}User Profile | CatRank{% endblock %}
 {% block content %}
 <div id="profile-container" class="max-w-4xl mx-auto px-4 sm:px-6 py-8 animate-fade-in space-y-6 sm:space-y-8" data-view-user-id="{{ view_user_id or '' }}" data-initial-tab="uploads">
-    <div class="flex flex-col sm:flex-row items-center sm:items-start gap-6 sm:gap-8">
-        <div class="w-24 h-24 sm:w-32 sm:h-32 flex-shrink-0 relative group/avatar">
+    <section class="profile-header" aria-labelledby="profile-name">
+        <div class="profile-avatar-wrap relative group/avatar">
             <img id="profile-avatar" src="" alt="Profile Photo" class="w-full h-full rounded-full object-cover border-2 border-white shadow bg-slate-50 transition-transform duration-300 group-hover/avatar:scale-105">
             <div id="avatar-edit-overlay" class="hidden absolute inset-0 rounded-full border border-slate-200 overflow-hidden">
-                <button id="avatar-edit-overlay-btn" onclick="openEditProfileModal()" class="hidden absolute inset-0 bg-black/50 text-white flex-col items-center justify-center gap-1 opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-200 cursor-pointer">
+                <button id="avatar-edit-overlay-btn" type="button" onclick="openEditProfileModal()" aria-label="Edit profile photo" class="hidden absolute inset-0 bg-black/50 text-white flex-col items-center justify-center gap-1 opacity-0 group-hover/avatar:opacity-100 transition-opacity duration-200 cursor-pointer">
                     <i class="fa-solid fa-camera"></i>
-                    <span class="text-[10px] font-bold uppercase tracking-wider">Edit</span>
+                    <span class="text-[10px] font-bold uppercase tracking-wider" data-i18n="edit_profile_btn">Edit Profile</span>
                 </button>
             </div>
         </div>
-        <div class="flex-grow w-full text-center sm:text-left flex flex-col items-center sm:items-start">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full min-w-0">
+        <div class="profile-details">
+            <div class="profile-heading">
                 <div class="min-w-0">
-                    <h1 id="profile-name" class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight truncate">Loading...</h1>
-                    <div id="profile-meta-info" class="mt-1 flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                    <h1 id="profile-name" class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Loading...</h1>
+                    <div id="profile-meta-info" class="mt-1 flex flex-wrap items-center gap-2">
                         <span class="inline-flex items-center gap-1.5 text-slate-500 text-[11px] sm:text-xs">
                             <i class="fa-solid fa-ranking-star text-indigo-500"></i>
                             <span data-i18n="member_badge">CatRank Member</span>
@@ -28,11 +28,11 @@
                         </span>
                     </div>
                 </div>
-                <div id="profile-actions" class="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto flex-shrink-0">
+                <div id="profile-actions" class="profile-actions">
                 </div>
             </div>
-            <p id="profile-bio" class="text-xs sm:text-sm text-slate-600 mt-3 sm:mt-4 max-w-2xl leading-relaxed" data-i18n="profile_bio_default">CatRank Member • Cat enthusiast</p>
-            <div class="flex items-center gap-6 sm:gap-8 mt-5 sm:mt-6">
+            <p id="profile-bio" class="text-xs sm:text-sm text-slate-600 max-w-2xl leading-relaxed"></p>
+            <div class="profile-stats">
                 <div class="flex flex-col items-center sm:items-start">
                     <span id="stat-uploaded-count" class="text-xl sm:text-2xl font-black text-slate-900">0</span>
                     <span class="text-[11px] sm:text-xs font-medium text-slate-500" data-i18n="stat_uploads">Uploads</span>
@@ -43,7 +43,7 @@
                 </div>
             </div>
         </div>
-    </div>
+    </section>
     <div class="space-y-4">
         <div class="profile-tabs" role="group" aria-label="Profile cats">
             <button id="profile-uploads-tab" type="button" class="profile-tab" aria-pressed="true" aria-controls="user-cats-grid" onclick="switchProfileCatsTab('uploads')"><i class="fa-solid fa-images" aria-hidden="true"></i><span data-i18n="profile_uploads_heading">Uploaded Cats</span></button>
@@ -281,12 +281,13 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/profile-cats.js') }}?v=15"></script>
+<script src="{{ url_for('static', filename='js/profile-cats.js') }}?v={{ asset_fingerprint('js/profile-cats.js') }}"></script>
 <script>
 const profileContainer = document.getElementById("profile-container");
 const targetUserId = profileContainer && profileContainer.dataset.viewUserId ? profileContainer.dataset.viewUserId : null;
 let isResetAvatarChosen = false;
 let customModalAvatarFile = null;
+let modalAvatarPreviewUrl = null;
 let currentProfileAvatarUrl = "";
 
 function togglePasswordVisibility(inputId, button) {
@@ -366,7 +367,7 @@ async function loadProfile() {
     const actionsElem = document.getElementById("profile-actions");
     const bioElem = document.getElementById("profile-bio");
     const editOverlayBtn = document.getElementById("avatar-edit-overlay-btn");
-    const avatarBadgeBtn = document.getElementById("avatar-badge-btn");
+    const avatarEditOverlay = document.getElementById("avatar-edit-overlay");
     if (isSelf && session && session.user) {
         const displayName = getUserDisplayName(session.user);
         nameElem.innerText = displayName;
@@ -406,25 +407,22 @@ async function loadProfile() {
             editOverlayBtn.classList.remove("hidden");
             editOverlayBtn.classList.add("flex");
         }
-        if (avatarBadgeBtn) {
-            avatarBadgeBtn.classList.remove("hidden");
-            avatarBadgeBtn.classList.add("flex");
-        }
+        avatarEditOverlay.classList.remove("hidden");
         const editProfileText = typeof t === "function" ? t("edit_profile_btn") : "Edit Profile";
         const uploadCatText = typeof t === "function" ? t("nav_upload") : "Upload Cat";
         actionsElem.innerHTML = `
             <button onclick="openEditProfileModal()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition shadow-xs flex items-center gap-1.5">
                 <i class="fa-solid fa-pen-to-square text-xs text-slate-500"></i>
-                <span>${editProfileText}</span>
+                <span data-i18n="edit_profile_btn">${editProfileText}</span>
             </button>
             <a href="/upload" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition inline-flex items-center gap-1.5">
                 <i class="fa-solid fa-cloud-arrow-up text-xs"></i>
-                <span>${uploadCatText}</span>
+                <span data-i18n="nav_upload">${uploadCatText}</span>
             </a>
         `;
     } else {
         if (editOverlayBtn) editOverlayBtn.classList.add("hidden");
-        if (avatarBadgeBtn) avatarBadgeBtn.classList.add("hidden");
+        avatarEditOverlay.classList.add("hidden");
         actionsElem.innerHTML = "";
     }
     try {
@@ -477,12 +475,15 @@ function openEditProfileModal() {
     }
     isResetAvatarChosen = false;
     customModalAvatarFile = null;
+    document.getElementById("edit-avatar-file").value = "";
 }
 function closeEditProfileModal() {
     const modal = document.getElementById("edit-profile-modal");
     if (modal) modal.classList.add("hidden");
     document.documentElement.classList.remove("overflow-hidden");
     document.body.classList.remove("overflow-hidden");
+    if (modalAvatarPreviewUrl) URL.revokeObjectURL(modalAvatarPreviewUrl);
+    modalAvatarPreviewUrl = null;
     if (typeof window.closeSecurityMethod === "function") {
         for (const method of ["email", "google"]) window.closeSecurityMethod(method);
     }
@@ -504,11 +505,16 @@ input.value = "";
     customModalAvatarFile = file;
     isResetAvatarChosen = false;
     const preview = document.getElementById("edit-avatar-preview");
-    if (preview) preview.src = URL.createObjectURL(file);
+    if (modalAvatarPreviewUrl) URL.revokeObjectURL(modalAvatarPreviewUrl);
+    modalAvatarPreviewUrl = URL.createObjectURL(file);
+    if (preview) preview.src = modalAvatarPreviewUrl;
 }
 function resetAvatarToDefault() {
     isResetAvatarChosen = true;
     customModalAvatarFile = null;
+    document.getElementById("edit-avatar-file").value = "";
+    if (modalAvatarPreviewUrl) URL.revokeObjectURL(modalAvatarPreviewUrl);
+    modalAvatarPreviewUrl = null;
     const name = document.getElementById("edit-display-name").value.trim() || "CatLover";
     const preview = document.getElementById("edit-avatar-preview");
     if (preview) {

@@ -9,14 +9,17 @@ function configureProfileCats(cats, own) {
 
 function profileGridMessage(title, description, retry = false) {
     const grid = document.getElementById('user-cats-grid');
-    grid.innerHTML = `<div class="profile-grid-message"><i class="fa-solid fa-cat"></i><h3>${escapeHtml(title)}</h3><p>${escapeHtml(description)}</p>${retry ? `<button type="button" onclick="loadFavoriteCats(profileCatsState.page)">${escapeHtml(t('try_again'))}</button>` : ''}</div>`;
+    grid.innerHTML = `<div class="profile-grid-message"><i class="fa-solid fa-cat" aria-hidden="true"></i><h3>${escapeHtml(title)}</h3><p>${escapeHtml(description)}</p>${retry ? `<button type="button" onclick="loadFavoriteCats(profileCatsState.page)">${escapeHtml(t('try_again'))}</button>` : ''}</div>`;
 }
 
 function renderProfileCats(cats, ownUploads = false) {
     const grid = document.getElementById('user-cats-grid');
     if (!cats.length) {
         const favorites = profileCatsState.tab === 'favorites';
-        profileGridMessage(t(favorites ? 'favorites_empty' : 'no_cats_title'), t(favorites ? 'favorites_empty_hint' : 'no_cats_desc'));
+        profileGridMessage(t(favorites ? 'favorites_empty' : 'no_cats_title'), t(favorites ? 'favorites_empty_hint' : ownUploads ? 'no_cats_desc' : 'profile_no_cats_public'));
+        if (ownUploads && !favorites) {
+            grid.querySelector('.profile-grid-message').insertAdjacentHTML('beforeend', `<a href="/upload" class="primary-button"><i class="fa-solid fa-plus" aria-hidden="true"></i>${escapeHtml(t('nav_upload'))}</a>`);
+        }
         return;
     }
     grid.innerHTML = cats.map(cat => {
