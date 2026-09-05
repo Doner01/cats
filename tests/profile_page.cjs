@@ -8,9 +8,10 @@ const root = path.resolve(__dirname, '..');
 const base = 'http://127.0.0.1:5099';
 const uid = '00000000-0000-4000-8000-000000000001';
 const user = {id: uid, email: 'member@example.test', email_confirmed_at: '2026-01-01',
-    app_metadata: {providers: ['email'], has_password: true},
+    app_metadata: {providers: ['email', 'google'], has_password: true},
     user_metadata: {display_name: 'Карина Миллер', bio: '', has_password: true},
-    identities: [{provider: 'email', identity_data: {email: 'member@example.test'}}]};
+    identities: [{provider: 'email', identity_data: {email: 'member@example.test'}},
+        {provider: 'google', identity_data: {email: 'member@example.test', email_verified: true}}]};
 const avatar = 'https://images.example.test/avatar.svg';
 const cat = {id: '1', user_id: uid, user_name: user.user_metadata.display_name, name: 'Mochi',
     image_url: avatar, user_avatar: avatar, created_at: '2026-09-01', likes_count: 2, bio: 'A happy cat.'};
@@ -100,9 +101,44 @@ async function main() {
         assert.equal(await page.evaluate(() => document.activeElement.id), 'avatar-edit-overlay-btn', 'Closing restores focus');
         await page.click('#profile-actions button');
         await page.click('#tab-btn-security');
+        await page.waitForFunction(() => document.querySelector('#security-google-status').textContent !== '…');
         await noOverflow(`${width} security`);
         const dialog = await page.$eval('#edit-profile-dialog', el => ({overflow: el.scrollWidth > el.clientWidth + 1, bottom: el.getBoundingClientRect().bottom}));
         assert(!dialog.overflow && dialog.bottom <= 900, 'Security dialog stays in viewport');
+        const securityLayout = await page.evaluate(() => {
+            const rect = selector => {const r = document.querySelector(selector).getBoundingClientRect(); return {width: r.width, top: r.top, bottom: r.bottom};};
+            return {
+                rows: [...document.querySelectorAll('.security-method')].map(el => {
+                    const s = getComputedStyle(el); return [parseFloat(s.paddingTop), parseFloat(s.paddingBottom)];
+                }),
+                grid: rect('.security-password-fields'), current: rect('#edit-old-password'),
+                next: rect('#edit-new-password'), confirm: rect('#edit-confirm-new-password'),
+                action: rect('#update-password-btn'),
+            };
+        });
+        assert.equal(securityLayout.rows.length, 2);
+        assert(securityLayout.rows.every(padding => padding.every(value => value >= 14)), 'Sign-in rows need breathing room above and below');
+        assert(Math.abs(securityLayout.current.width - securityLayout.grid.width) < 2, 'Current password spans the whole form');
+        assert(securityLayout.next.top >= securityLayout.current.bottom + 11, 'New password follows current password with a gap');
+        if (width >= 520) assert(Math.abs(securityLayout.next.top - securityLayout.confirm.top) < 2, 'New password and confirmation share a row');
+        else assert(securityLayout.confirm.top >= securityLayout.next.bottom + 11, 'Password fields stack on phones');
+        assert(securityLayout.action.top >= securityLayout.confirm.bottom + 11, 'Password action sits beneath the fields');
+        if ([390, 1440].includes(width)) await page.screenshot({path: path.join(output, `security-${width}.png`)});
+        await page.evaluate(() => openSecurityMethod('email'));
+        assert(await page.$eval('#edit-profile-dialog', el => el.scrollWidth <= el.clientWidth + 1), 'Expanded email manager fits the dialog');
+        if ([390, 1440].includes(width)) {
+            await page.evaluate(async () => {
+                closeSecurityMethod('email');
+                window.fixtureUser.app_metadata.providers = ['google'];
+                window.fixtureUser.identities = window.fixtureUser.identities.filter(identity => identity.provider === 'google');
+                await loadConnectedMethods();
+            });
+            assert.equal(await page.$eval('#password-security-card', el => getComputedStyle(el).display), 'none');
+            assert.notEqual(await page.$eval('#password-security-note', el => getComputedStyle(el).display), 'none');
+            assert(await page.$eval('#edit-profile-dialog', el => el.scrollWidth <= el.clientWidth + 1), 'Google-only account fits the dialog');
+            const gap = await page.evaluate(() => document.querySelector('#sessions-security-card').getBoundingClientRect().top - document.querySelector('#password-security-note').getBoundingClientRect().bottom);
+            assert.equal(gap, 20, 'Hidden password controls must not leave extra gaps');
+        }
         await page.keyboard.press('Escape');
         console.log(`Profile and settings layout passed at ${width}px`);
     }

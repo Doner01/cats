@@ -2361,7 +2361,43 @@ body { padding-top: 80px; }
 #profile-email-badge { min-width: 0; max-width: 100%; }
 #profile-email-text, #profile-bio { overflow-wrap: anywhere; }
 #profile-name { max-width: 100%; }
-#edit-profile-dialog { min-width: 0; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; }
+#edit-profile-dialog { min-width: 0; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 24px; }
+.profile-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 16px; }
+.profile-dialog-heading h3 { min-width: 0; line-height: 1.4; }
+.profile-dialog-heading > button { flex: 0 0 32px; }
+.profile-dialog-tabs { display: flex; gap: 8px; border-bottom: 1px solid #e2e8f0; margin-bottom: 20px; }
+.profile-dialog-tabs > button { min-height: 40px; }
+#tab-content-security { display: flex; flex-direction: column; gap: 20px; }
+#tab-content-security.hidden { display: none; }
+.security-section { border-top: 1px solid #e2e8f0; padding-top: 20px; }
+.security-method-list { margin-top: 14px; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; }
+.security-method { padding: 16px; }
+.security-method + .security-method { border-top: 1px solid #e2e8f0; }
+.security-method-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+#security-email-panel { margin-top: 16px; }
+#security-email-value, #security-google-value { white-space: normal; overflow-wrap: anywhere; }
+.security-password-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.security-password-current, .security-password-actions { grid-column: 1 / -1; }
+.security-password-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 4px; }
+.security-password-actions > p { flex: 1 1 200px; }
+#update-password-btn { width: auto; min-height: 40px; }
+.security-password-fields input { min-height: 42px; }
+#edit-profile-dialog .security-action-row { gap: 16px; }
+#signout-other-sessions-btn { width: auto; min-height: 40px; }
+@media (max-width: 639px) {
+    #edit-profile-dialog { padding: 18px; border-radius: 22px; }
+    .profile-dialog-heading { gap: 12px; padding-bottom: 12px; }
+    .profile-dialog-heading h3 { font-size: 16px; }
+    .profile-dialog-tabs { gap: 0; }
+    .security-method { padding: 14px; }
+    #signout-other-sessions-btn { width: 100%; }
+}
+@media (max-width: 519px) {
+    .security-method-heading { grid-template-columns: minmax(0, 1fr); }
+    #security-email-action { margin-left: 0; min-height: 40px; }
+    .security-password-fields { grid-template-columns: minmax(0, 1fr); }
+    #update-password-btn { width: 100%; }
+}
 #tab-content-security { overflow-wrap: anywhere; }
 @media (max-width: 639px) {
     .contact-cards, .contact-fields { grid-template-columns: minmax(0, 1fr); }
@@ -2370,7 +2406,6 @@ body { padding-top: 80px; }
     .contact-card, .contact-form-panel { padding: 20px; }
     .contact-intro { margin-bottom: 22px; }
     .contact-submit-row .primary-button { width: 100%; }
-    #edit-profile-dialog > .flex.border-b { gap: 0; }
     #tab-btn-basic, #tab-btn-security { padding-left: 10px; padding-right: 10px; }
 }
 
