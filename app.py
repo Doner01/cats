@@ -1350,6 +1350,17 @@ def upload_cat() -> Any:
         if not is_valid_img:
             return jsonify({"error": img_err}), 400
 
+        try:
+            from cat_detector import detect_cats
+            if not detect_cats(file_bytes):
+                return jsonify({"error": "No cat detected. Please upload a clear photo containing a cat."}), 400
+        except RuntimeError as e:
+            # Re-raise friendly temporary error
+            return jsonify({"error": str(e)}), 503
+        except Exception:
+            app.logger.exception("Cat detection failed")
+            return jsonify({"error": "Cat detector encountered an unexpected error."}), 503
+
         optimized_bytes, clean_ext, content_type = optimize_image_file(file_bytes, avatar=False)
         unique_path = f"{user_id}/{uuid.uuid4()}.{clean_ext}"
         public_url = upload_file_to_storage(optimized_bytes, unique_path, content_type, STORAGE_BUCKET)
