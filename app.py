@@ -10,6 +10,7 @@ from collections import OrderedDict
 from io import BytesIO
 from functools import wraps, lru_cache
 from threading import Lock
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from time import monotonic
 from pathlib import Path
@@ -1136,7 +1137,22 @@ def favicon() -> Response:
         mimetype="image/svg+xml"
     )
 
+def perf_logger(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(f)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            if not env_flag("ENABLE_PERF_LOGS", False):
+                return f(*args, **kwargs)
+            start = monotonic()
+            result = f(*args, **kwargs)
+            duration = monotonic() - start
+            app.logger.info("[PERF] %s total=%.3fs", name, duration)
+            return result
+        return wrapped
+    return decorator
+
 @app.route("/")
+@perf_logger("homepage")
 def index() -> Any:
     page = max(1, min(request.args.get("page", 1, type=int), 10000))
     sort = request.args.get("sort", "newest")
@@ -1160,19 +1176,35 @@ def index() -> Any:
             top_cat = cast(Dict[str, Any], cached_top) if isinstance(cached_top, dict) else None
         else:
             try:
-                query = admin.table("cats").select("*")
-                if query_text:
-                    query = query.ilike("name", "%" + escape_like(query_text) + "%")
-                if sort == "top":
-                    query = query.order("likes_count", desc=True)
-                cats_response = query.order("created_at", desc=True).order("id").range((page - 1) * page_size, page * page_size).execute()
-                cats = as_row_list(getattr(cats_response, "data", None))
-                if sort == "top" and cats:
-                    top_cat = cats[0]
-                else:
-                    top_response = admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(1).execute()
-                    top_rows = as_row_list(getattr(top_response, "data", None))
-                    top_cat = top_rows[0] if top_rows else None
+                feed_columns = "id,user_id,user_name,user_avatar,name,image_url,likes_count,created_at,bio,description"
+                def fetch_page() -> Any:
+                    q = admin.table("cats").select(feed_columns)
+                    if query_text:
+                        q = q.ilike("name", "%" + escape_like(query_text) + "%")
+                    if sort == "top":
+                        q = q.order("likes_count", desc=True)
+                    return q.order("created_at", desc=True).order("id").range((page - 1) * page_size, page * page_size).execute()
+                
+                def fetch_top() -> Any:
+                    if sort == "top":
+                        return None
+                    return admin.table("cats").select(feed_columns).order("likes_count", desc=True).order("created_at", desc=True).limit(1).execute()
+
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    fut_page = executor.submit(fetch_page)
+                    fut_top = executor.submit(fetch_top)
+                    
+                    cats_response = fut_page.result()
+                    cats = as_row_list(getattr(cats_response, "data", None))
+                    
+                    if sort == "top" and cats:
+                        top_cat = cats[0]
+                    else:
+                        top_response = fut_top.result()
+                        if top_response:
+                            top_rows = as_row_list(getattr(top_response, "data", None))
+                            top_cat = top_rows[0] if top_rows else None
+
                 cache_set(feed_key, {"cats": cats, "top_cat": top_cat}, FEED_CACHE_TTL)
             except Exception:
                 app.logger.exception("Could not load community feed")
@@ -1195,6 +1227,7 @@ def index() -> Any:
                            unavailable=unavailable), (503 if unavailable else 200)
 
 @app.route("/leaderboard")
+@perf_logger("leaderboard")
 def leaderboard_page() -> Any:
     leaderboard: List[Dict[str, Any]] = []
 
@@ -1206,7 +1239,8 @@ def leaderboard_page() -> Any:
             leaderboard = as_row_list(cached_leaderboard)
         else:
             try:
-                raw_res: Any = getattr(supabase_admin.table("cats").select("*").order("likes_count", desc=True).order("created_at", desc=True).limit(10).execute(), "data", [])
+                feed_columns = "id,user_id,user_name,user_avatar,name,image_url,likes_count,created_at,bio,description"
+                raw_res: Any = getattr(supabase_admin.table("cats").select(feed_columns).order("likes_count", desc=True).order("created_at", desc=True).limit(10).execute(), "data", [])
                 leaderboard = as_row_list(raw_res)
                 cache_set(leaderboard_key, leaderboard, LEADERBOARD_CACHE_TTL)
             except Exception:
@@ -1345,7 +1379,8 @@ def get_cat_details(cat_id: str) -> Any:
 
     if cat_record is None and supabase_admin:
         try:
-            raw_data = get_db_row(supabase_admin.table("cats").select("*").eq("id", cat_id))
+            feed_columns = "id,user_id,user_name,user_avatar,name,image_url,likes_count,created_at,bio,description"
+            raw_data = get_db_row(supabase_admin.table("cats").select(feed_columns).eq("id", cat_id))
             if raw_data:
                 cat_record = raw_data
                 cache_set(cat_key, cat_record, CAT_CACHE_TTL)
@@ -1542,6 +1577,7 @@ COMMENT_COLUMNS = "id,cat_id,user_id,user_name,user_avatar,parent_id,reply_to_id
 
 @app.route("/api/cats/<cat_id>/comments", methods=["GET"])
 @limiter.limit("120 per minute")
+@perf_logger("comments_query")
 def get_comments(cat_id: str) -> Any:
     cursor = request.args.get("cursor", "")
     if len(cursor) > 1000:
@@ -1638,27 +1674,29 @@ def add_comment(cat_id: str) -> Any:
 
             if parent_id:
                 try:
+                    validation_result = supabase_admin.rpc("validate_comment_reply", {"p_parent_id": parent_id, "p_cat_id": cat_id}).execute()
+                    validation_rows = as_row_list(getattr(validation_result, "data", None))
+                    if not validation_rows:
+                        return jsonify({"error": "Comments service is temporarily unavailable."}), 503
+                    
+                    val_row = validation_rows[0]
+                    if not val_row.get("is_valid"):
+                        err_msg = val_row.get("error_reason") or "Invalid reply target."
+                        # Map specific errors to 400
+                        return jsonify({"error": err_msg}), 400
+                        
+                    reply_to_name = val_row.get("reply_to_name")
+                    parent_id = str(val_row.get("root_id"))
+
+                    # We still need the immediate parent row for the notification user_id
                     parent_row_for_notification = get_db_row(
                         supabase_admin.table("comments")
                         .select("id,cat_id,user_id,user_name,parent_id")
-                        .eq("id", parent_id)
+                        .eq("id", reply_to_id)
                     )
                 except Exception:
-                    parent_row_for_notification = None
-                if not parent_row_for_notification or str(parent_row_for_notification.get("cat_id")) != str(cat_id):
-                    return jsonify({"error": "Invalid reply target."}), 400
-                reply_to_name = clean_text(parent_row_for_notification.get("user_name"), max_length=40, fallback="Cat Lover")
-                root = parent_row_for_notification
-                seen: set[str] = set()
-                while root.get("parent_id"):
-                    if str(root["id"]) in seen or len(seen) >= 30:
-                        return jsonify({"error": "Invalid reply thread."}), 400
-                    seen.add(str(root["id"]))
-                    ancestor = get_db_row(supabase_admin.table("comments").select("id,cat_id,parent_id").eq("id", root["parent_id"]))
-                    if not ancestor or str(ancestor.get("cat_id")) != str(cat_id):
-                        return jsonify({"error": "Reply thread no longer exists."}), 400
-                    root = ancestor
-                parent_id = str(root["id"])
+                    app.logger.exception("Failed to validate comment reply")
+                    return jsonify({"error": "Comments service is temporarily unavailable."}), 503
 
         comment_id = str(uuid.uuid4())
         comment_payload: Dict[str, Any] = {
@@ -1819,34 +1857,30 @@ def admin_delete_comment(comment_id: str) -> Any:
 
 @app.route("/api/notifications", methods=["GET"])
 @require_auth
+@perf_logger("notifications")
 def get_notifications() -> Any:
     user_id = str(getattr(getattr(g, "user", None), "id", ""))
     notifications: List[Dict[str, Any]] = []
 
     unread_count = 0
     if supabase_admin:
-        try:
-            raw_res = getattr(
-                supabase_admin.table("notifications")
-                .select("*")
-                .eq("user_id", user_id)
-                .order("created_at", desc=True)
-                .limit(50)
-                .execute(),
-                "data",
-                [],
-            )
-            notifications = as_row_list(raw_res)
+        def fetch_notifs() -> Any:
+            notif_columns = "id,actor_id,actor_name,actor_avatar,type,cat_id,cat_name,cat_image,comment_id,message,created_at,is_read"
+            return supabase_admin.table("notifications").select(notif_columns).eq("user_id", user_id).order("created_at", desc=True).limit(50).execute()
 
-            unread_result = (
-                supabase_admin.table("notifications")
-                .select("id", count=CountMethod.exact)
-                .eq("user_id", user_id)
-                .eq("is_read", False)
-                .limit(1)
-                .execute()
-            )
-            unread_count = int(getattr(unread_result, "count", 0) or 0)
+        def fetch_unread() -> Any:
+            return supabase_admin.table("notifications").select("id", count=CountMethod.exact).eq("user_id", user_id).eq("is_read", False).limit(1).execute()
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                fut_notifs = executor.submit(fetch_notifs)
+                fut_unread = executor.submit(fetch_unread)
+                
+                raw_res = getattr(fut_notifs.result(), "data", [])
+                notifications = as_row_list(raw_res)
+
+                unread_result = fut_unread.result()
+                unread_count = int(getattr(unread_result, "count", 0) or 0)
         except Exception:
             app.logger.exception("Could not load notifications for user %s", user_id)
             return jsonify({"error": "Notifications service is unavailable."}), 503
@@ -2363,6 +2397,7 @@ def admin_force_delete_user(user_id: str) -> Any:
 
 @app.route("/api/user/<user_id>/profile", methods=["GET"])
 @limiter.limit("60 per minute")
+@perf_logger("profiles_query")
 def get_public_profile(user_id: str) -> Any:
     profile_key = make_cache_key("profile", user_id, cache_counter_value("cats"), cache_counter_value(f"profile:{user_id}"))
     cached_profile = cache_get_dict(profile_key)
@@ -2378,29 +2413,42 @@ def get_public_profile(user_id: str) -> Any:
 
     admin = supabase_admin
     if admin is not None:
-        # Profiles created by older CatRank versions may not have every optional
-        # column. Selecting * keeps profile loading backward-compatible.
-        try:
-            p_res = admin.table("profiles").select("*").eq("id", user_id).limit(1).execute()
-            p_data = as_row_list(getattr(p_res, "data", None))
-            if p_data:
-                profile = p_data[0]
-                user_found = True
-                user_name = clean_text(profile.get("display_name"), max_length=40, fallback="Cat Lover")
-                user_avatar = sanitize_image_url(profile.get("avatar_url"), fallback_name=user_name)
-                user_bio = clean_text(profile.get("bio"), max_length=150)
-        except Exception as exc:
-            service_error = True
-            app.logger.warning("Profile row lookup failed for %s: %s", user_id, exc)
+        def fetch_profile() -> Any:
+            return admin.table("profiles").select("id,display_name,avatar_url,bio").eq("id", user_id).limit(1).execute()
+        
+        def fetch_cats() -> Any:
+            feed_columns = "id,user_id,user_name,user_avatar,name,image_url,likes_count,created_at,bio,description"
+            return fetch_all_rows(lambda: admin.table("cats").select(feed_columns).eq("user_id", user_id).order("created_at", desc=True).order("id"))
 
         try:
-            cats = fetch_all_rows(lambda: admin.table("cats").select("*").eq("user_id", user_id).order("created_at", desc=True).order("id"))
-            if cats:
-                user_found = True
-        except Exception as exc:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                fut_profile = executor.submit(fetch_profile)
+                fut_cats = executor.submit(fetch_cats)
+                
+                try:
+                    p_res = fut_profile.result()
+                    p_data = as_row_list(getattr(p_res, "data", None))
+                    if p_data:
+                        profile = p_data[0]
+                        user_found = True
+                        user_name = clean_text(profile.get("display_name"), max_length=40, fallback="Cat Lover")
+                        user_avatar = sanitize_image_url(profile.get("avatar_url"), fallback_name=user_name)
+                        user_bio = clean_text(profile.get("bio"), max_length=150)
+                except Exception as exc:
+                    service_error = True
+                    app.logger.warning("Profile row lookup failed for %s: %s", user_id, exc)
+
+                try:
+                    cats = fut_cats.result()
+                    if cats:
+                        user_found = True
+                except Exception as exc:
+                    service_error = True
+                    app.logger.warning("Profile cat lookup failed for %s: %s", user_id, exc)
+                    return jsonify({"error": "Profile service is temporarily unavailable."}), 503
+        except Exception as e:
+            app.logger.error("Parallel profile fetch error: %s", e)
             service_error = True
-            app.logger.warning("Profile cat lookup failed for %s: %s", user_id, exc)
-            return jsonify({"error": "Profile service is temporarily unavailable."}), 503
 
         # Auth is the final source of truth that the account exists. This also
         # keeps Google-only and phone-only accounts visible before their profile

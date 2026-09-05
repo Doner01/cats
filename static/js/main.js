@@ -239,10 +239,22 @@ async function openCatModal(catId) {
         const isLiked = userLikedCatIds.has(String(catId)) || (heartElem && heartElem.innerText.trim() === "❤️");
         modalHeartIcon.innerText = isLiked ? "❤️" : "🤍";
     }
+
+    let catFetchPromise = null;
     try {
-        const res = await fetch(`/api/cats/${encodeURIComponent(catId)}`);
-        if (res.ok) {
-            const data = await res.json();
+        catFetchPromise = fetch(`/api/cats/${encodeURIComponent(catId)}`).then(res => {
+            if (!res.ok) throw new Error("Cat load failed");
+            return res.json();
+        });
+    } catch (e) {
+        // Handle synchronously started errors
+    }
+
+    let commentsFetchPromise = loadCatComments(catId, requestVersion); // We need to update loadCatComments to optionally not update if version changed
+
+    try {
+        if (catFetchPromise) {
+            const data = await catFetchPromise;
             if (requestVersion !== modalRequestVersion) return;
             const cat = data.cat || data;
             if (modalNameElem) modalNameElem.innerText = cat.name || "Whiskers";
@@ -263,14 +275,13 @@ async function openCatModal(catId) {
                 if (typeof requestAnimationFrame === 'function') requestAnimationFrame(updateCatBioPreview);
                 else updateCatBioPreview();
             }
-        } else {
-            if (requestVersion !== modalRequestVersion) return;
-            showToast("Could not load this cat. Please try again.", "error");
         }
     } catch (err) {
         if (requestVersion === modalRequestVersion) showToast("Could not load this cat. Please try again.", "error");
     }
-    if (requestVersion === modalRequestVersion) await loadCatComments(catId);
+    
+    // We already launched commentsFetchPromise, wait for it if needed (it updates UI internally)
+    if (requestVersion === modalRequestVersion) await commentsFetchPromise;
 }
 
 function closeCatModal() {
