@@ -53,6 +53,12 @@ def env_flag(name: str, default: bool = False) -> bool:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
+app.config["CAT_DETECTOR_ENABLED"] = env_flag("CAT_DETECTOR_ENABLED", default=True)
+app.config["CAT_DETECTOR_CONFIDENCE"] = float(os.getenv("CAT_DETECTOR_CONFIDENCE", "0.50"))
+app.config["CAT_DETECTOR_MODEL"] = os.getenv("CAT_DETECTOR_MODEL", "models/yolov8n.pt")
+
+
+
 @lru_cache(maxsize=256)
 def asset_fingerprint(filename: str) -> str:
     """Return a stable content hash for one public static asset."""
