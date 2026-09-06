@@ -781,7 +781,7 @@ def get_canonical_user_identity(user: Any) -> Tuple[str, str, str]:
             return user_id, cached_name, cached_avatar
 
         try:
-            result = read_once_with_retry(lambda: supabase_admin.table("profiles").select("display_name,avatar_url").eq("id", user_id).limit(1).execute())
+            result = read_once_with_retry(lambda: cast(Any, supabase_admin).table("profiles").select("display_name,avatar_url").eq("id", user_id).limit(1).execute())
             rows = getattr(result, "data", []) or []
             if rows:
                 row = rows[0]
@@ -1832,7 +1832,7 @@ def add_comment(cat_id: str) -> Any:
 
             if parent_id:
                 try:
-                    validation_result = read_once_with_retry(lambda: supabase_admin.rpc("validate_comment_reply", {"p_parent_id": parent_id, "p_cat_id": cat_id}).execute())
+                    validation_result = read_once_with_retry(lambda: cast(Any, supabase_admin).rpc("validate_comment_reply", {"p_parent_id": parent_id, "p_cat_id": cat_id}).execute())
                     validation_rows = as_row_list(getattr(validation_result, "data", None))
                     if not validation_rows:
                         return jsonify({"error": "Comments service is temporarily unavailable."}), 503
