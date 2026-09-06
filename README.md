@@ -37,6 +37,8 @@ For a **new Supabase project**, apply these SQL files in order in its SQL editor
 3. `migrations/20260902_favorites.sql`
 4. `migrations/20260902_roadmap.sql`
 5. `migrations/20260905_production_hardening.sql`
+6. `migrations/20260905_recheck.sql` (required `insert_comment_once` function)
+7. `migrations/20260905_comment_ancestry.sql` (reply validation)
 
 The base migration creates application tables, foreign keys, protected backend
 functions, profile triggers, and public image buckets. Supabase must already
@@ -51,6 +53,9 @@ an older schema. Do not blindly install a second vote-count/profile trigger on
 top of a historical trigger. Apply missing migrations and install the final
 production-hardening migration **before releasing the updated app**: admin pages
 require `admin_overview_counts()` and `admin_user_counts(uuid[])`.
+Comment creation also requires `insert_comment_once(jsonb)` from the recheck
+migration. Apply its current definition before deploying comment changes; it
+preserves existing rows and supports idempotent submission IDs.
 
 R2 is optional. Configure all four R2 credential/domain variables together, or
 leave all four empty to use Supabase Storage. The application re-encodes static

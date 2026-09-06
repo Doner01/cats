@@ -17,6 +17,18 @@ BEGIN
     END IF;
     PERFORM pg_advisory_xact_lock(hashtextextended(
         'catrank:comment:' || incoming.user_id::text || ':' || incoming.cat_id::text, 0));
+    -- A manual retry of the same browser submission remains idempotent even
+    -- after the content cooldown expires. The primary key is the final guard.
+    SELECT c.* INTO previous FROM public.comments c WHERE c.id = incoming.id;
+    IF FOUND THEN
+        IF previous.user_id <> incoming.user_id OR previous.cat_id <> incoming.cat_id
+           OR previous.comment <> incoming.comment
+           OR previous.reply_to_id IS DISTINCT FROM incoming.reply_to_id THEN
+            RAISE EXCEPTION 'Invalid comment submission';
+        END IF;
+        RETURN QUERY SELECT 'existing'::text, previous.id, previous.created_at;
+        RETURN;
+    END IF;
     inserted_at := clock_timestamp();
     SELECT c.* INTO previous FROM public.comments c
     WHERE c.user_id = incoming.user_id AND c.cat_id = incoming.cat_id

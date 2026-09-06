@@ -12,19 +12,20 @@ from functools import wraps, lru_cache
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
-from time import monotonic
+from time import monotonic, sleep
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 from urllib.parse import quote, urlparse
 
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, jsonify, g, Response
+from flask import Flask, render_template, request, jsonify, g, Response, has_request_context
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 from supabase import create_client, Client, ClientOptions
 from postgrest.types import CountMethod
+import httpx
 from werkzeug.exceptions import HTTPException, SecurityError
 from redis.exceptions import RedisError
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -741,7 +742,7 @@ def get_canonical_user_identity(user: Any) -> Tuple[str, str, str]:
             return user_id, cached_name, cached_avatar
 
         try:
-            result = supabase_admin.table("profiles").select("display_name,avatar_url").eq("id", user_id).limit(1).execute()
+            result = read_once_with_retry(lambda: supabase_admin.table("profiles").select("display_name,avatar_url").eq("id", user_id).limit(1).execute())
             rows = getattr(result, "data", []) or []
             if rows:
                 row = rows[0]
@@ -750,7 +751,7 @@ def get_canonical_user_identity(user: Any) -> Tuple[str, str, str]:
                 cache_set(identity_key, {"name": name, "avatar": avatar}, IDENTITY_CACHE_TTL)
                 return user_id, name, avatar
         except Exception as exc:
-            app.logger.warning("Could not load canonical profile identity for %s: %s", user_id, exc)
+            log_database_failure("comment_identity_read", exc)
 
     return user_id, fallback_name, fallback_avatar
 
@@ -781,7 +782,7 @@ def fetch_all_rows(query_factory: Callable[[], Any], *, max_rows: int = 10000) -
     result: List[Dict[str, Any]] = []
     while True:
         batch_size = min(500, max_rows + 1 - len(result))
-        response = query_factory().range(len(result), len(result) + batch_size - 1).execute()
+        response = read_once_with_retry(lambda: query_factory().range(len(result), len(result) + batch_size - 1).execute())
         rows = as_row_list(getattr(response, "data", None))
         result.extend(rows)
         if len(result) > max_rows:
@@ -789,8 +790,31 @@ def fetch_all_rows(query_factory: Callable[[], Any], *, max_rows: int = 10000) -
         if len(rows) < batch_size:
             return result
 
+TRANSIENT_READ_ERRORS = (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadError,
+                         httpx.TimeoutException, ConnectionResetError, ConnectionAbortedError)
+
+
+def read_once_with_retry(operation: Callable[[], Any]) -> Any:
+    """Only call with a read. Never wrap a mutation or a mixed read/write function."""
+    try:
+        return operation()
+    except TRANSIENT_READ_ERRORS:
+        sleep(0.1)
+        return operation()
+
+
+def log_database_failure(stage: str, error: Exception) -> None:
+    # Exception messages/tracebacks can contain payloads, credentials or URLs.
+    code = str(getattr(error, "code", ""))
+    safe_code = code if re.fullmatch(r"(?:[0-9]{5}|PGRST[0-9]{3})", code) else "unknown"
+    app.logger.warning("database_failure request_id=%s route=%s stage=%s error_type=%s code=%s",
+                       getattr(g, "request_id", "") if has_request_context() else "",
+                       request.url_rule.rule if has_request_context() and request.url_rule else "unknown",
+                       stage, type(error).__name__, safe_code)
+
+
 def get_db_row(query: Any) -> Optional[Dict[str, Any]]:
-    rows = getattr(query.limit(1).execute(), "data", []) or []
+    rows = getattr(read_once_with_retry(lambda: query.limit(1).execute()), "data", []) or []
     return rows[0] if rows else None
 
 def safe_db_insert(table_name: str, payload: Dict[str, Any]) -> Any:
@@ -799,7 +823,7 @@ def safe_db_insert(table_name: str, payload: Dict[str, Any]) -> Any:
     try:
         return supabase_admin.table(table_name).insert(payload).execute()
     except Exception as e:
-        app.logger.warning("Database insert failed on %s: %s", table_name, e)
+        log_database_failure(table_name + "_insert", e)
         return None
 
 def insert_cat_record_compat(payload: Dict[str, Any]) -> Tuple[Any, Dict[str, Any]]:
@@ -862,7 +886,10 @@ def push_notification(user_id: str, actor_id: str, actor_name: str, actor_avatar
 
     clean_actor_avatar = resolve_user_avatar(actor_id, actor_name, actor_avatar)
     notif_data: Dict[str, Any] = {
-        "id": str(uuid.uuid4()),
+        # Reconciliation can run after an earlier response was lost. The same
+        # comment event must not produce another notification record.
+        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"catrank:comment-notice:{comment_id}:{notif_type}:{user_id}"))
+              if comment_id and notif_type in {"comment", "reply"} else str(uuid.uuid4()),
         "user_id": user_id,
         "actor_id": actor_id,
         "actor_name": actor_name,
@@ -1082,6 +1109,10 @@ def assign_request_id() -> None:
 @app.after_request
 def apply_response_headers(response: Response) -> Response:
     response.headers["X-Request-ID"] = str(getattr(g, "request_id", ""))
+    if request.method == "POST" and request.path.endswith("/comments") and response.status_code >= 400:
+        app.logger.warning("comment_create_failed request_id=%s route=%s status=%s",
+                           getattr(g, "request_id", ""), request.url_rule.rule if request.url_rule else "unknown",
+                           response.status_code)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer" if request.path in {"/auth/callback", "/reset-password", "/set-password"} else "strict-origin-when-cross-origin"
@@ -1671,7 +1702,7 @@ def get_comments(cat_id: str) -> Any:
             if after:
                 stamp, ident = after
                 query = query.or_(f"created_at.gt.{stamp},and(created_at.eq.{stamp},id.gt.{ident})")
-            result = query.order("created_at").order("id").limit(page_size + 1).execute()
+            result = read_once_with_retry(lambda: query.order("created_at").order("id").limit(page_size + 1).execute())
             rows = as_row_list(getattr(result, "data", None))
             total = getattr(result, "count", None) if not after else None
         elif ENABLE_DEMO_DATA:
@@ -1734,23 +1765,22 @@ def add_comment(cat_id: str) -> Any:
                 cat_row_for_notification = get_db_row(
                     supabase_admin.table("cats").select("id,user_id,name,image_url").eq("id", cat_id)
                 )
-            except Exception:
+            except Exception as exc:
+                log_database_failure("comment_cat_read", exc)
                 return jsonify({"error": "Comments service is temporarily unavailable."}), 503
             if not cat_row_for_notification:
                 return jsonify({"error": "Cat not found."}), 404
 
             if parent_id:
                 try:
-                    validation_result = supabase_admin.rpc("validate_comment_reply", {"p_parent_id": parent_id, "p_cat_id": cat_id}).execute()
+                    validation_result = read_once_with_retry(lambda: supabase_admin.rpc("validate_comment_reply", {"p_parent_id": parent_id, "p_cat_id": cat_id}).execute())
                     validation_rows = as_row_list(getattr(validation_result, "data", None))
                     if not validation_rows:
                         return jsonify({"error": "Comments service is temporarily unavailable."}), 503
                     
                     val_row = validation_rows[0]
                     if not val_row.get("is_valid"):
-                        err_msg = val_row.get("error_reason") or "Invalid reply target."
-                        # Map specific errors to 400
-                        return jsonify({"error": err_msg}), 400
+                        return jsonify({"error": "Invalid reply target."}), 400
                         
                     reply_to_name = val_row.get("reply_to_name")
                     parent_id = str(val_row.get("root_id"))
@@ -1761,11 +1791,19 @@ def add_comment(cat_id: str) -> Any:
                         .select("id,cat_id,user_id,user_name,parent_id")
                         .eq("id", reply_to_id)
                     )
-                except Exception:
-                    app.logger.exception("Failed to validate comment reply")
+                except Exception as exc:
+                    log_database_failure("comment_reply_read", exc)
                     return jsonify({"error": "Comments service is temporarily unavailable."}), 503
 
         comment_id = str(uuid.uuid4())
+        if data.get("submission_id") is not None:
+            try:
+                submission_id = str(uuid.UUID(str(data["submission_id"])))
+            except (ValueError, TypeError, AttributeError):
+                return jsonify({"error": "Invalid comment submission ID."}), 400
+            # Scope browser retry IDs to the authenticated account and content.
+            comment_id = str(uuid.uuid5(uuid.NAMESPACE_URL, json.dumps(
+                [user_id, cat_id, reply_to_id, comment_text, submission_id], separators=(",", ":"))))
         comment_payload: Dict[str, Any] = {
             "id": comment_id,
             "cat_id": cat_id,
@@ -1781,17 +1819,27 @@ def add_comment(cat_id: str) -> Any:
         }
 
         if supabase_admin:
-            result = supabase_admin.rpc("insert_comment_once", {"p_comment": comment_payload}).execute()
-            rows = as_row_list(getattr(result, "data", None))
+            try:
+                result = supabase_admin.rpc("insert_comment_once", {"p_comment": comment_payload}).execute()
+                rows = as_row_list(getattr(result, "data", None))
+            except (*TRANSIENT_READ_ERRORS, httpx.WriteError) as exc:
+                log_database_failure("comment_insert_transport", exc)
+                # The transaction may have committed. Read this exact UUID; never repeat the write.
+                existing = get_db_row(supabase_admin.table("comments").select(COMMENT_COLUMNS)
+                                      .eq("id", comment_id).eq("user_id", user_id).eq("cat_id", cat_id))
+                if not existing:
+                    raise
+                comment_payload.update(existing)
+                rows = [{"status": "inserted", "created_at": existing["created_at"]}]
             if rows and rows[0].get("status") == "duplicate":
                 return jsonify({"error": "You just posted this comment. Please wait before repeating it."}), 429
-            if not rows or rows[0].get("status") != "inserted":
+            if not rows or rows[0].get("status") not in {"inserted", "existing"}:
                 return jsonify({"error": "Could not save comment."}), 503
             comment_payload["created_at"] = rows[0]["created_at"]
 
             try:
                 cat_row = cat_row_for_notification
-                if cat_row:
+                if cat_row and rows[0]["status"] == "inserted":
                     cat_owner_id = str(cat_row.get("user_id", ""))
                     cat_name = str(cat_row.get("name", "Cat"))
                     cat_image = str(cat_row.get("image_url", ""))
@@ -1824,7 +1872,7 @@ def add_comment(cat_id: str) -> Any:
                             message=f"{user_name} commented on your cat {cat_name}!"
                         )
             except Exception as ne:
-                app.logger.warning("Supabase comment notification failed: %s", ne)
+                log_database_failure("comment_notification_insert", ne)
 
         if ENABLE_DEMO_DATA and not supabase_admin:
             MOCK_COMMENTS.append(comment_payload)
@@ -1837,8 +1885,8 @@ def add_comment(cat_id: str) -> Any:
 
     except HTTPException:
         raise
-    except Exception:
-        app.logger.exception("Could not add comment to cat %s", cat_id)
+    except Exception as exc:
+        log_database_failure("comment_create", exc)
         return jsonify({"error": "Could not post comment right now."}), 503
 
 def mutate_comment(comment_id: str, *, delete: bool = False, admin_only: bool = False) -> Any:
@@ -2482,7 +2530,7 @@ def get_public_profile(user_id: str) -> Any:
     admin = supabase_admin
     if admin is not None:
         def fetch_profile() -> Any:
-            return admin.table("profiles").select("id,display_name,avatar_url,bio").eq("id", user_id).limit(1).execute()
+            return read_once_with_retry(lambda: admin.table("profiles").select("id,display_name,avatar_url,bio").eq("id", user_id).limit(1).execute())
         
         def fetch_cats() -> Any:
             feed_columns = "id,user_id,user_name,user_avatar,name,image_url,likes_count,created_at,bio,description"

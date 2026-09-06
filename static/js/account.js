@@ -541,14 +541,15 @@ async function saveEmailSignInMethod() {
 
     const input = document.getElementById('security-email-input');
     const button = document.getElementById('security-email-save');
+    showInlineError("security-email-panel");
     const newEmail = String(input?.value || '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail) || newEmail.length > 254) {
-        showToast(securityText('invalid_email_error', 'Enter a valid email address.'), 'error');
+        showInlineError('security-email-panel', securityText('invalid_email_error', 'Enter a valid email address.'));
         input?.focus();
         return;
     }
     if (newEmail === String(state.user.email || '').toLowerCase()) {
-        showToast(securityText('same_email_info', 'This is already your current email address.'), 'info');
+        showInlineError('security-email-panel', securityText('same_email_info', 'This is already your current email address.'));
         return;
     }
 
@@ -556,7 +557,7 @@ async function saveEmailSignInMethod() {
     try {
         const passwordField = document.getElementById('security-email-current-password');
         const password = String(passwordField?.value || '');
-        if (!password) throw new Error(securityText('current_password_required', 'Enter your current password.'));
+        if (!password) { showInlineError('security-email-panel', securityText('current_password_required', 'Enter your current password.')); return; }
 
         const result = await authRequest(
             '/api/user/security',
@@ -575,9 +576,7 @@ async function saveEmailSignInMethod() {
         if (passwordField) passwordField.value = '';
         closeSecurityMethod('email');
     } catch (error) {
-        const message = friendlySecurityAuthError(error, 'Could not update your sign-in email.');
-        if (typeof showImportantAlert === 'function') showImportantAlert(message, 'error', {title: 'Sign-in & security'});
-        else showToast(message, 'error');
+        showInlineError('security-email-panel', friendlyFormError(error.status || (error instanceof TypeError ? 'network' : 'unknown')));
     } finally {
         if (button) button.disabled = false;
     }

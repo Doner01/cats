@@ -234,7 +234,7 @@
                     </div>
                     
                     <div class="security-password-actions">
-                        <p id="password-security-status" class="hidden text-xs font-semibold leading-relaxed"></p>
+                        <p id="password-security-status" role="alert" class="hidden text-xs font-semibold leading-relaxed"></p>
                         <button type="button" id="update-password-btn" onclick="handleUserPasswordChange()" class="w-full sm:w-auto px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition" data-i18n="change_password_btn">Change Password</button>
                     </div>
                 </div>
@@ -480,15 +480,16 @@ function closeEditProfileModal() {
 }
 function handleModalAvatarSelect(input) {
     if (!input || !input.files || input.files.length === 0) return;
+    showInlineError("tab-content-basic");
     const file = input.files[0];
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowed.includes(file.type)) {
-        showToast(typeof t === 'function' ? t('file_error_invalid_type') : "Invalid image format.", "error");
+        showInlineError("tab-content-basic", typeof t === 'function' ? t('file_error_invalid_type') : "Invalid image format.");
 input.value = "";
         return;
     }
     if (file.size > 5 * 1024 * 1024) {
-        showToast(typeof t === 'function' ? t('file_error_too_large') : "Image exceeds 5MB limit.", "error");
+        showInlineError("tab-content-basic", typeof t === 'function' ? t('file_error_too_large') : "Image exceeds 5MB limit.");
 input.value = "";
         return;
     }
@@ -512,8 +513,9 @@ function resetAvatarToDefault() {
     }
 }
 async function saveUserProfileChanges() {
+    showInlineError("tab-content-basic");
     if (!currentSession || !currentSession.access_token) {
-        showToast("Please sign in.", "error");
+        showInlineError("tab-content-basic", friendlyFormError(401));
         return;
     }
     const nameInput = document.getElementById("edit-display-name");
@@ -534,7 +536,7 @@ async function saveUserProfileChanges() {
             });
             const uploadData = await uploadRes.json().catch(() => ({}));
             if (!uploadRes.ok || !uploadData.avatar_url) {
-                throw new Error(uploadData.error || "Could not upload avatar.");
+                throw Object.assign(new Error("Avatar upload failed"), {status: uploadRes.status});
             }
             currentProfileAvatarUrl = uploadData.avatar_url;
         }
@@ -552,7 +554,7 @@ async function saveUserProfileChanges() {
         });
         if (!syncRes.ok) {
             const syncErr = await syncRes.json().catch(() => ({}));
-            throw new Error(syncErr.error || 'Could not sync profile changes.');
+            throw Object.assign(new Error('Profile update failed'), {status: syncRes.status});
         }
         if (supabaseClient) {
             await supabaseClient.auth.refreshSession().catch(() => null);
@@ -561,7 +563,7 @@ async function saveUserProfileChanges() {
         closeEditProfileModal();
         setTimeout(() => location.reload(), 400);
     } catch (err) {
-        showToast("Error updating profile: " + err.message, "error");
+        showInlineError("tab-content-basic", friendlyFormError(err.status || (err instanceof TypeError ? "network" : "unknown")));
         saveBtn.disabled = false;
         saveBtn.innerHTML = '<i class="fa-solid fa-check text-xs"></i> <span>Save Changes</span>';
     }
@@ -617,7 +619,7 @@ async function handleUserPasswordChange() {
             );
         }
     } catch (e) {
-        setPasswordSecurityStatus((currentLang === "ru" ? "Не удалось изменить пароль: " : "Could not change password: ") + e.message, "error");
+        setPasswordSecurityStatus(friendlyFormError(e.status || (e instanceof TypeError ? "network" : "unknown")), "error");
     } finally {
         btn.disabled = false;
         btn.innerHTML = typeof t === "function" ? t("change_password_btn") : "Change Password";

@@ -26,6 +26,7 @@ if (dropZone) {
 
     function preventDefaults(e) {
         e.preventDefault();
+        showInlineError("upload-form");
         e.stopPropagation();
     }
 
@@ -48,15 +49,16 @@ if (dropZone) {
 }
 
 function handleFileSelect(file) {
+    showInlineError("upload-form");
     if (!file) return;
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     if (!ALLOWED_IMAGE_EXTS.includes(ext) || (!ALLOWED_IMAGE_TYPES.includes(file.type) && file.type !== '')) {
-        showToast(typeof t === 'function' ? t('file_error_invalid_type') : "Invalid image format. Allowed: JPG, JPEG, PNG, WEBP, GIF.", "error");
+        showInlineError("upload-form", typeof t === 'function' ? t('file_error_invalid_type') : "Invalid image format. Allowed: JPG, JPEG, PNG, WEBP, GIF.");
         clearUploadPreview();
         return;
     }
     if (file.size > MAX_IMAGE_SIZE) {
-        showToast(`Image must be smaller than ${MAX_IMAGE_MB}MB.`, "error");
+        showInlineError("upload-form", `Image must be smaller than ${MAX_IMAGE_MB}MB.`);
         clearUploadPreview();
         return;
     }
@@ -71,16 +73,16 @@ const uploadForm = document.getElementById("upload-form");
 if (uploadForm) {
     uploadForm.addEventListener("submit", async (e) => {
         e.preventDefault();
+        showInlineError("upload-form");
 
         if (typeof supabaseClient === "undefined" || !supabaseClient) {
-            showToast("Supabase client not initialized.", "error");
+            showInlineError("upload-form", friendlyFormError(503));
             return;
         }
 
         const { data: { session } } = await supabaseClient.auth.getSession();
         if (!session) {
-            showToast(typeof t === 'function' ? t('toast_need_signin_vote') : "Please sign in to upload a cat.", "info");
-            setTimeout(() => window.location.href = "/login", 800);
+            showInlineError("upload-form", friendlyFormError(401));
             return;
         }
 
@@ -88,14 +90,14 @@ if (uploadForm) {
         const submitBtn = document.getElementById("submit-btn");
 
         if (!fileInput.files || fileInput.files.length === 0) {
-            showToast("Please select an image file.", "error");
+            showInlineError("upload-form", "Please select an image file.");
             return;
         }
 
         const file = fileInput.files[0];
         const ext = (file.name.split('.').pop() || '').toLowerCase();
         if (!ALLOWED_IMAGE_EXTS.includes(ext)) {
-            showToast("Invalid file format. Allowed: JPG, PNG, WEBP, GIF.", "error");
+            showInlineError("upload-form", "Invalid file format. Allowed: JPG, PNG, WEBP, GIF.");
             return;
         }
 
@@ -133,12 +135,12 @@ if (uploadForm) {
                     window.location.href = "/";
                 }, 800);
             } else {
-                showToast(result.error || "Upload failed.", "error");
+                showInlineError("upload-form", res.status === 400 ? feedbackText("Please check the image and upload details.", "Проверьте изображение и данные загрузки.") : friendlyFormError(res.status));
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-xs"></i> <span>' + (typeof t === 'function' ? t('upload_submit_btn') : "Upload Photo") + '</span>';
             }
         } catch (err) {
-            showToast("Network error: " + err.message, "error");
+            showInlineError("upload-form", friendlyFormError("network"));
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-xs"></i> <span>' + (typeof t === 'function' ? t('upload_submit_btn') : "Upload Photo") + '</span>';
         }

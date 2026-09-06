@@ -28,6 +28,7 @@ function element(id = '') {
             }
         },
         setAttribute(name, value) { this.attributes[name] = value; },
+        removeAttribute(name) { delete this.attributes[name]; },
         querySelector() { return null; },
         addEventListener() {},
     };
@@ -61,7 +62,8 @@ function browser(commentIds = []) {
         document, console, URL, URLSearchParams, Date, Set, Map, AbortController,
         CSS: {escape: value => String(value).replace(/"/g, '\\"')},
         CustomEvent: class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } },
-        setTimeout: () => 0, clearTimeout() {}, showToast() {},
+        setTimeout: () => 0, clearTimeout() {}, showToast() {}, showInlineError() {}, friendlyFormError() {}, positionGlobalToasts() {},
+        crypto: require("node:crypto").webcrypto,
         location: {origin: 'https://catrank.example', pathname: '/', search: '', href: 'https://catrank.example/'},
         __session: session('alice'),
         fetch: async () => { throw new Error('Unexpected request'); },
@@ -399,6 +401,7 @@ test('closing or switching a modal resets the composer and stale sends cannot un
     const {context, nodes, run} = commentsBrowser();
     const input = element('modal-comment-input'); input.value = 'hello';
     const button = element('modal-comment-submit-btn'); button.disabled = false;
+    button.querySelector = () => element();
     nodes.set(input.id, input); nodes.set(button.id, button);
     const request = deferred(); context.fetch = () => request.promise;
     const pending = context.submitComment(); await flush();

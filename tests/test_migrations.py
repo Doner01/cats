@@ -179,3 +179,23 @@ class MigrationIntegrationTests(unittest.TestCase):
         self.assertEqual(insert_as(self.actor), 'inserted')
         for role in ('anon', 'authenticated'):
             self.sql(f"SET ROLE {role}; SELECT * FROM public.insert_comment_once('{json.dumps(payload)}'::jsonb);", success=False)
+
+    def test_same_submission_uuid_is_idempotent_under_concurrency_and_after_cooldown(self):
+        ident = str(uuid.uuid4())
+        payload = json.dumps({'id': ident, 'cat_id': self.cat, 'user_id': self.actor, 'comment': 'One action'})
+        statement = f"SET ROLE service_role; SELECT status FROM public.insert_comment_once('{payload}'::jsonb);"
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: self.sql(statement), range(16)))
+        self.assertEqual(results.count('inserted'), 1)
+        self.assertEqual(results.count('existing'), 15)
+        self.sql(f"UPDATE public.comments SET created_at=now()-interval '61 seconds' WHERE id='{ident}';")
+        self.assertEqual(self.sql(statement), 'existing')
+        self.assertEqual(self.sql(f"SELECT count(*) FROM public.comments WHERE cat_id='{self.cat}';"), '1')
+
+    def test_submission_uuid_cannot_be_reused_by_different_owner_or_content(self):
+        payload = {'id': str(uuid.uuid4()), 'cat_id': self.cat, 'user_id': self.actor, 'comment': 'Original'}
+        self.sql(f"SELECT * FROM public.insert_comment_once('{json.dumps(payload)}'::jsonb);")
+        for changes in ({'user_id': self.owner}, {'comment': 'Changed'}):
+            bad = dict(payload, **changes)
+            self.sql(f"SELECT * FROM public.insert_comment_once('{json.dumps(bad)}'::jsonb);", success=False)
+        self.assertEqual(self.sql(f"SELECT comment FROM public.comments WHERE id='{payload['id']}';"), 'Original')

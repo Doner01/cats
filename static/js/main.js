@@ -194,11 +194,14 @@ function resetCatModalState() {
     }
     if (modalLikeCount) modalLikeCount.innerText = "0";
     if (modalHeartIcon) modalHeartIcon.innerText = "🤍";
-    if (commentInput) commentInput.value = "";
+    if (commentInput) { commentInput.value = ""; commentInput.readOnly = false; }
+    showInlineError("modal-comment-status");
     const submitButton = document.getElementById('modal-comment-submit-btn');
     if (submitButton) {
         submitButton.disabled = false;
-        submitButton.innerHTML = '<i class="fa-solid fa-paper-plane" aria-hidden="true"></i> <span>Send</span>';
+        submitButton.removeAttribute('aria-busy');
+        submitButton.innerHTML = '<i class="fa-solid fa-paper-plane" aria-hidden="true"></i> <span></span>';
+        submitButton.querySelector('span').textContent = typeof t === 'function' ? t('comment_submit_btn') : 'Send';
     }
     cancelReply();
 }
@@ -224,6 +227,7 @@ async function openCatModal(catId) {
     const content = document.getElementById("cat-detail-scroll");
     if (content) content.scrollTop = 0;
     modal.classList.remove("hidden");
+    requestAnimationFrame(positionGlobalToasts);
     document.body.style.overflow = "hidden";
     updateModalNavigation();
     updateModalAuth();
@@ -302,6 +306,7 @@ function closeCatModal() {
     const modal = document.getElementById("cat-detail-modal");
     if (!modal) return;
     modal.classList.add("hidden");
+    positionGlobalToasts();
     document.body.style.overflow = "auto";
     activeModalCatId = null;
     modalRequestVersion++;
@@ -687,15 +692,21 @@ async function loadCatComments(catId, append = false, posted = null, abortSignal
     const timeout = setTimeout(abort, 15000);
     document.getElementById('comments-retry')?.remove();
     try {
-        const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-        const fetchOpts = { signal: controller.signal };
-        const res = await fetch(`/api/cats/${encodeURIComponent(catId)}/comments${query}`, fetchOpts);
-        const data = await res.json();
-        if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion || commentsVersion !== commentsRequestVersion) return;
-        if (!res.ok) {
-            restartPagination = append && res.status === 400;
-            throw new Error(data.error || 'Could not load comments.');
+        let data;
+        if (posted) {
+            // Render the acknowledged write without depending on a second network request.
+            const known = loadedComments.some(comment => String(comment.id) === String(posted.id));
+            data = {comments: loadedComments, total: commentsTotal + (known ? 0 : 1), next_cursor: nextCommentsCursor};
+        } else {
+            const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+            const res = await fetch(`/api/cats/${encodeURIComponent(catId)}/comments${query}`, {signal: controller.signal});
+            data = await res.json();
+            if (!res.ok) {
+                restartPagination = append && res.status === 400;
+                throw new Error('Could not load comments.');
+            }
         }
+        if (String(activeModalCatId) !== String(catId) || requestVersion !== modalRequestVersion || commentsVersion !== commentsRequestVersion) return;
         const serverTime = Date.parse(String(data.server_time || ''));
         if (Number.isFinite(serverTime)) serverClockOffsetMs = serverTime - Date.now();
         const incoming = data.comments || [];
@@ -909,80 +920,70 @@ async function loadCatComments(catId, append = false, posted = null, abortSignal
     }
 }
 
+const commentSubmissionIds = new Map();
+const pendingCommentSubmissions = new Set();
+
 async function submitComment(event) {
-    if (event) event.preventDefault();
-    const submittedVersion = modalRequestVersion;
-
-    if (typeof supabaseClient === "undefined" || !supabaseClient) {
-        showToast("Supabase client not initialized.", "error");
-        return;
-    }
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (submittedVersion !== modalRequestVersion) return;
-    if (!session) {
-        showToast(typeof t === "function" ? t("toast_need_signin_comment") : "Please sign in to post comments.", "info");
-        setTimeout(() => window.location.href = getCatLoginUrl(), 800);
-        return;
-    }
-
-    const input = document.getElementById("modal-comment-input");
-    const submitBtn = document.getElementById("modal-comment-submit-btn");
+    event?.preventDefault();
+    const input = document.getElementById('modal-comment-input');
+    const submitBtn = document.getElementById('modal-comment-submit-btn');
     if (!input || !activeModalCatId || submitBtn?.disabled) return;
-
     const commentText = input.value.trim();
     if (!commentText) return;
-
-    const now = Date.now();
-    if (now - lastCommentTime < COOLDOWN_MS) {
-        const remaining = Math.ceil((COOLDOWN_MS - (now - lastCommentTime)) / 1000);
-        const cooldownMsg = typeof t === "function" ? t("toast_cooldown", { sec: remaining }) : `Please wait ${remaining}s...`;
-        showToast(cooldownMsg, "info");
-        return;
-    }
-    lastCommentTime = now;
-
-    if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i>';
-    }
-
+    const submittedVersion = modalRequestVersion;
     const submittedCatId = activeModalCatId;
-    const isReply = !!activeReplyParentId;
-    const payload = {
-        comment: commentText,
-        parent_id: activeReplyParentId || null,
-        reply_to_name: activeReplyAuthorName || null
-    };
-
+    const parentId = activeReplyParentId || null;
+    const key = JSON.stringify([submittedCatId, parentId, commentText]);
+    if (pendingCommentSubmissions.has(key)) return;
+    const isCurrent = () => submittedVersion === modalRequestVersion && submittedCatId === activeModalCatId;
+    const showError = status => { if (isCurrent()) showInlineError('modal-comment-status', friendlyFormError(status, 'comment')); };
+    showInlineError('modal-comment-status');
+    if (Date.now() - lastCommentTime < COOLDOWN_MS) { showError(429); return; }
+    // Lock before the first await, including the session lookup.
+    pendingCommentSubmissions.add(key);
+    submitBtn.disabled = true;
+    submitBtn.setAttribute('aria-busy', 'true');
+    submitBtn.querySelector('i').className = 'fa-solid fa-spinner fa-spin';
+    input.readOnly = true;
+    let timeout;
     try {
-        const res = await fetch(`/api/cats/${submittedCatId}/comments`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${session.access_token}`
-            },
-            body: JSON.stringify(payload)
+        if (typeof supabaseClient === 'undefined' || !supabaseClient) { showError(503); return; }
+        const {data: {session}} = await supabaseClient.auth.getSession();
+        if (!isCurrent()) return;
+        if (!session) { showError(401); return; }
+        const scopedKey = JSON.stringify([session.user.id, key]);
+        if (!commentSubmissionIds.has(scopedKey)) commentSubmissionIds.set(scopedKey, crypto.randomUUID());
+        const controller = new AbortController();
+        timeout = setTimeout(() => controller.abort(), 15000);
+        const res = await fetch(`/api/cats/${encodeURIComponent(submittedCatId)}/comments`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`},
+            body: JSON.stringify({comment: commentText, parent_id: parentId, submission_id: commentSubmissionIds.get(scopedKey)}),
+            signal: controller.signal
         });
-
-        if (res.ok) {
-            const posted = await res.json();
-            if (activeModalCatId === submittedCatId && submittedVersion === modalRequestVersion) {
-                input.value = "";
-                cancelReply();
-                await loadCatComments(submittedCatId, false, posted.comment);
-            }
-            showToast(isReply ? "Reply posted!" : "Comment posted!", "success");
-            if (typeof fetchNotifications === "function") fetchNotifications();
-        } else {
-            const err = await res.json();
-            showToast(err.error || "Failed to post comment.", "error");
+        if (!res.ok) { showError(res.status); return; }
+        const posted = await res.json();
+        if (!posted.comment?.id) { showError('unknown'); return; }
+        commentSubmissionIds.delete(scopedKey);
+        lastCommentTime = Date.now();
+        if (isCurrent()) {
+            input.value = '';
+            showInlineError('modal-comment-status');
+            cancelReply();
+            await loadCatComments(submittedCatId, false, posted.comment);
         }
-    } catch (e) {
-        showToast("Error posting comment: " + e.message, "error");
+        if (typeof fetchNotifications === 'function') Promise.resolve(fetchNotifications()).catch(() => {});
+    } catch (error) {
+        showError(error instanceof TypeError || error?.name === 'AbortError' ? 'network' : 'unknown');
     } finally {
-        if (submitBtn && submittedVersion === modalRequestVersion) {
+        clearTimeout(timeout);
+        pendingCommentSubmissions.delete(key);
+        if (isCurrent()) {
+            input.readOnly = false;
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane text-xs"></i> <span>Send</span>';
+            submitBtn.removeAttribute('aria-busy');
+            submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane" aria-hidden="true"></i><span></span>';
+            submitBtn.querySelector('span').textContent = typeof t === 'function' ? t('comment_submit_btn') : 'Send';
         }
     }
 }
@@ -1569,6 +1570,7 @@ function editComment(commentId) {
         const nextComment = textarea.value.trim();
         if (!nextComment || save.dataset.saving) return;
 
+        showInlineError(form);
         save.dataset.saving = '1';
         save.disabled = true;
         cancel.disabled = true;
@@ -1593,20 +1595,15 @@ function editComment(commentId) {
             }
             showToast(commentEditorLabel('Comment updated.', 'Комментарий обновлён.'), 'success');
         } catch (error) {
-            if (error?.code === 'edit_window_expired') {
-                closeCommentEditModal();
-                updateCommentEditControls();
-            } else {
-                delete save.dataset.saving;
-                save.disabled = false;
-                cancel.disabled = false;
-                textarea.disabled = false;
-                save.querySelector('span').textContent = commentEditorLabel('Save', 'Сохранить');
-            }
-            showToast(
-                error?.message || commentEditorLabel('Could not update comment.', 'Не удалось обновить комментарий.'),
-                'error'
-            );
+            delete save.dataset.saving;
+            save.disabled = false;
+            cancel.disabled = false;
+            textarea.disabled = false;
+            save.querySelector('span').textContent = commentEditorLabel('Save', 'Сохранить');
+            showInlineError(form, error?.code === 'edit_window_expired'
+                ? commentEditorLabel('The two-minute editing window has expired.', 'Две минуты для редактирования истекли.')
+                : friendlyFormError(error?.status || (error instanceof TypeError ? 'network' : 'unknown')));
+
         }
     });
 }

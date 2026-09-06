@@ -196,8 +196,9 @@ async function checkAuth() {
 }
 
 async function handleLogin() {
+    showInlineError("login-email-form");
     if (typeof supabaseClient === "undefined" || !supabaseClient) {
-        showToast("Supabase client is not initialized.", "error");
+        showInlineError("login-email-form", friendlyFormError(503));
         return;
     }
     const emailElem = document.getElementById("email");
@@ -209,7 +210,7 @@ async function handleLogin() {
     const password = passElem.value;
 
     if (!email || !password) {
-        showToast("Please provide both email and password.", "error");
+        showInlineError("login-email-form", "Please provide both email and password.");
         return;
     }
 
@@ -221,7 +222,7 @@ async function handleLogin() {
     try {
         const { data, error } = await signInWithPasswordThroughApp(email, password);
         if (error) {
-            showToast(error.message, "error");
+            showInlineError("login-email-form", friendlyFormError(error.status === 400 ? 401 : error.status));
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = `<i class="fa-solid fa-right-to-bracket text-xs"></i> <span>${typeof t === "function" ? t("signin_submit_btn") : "Sign In"}</span>`;
@@ -239,7 +240,7 @@ async function handleLogin() {
             window.location.href = getLoginDestination();
         }
     } catch (err) {
-        showToast("Connection error: " + err.message, "error");
+        showInlineError("login-email-form", friendlyFormError("network"));
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = `<i class="fa-solid fa-right-to-bracket text-xs"></i> <span>${typeof t === "function" ? t("signin_submit_btn") : "Sign In"}</span>`;
@@ -248,8 +249,9 @@ async function handleLogin() {
 }
 
 async function handleSignUp() {
+    showInlineError("register-email-form");
     if (typeof supabaseClient === "undefined" || !supabaseClient) {
-        showToast("Supabase client is not initialized.", "error");
+        showInlineError("register-email-form", friendlyFormError(503));
         return;
     }
     const nameElem = document.getElementById("reg-display-name");
@@ -265,17 +267,17 @@ async function handleSignUp() {
     const confirmPassword = confirmElem ? confirmElem.value : password;
 
     if (!email || !password) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Пожалуйста, заполните все обязательные поля." : "Please provide all required fields.", "error");
+        showInlineError("register-email-form", typeof t === "function" && currentLang === "ru" ? "Пожалуйста, заполните все обязательные поля." : "Please provide all required fields.");
         return;
     }
 
     if (password !== confirmPassword) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Пароли не совпадают." : "Passwords do not match.", "error");
+        showInlineError("register-email-form", typeof t === "function" && currentLang === "ru" ? "Пароли не совпадают." : "Passwords do not match.");
         return;
     }
 
     if (password.length < 8) {
-        showToast(typeof t === "function" && currentLang === "ru" ? "Пароль должен быть не менее 8 символов." : "Password must be at least 8 characters.", "error");
+        showInlineError("register-email-form", typeof t === "function" && currentLang === "ru" ? "Пароль должен быть не менее 8 символов." : "Password must be at least 8 characters.");
         return;
     }
 
@@ -306,7 +308,7 @@ async function handleSignUp() {
         const result = await res.json();
 
         if (!res.ok) {
-            showToast(result.error || "Registration failed.", "error");
+            showInlineError("register-email-form", res.status === 400 ? feedbackText("Check your email and password and try again.", "Проверьте почту и пароль и попробуйте ещё раз.") : friendlyFormError(res.status));
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = `<i class="fa-solid fa-user-plus text-xs"></i> <span>${typeof t === "function" ? t("signup_submit_btn") : "Create Account"}</span>`;
@@ -340,7 +342,7 @@ async function handleSignUp() {
         window.location.href = "/";
 
     } catch (err) {
-        showToast("Connection error: " + err.message, "error");
+        showInlineError("register-email-form", friendlyFormError("network"));
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = `<i class="fa-solid fa-user-plus text-xs"></i> <span>${typeof t === "function" ? t("signup_submit_btn") : "Create Account"}</span>`;

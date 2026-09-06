@@ -912,9 +912,9 @@
                             </svg>
                         </button>
                     </div>
-                    <div id="modal-comment-status" class="comment-composer-status hidden" role="status" aria-live="polite"></div>
+                    <div id="modal-comment-status" class="comment-composer-status hidden" data-inline-error role="alert"></div>
                     <form id="modal-comment-form" onsubmit="submitComment(event)" class="cat-detail-form hidden">
-                        <textarea id="modal-comment-input" rows="1" aria-label="Add a comment" required maxlength="300"
+                        <textarea id="modal-comment-input" aria-describedby="modal-comment-status" rows="1" aria-label="Add a comment" required maxlength="300"
                                   placeholder="Add a comment..." data-i18n-placeholder="comment_placeholder"></textarea>
                         <button type="submit" id="modal-comment-submit-btn" aria-label="Send comment">
                             <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
@@ -1109,74 +1109,8 @@
     ></script>
 
     <script>
-        // Important security/account events use showImportantAlert(). Routine
-        // success/info actions stay quiet; recoverable system errors use a small snackbar.
-
-        window.showImportantAlert = function (message, type = "info", options = {}) {
-            const text = String(message || "").trim();
-            if (!text) return;
-            const host = document.getElementById("important-alert-container");
-            if (!host) return;
-
-            const normalizedType = ["success", "error", "warning", "info"].includes(type) ? type : "info";
-            const titles = {
-                success: currentLang === "ru" ? "Готово" : "Done",
-                error: currentLang === "ru" ? "Требуется внимание" : "Action required",
-                warning: currentLang === "ru" ? "Внимание" : "Heads up",
-                info: currentLang === "ru" ? "Важно" : "Important"
-            };
-            const icons = {
-                success: "fa-circle-check",
-                error: "fa-circle-exclamation",
-                warning: "fa-triangle-exclamation",
-                info: "fa-circle-info"
-            };
-
-            const alert = document.createElement("div");
-            alert.className = `important-alert important-alert--${normalizedType}`;
-            alert.setAttribute("role", normalizedType === "error" ? "alert" : "status");
-
-            const iconWrap = document.createElement("div");
-            iconWrap.className = "important-alert__icon";
-            const icon = document.createElement("i");
-            icon.className = `fa-solid ${icons[normalizedType]}`;
-            iconWrap.appendChild(icon);
-
-            const copy = document.createElement("div");
-            copy.className = "important-alert__copy";
-            const title = document.createElement("div");
-            title.className = "important-alert__title";
-            title.textContent = String(options.title || titles[normalizedType]);
-            const body = document.createElement("div");
-            body.className = "important-alert__message";
-            body.textContent = text;
-            copy.append(title, body);
-
-            const close = document.createElement("button");
-            close.type = "button";
-            close.className = "important-alert__close";
-            close.setAttribute("aria-label", currentLang === "ru" ? "Закрыть уведомление" : "Dismiss notification");
-            close.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
-
-            const dismiss = () => {
-                alert.classList.add("is-leaving");
-                window.setTimeout(() => alert.remove(), 180);
-            };
-            close.addEventListener("click", dismiss);
-            alert.append(iconWrap, copy, close);
-
-            // Avoid duplicate security notices after repeated clicks.
-            [...host.children].forEach((item) => {
-                if (item.querySelector?.(".important-alert__message")?.textContent === text) item.remove();
-            });
-            host.appendChild(alert);
-            requestAnimationFrame(() => alert.classList.add("is-visible"));
-
-            if (!options.persist) {
-                const duration = Number(options.duration) || (normalizedType === "error" ? 8000 : 6000);
-                window.setTimeout(dismiss, duration);
-            }
-        };
+        // Account notices share the same global toast placement and accessibility.
+        window.showImportantAlert = (message, type = 'info', options = {}) => showToast(message, type, options);
 
         document.addEventListener("DOMContentLoaded", () => {
             const url = new URL(window.location.href);

@@ -1,61 +1,100 @@
-function showToast(message, type = "info") {
-    let container = document.getElementById("toast-container");
+function feedbackText(en, ru) {
+    return typeof currentLang !== 'undefined' && currentLang === 'ru' ? ru : en;
+}
+
+function friendlyFormError(status, kind = 'form') {
+    const messages = {
+        401: ['Your session expired. Please sign in again.', 'Сессия истекла. Пожалуйста, войдите снова.'],
+        403: ["You don't have permission to do that.", 'У вас нет разрешения на это действие.'],
+        429: kind === 'comment'
+            ? ["You're commenting too quickly. Please wait a moment.", 'Вы отправляете комментарии слишком быстро. Подождите немного.']
+            : ['Too many attempts. Please wait a moment.', 'Слишком много попыток. Подождите немного.'],
+        503: kind === 'comment'
+            ? ['Comments are temporarily unavailable. Please try again.', 'Комментарии временно недоступны. Попробуйте ещё раз.']
+            : ['Service is temporarily unavailable. Please try again.', 'Сервис временно недоступен. Попробуйте ещё раз.'],
+        network: ['Connection problem. Check your internet and try again.', 'Проблема с соединением. Проверьте интернет и попробуйте ещё раз.']
+    };
+    return feedbackText(...(messages[status] || (kind === 'comment'
+        ? ['Could not post your comment. Please try again.', 'Не удалось отправить комментарий. Попробуйте ещё раз.']
+        : ['Could not save your changes. Please try again.', 'Не удалось сохранить изменения. Попробуйте ещё раз.'])));
+}
+
+function showInlineError(target, message = '') {
+    const host = typeof target === 'string' ? document.getElementById(target) : target;
+    if (!host) return;
+    let status = host.matches('[data-inline-error]') ? host : host.querySelector('[data-inline-error]');
+    if (!status) {
+        status = document.createElement('p');
+        status.dataset.inlineError = '';
+        status.className = 'form-inline-error';
+        host.appendChild(status);
+    }
+    status.setAttribute('role', 'alert');
+    status.textContent = message;
+    status.hidden = !message;
+    status.classList.toggle('hidden', !message);
+}
+
+function showToast(message, type = 'info', options = {}) {
+    const text = String(message ?? '').trim();
+    if (!text) return;
+    let container = document.getElementById('toast-container');
     if (!container) {
-        container = document.createElement("div");
-        container.id = "toast-container";
-        container.className = "fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none px-4 sm:px-0";
+        container = document.createElement('div');
+        container.id = 'toast-container';
         document.body.appendChild(container);
     }
-
-    const toast = document.createElement("div");
-    toast.setAttribute("role", type === "error" ? "alert" : "status");
-    
-    let borderColor = "border-slate-800";
-    if (type === "success") {
-        borderColor = "border-emerald-500/30";
-    } else if (type === "error") {
-        borderColor = "border-rose-500/30";
-    }
-
-    toast.className = `flex items-center gap-3 px-4 py-3 bg-slate-900/95 backdrop-blur-md text-white text-xs font-semibold rounded-2xl shadow-xl border ${borderColor} transition-all transform duration-300 translate-y-4 opacity-0 pointer-events-auto select-none`;
-    
-    const iconWrap = document.createElement("div");
-    iconWrap.className = "flex-shrink-0";
-    const icon = document.createElement("i");
-    if (type === "success") {
-        icon.className = "fa-solid fa-circle-check text-emerald-400 text-sm";
-    } else if (type === "error") {
-        icon.className = "fa-solid fa-circle-exclamation text-rose-400 text-sm";
-    } else {
-        icon.className = "fa-solid fa-circle-info text-blue-400 text-sm";
-    }
-    iconWrap.appendChild(icon);
-
-    const messageWrap = document.createElement("div");
-    messageWrap.className = "flex-grow";
-    messageWrap.textContent = String(message ?? "");
-
-    const closeBtn = document.createElement("button");
-    closeBtn.type = "button";
-    closeBtn.className = "text-slate-400 hover:text-white transition text-xs p-1 focus:outline-none";
-    closeBtn.setAttribute("aria-label", "Close notification");
-    const closeIcon = document.createElement("i");
-    closeIcon.className = "fa-solid fa-xmark";
-    closeBtn.appendChild(closeIcon);
-    closeBtn.addEventListener("click", () => toast.remove());
-
-    toast.append(iconWrap, messageWrap, closeBtn);
+    if ([...container.children].some(item => item.dataset.message === text)) return;
+    // Bound the stack so it cannot grow over the page controls.
+    while (container.children.length >= 2) container.firstElementChild.remove();
+    const toast = document.createElement('div');
+    toast.className = 'global-toast global-toast--' + (['success', 'error', 'info', 'warning'].includes(type) ? type : 'info');
+    toast.dataset.message = text;
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    const icon = document.createElement('span');
+    icon.className = 'global-toast__icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = type === 'success' ? '✓' : type === 'error' ? '!' : 'i';
+    const copy = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = options.title || (type === 'success' ? feedbackText('Saved', 'Готово')
+        : type === 'error' ? feedbackText('Something went wrong', 'Что-то пошло не так') : feedbackText('Notice', 'Уведомление'));
+    const body = document.createElement('p');
+    body.textContent = text;
+    copy.append(title, body);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '×';
+    close.setAttribute('aria-label', feedbackText('Close notification', 'Закрыть уведомление'));
+    let timer;
+    const dismiss = () => { clearTimeout(timer); toast.remove(); };
+    close.addEventListener('click', dismiss);
+    toast.append(icon, copy, close);
     container.appendChild(toast);
-
-    requestAnimationFrame(() => {
-        toast.classList.remove("translate-y-4", "opacity-0");
-    });
-
-    setTimeout(() => {
-        toast.classList.add("translate-y-4", "opacity-0");
-        setTimeout(() => toast.remove(), 300);
-    }, 4000);
+    positionGlobalToasts();
+    const schedule = () => { timer = setTimeout(dismiss, type === 'error' ? 6000 : 4500); };
+    toast.addEventListener('mouseenter', () => clearTimeout(timer));
+    toast.addEventListener('mouseleave', schedule);
+    toast.addEventListener('focusin', () => clearTimeout(timer));
+    toast.addEventListener('focusout', schedule);
+    schedule();
 }
+
+function positionGlobalToasts() {
+    const host = document.getElementById('toast-container');
+    if (!host) return;
+    host.style.top = '';
+    const modal = document.getElementById('cat-detail-modal');
+    const modalOpen = modal && !modal.classList.contains('hidden');
+    const protectedControl = modalOpen ? modal.querySelector('[data-modal-initial-focus]') : document.querySelector('.glass-nav');
+    if (!protectedControl) return;
+    const control = protectedControl.getBoundingClientRect();
+    const stack = host.getBoundingClientRect();
+    if (stack.left < control.right && stack.right > control.left && stack.top < control.bottom && stack.bottom > control.top) {
+        host.style.top = `${control.bottom + 12}px`;
+    }
+}
+window.addEventListener('resize', positionGlobalToasts);
 
 function showConfirmModal(options = {}) {
     return new Promise((resolve) => {
