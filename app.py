@@ -41,7 +41,7 @@ app: Flask = Flask(
     static_url_path="/static"
 )
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or secrets.token_hex(32)
-app.config["MAX_CONTENT_LENGTH"] = (4 * 1024 * 1024 + 128 * 1024) if os.getenv("VERCEL") == "1" else 6 * 1024 * 1024                                
+app.config["MAX_CONTENT_LENGTH"] = (4 * 1024 * 1024 + 128 * 1024) if os.getenv("VERCEL") == "1" else 6 * 1024 * 1024
 app.config["MAX_FORM_MEMORY_SIZE"] = 64 * 1024
 app.config["MAX_FORM_PARTS"] = 20
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -96,7 +96,7 @@ except ValueError:
 TRUST_PROXY_HOPS: int = _trust_proxy_hops
 app.config["SESSION_COOKIE_SECURE"] = IS_PRODUCTION
 if TRUST_PROXY_HOPS:
-                                                                                    
+
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=TRUST_PROXY_HOPS, x_proto=TRUST_PROXY_HOPS)
 
 def validate_production_configuration() -> None:
@@ -400,7 +400,7 @@ if R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY:
 
 STORAGE_BUCKET: str = "cat-images"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "jfif", "gif"}
-MAX_FILE_SIZE: int = (4 if os.getenv("VERCEL") == "1" else 5) * 1024 * 1024        
+MAX_FILE_SIZE: int = (4 if os.getenv("VERCEL") == "1" else 5) * 1024 * 1024
 
 MOCK_CATS: List[Dict[str, Any]] = [
     {
@@ -499,6 +499,42 @@ def validate_image_file(file_bytes: bytes, filename: Optional[str]) -> Tuple[boo
 
     return True, ""
 
+
+def generate_cat_derivatives(file_bytes: bytes) -> dict:
+    '''Generates responsive derivatives for cat images. Returns a dict of size_name -> (bytes, ext, content_type, width, height).'''
+    with Image.open(BytesIO(file_bytes)) as img:
+        is_gif = (img.format or "").upper() == "GIF" and getattr(img, "is_animated", False)
+        if is_gif:
+            return {"original": (file_bytes, "gif", "image/gif", img.width, img.height)}
+
+        img = ImageOps.exif_transpose(img)
+        if img.mode not in {"RGB", "RGBA"}:
+            img = img.convert("RGBA" if "transparency" in img.info else "RGB")
+
+        derivatives = {}
+        targets = {
+            "thumb": 480,
+            "feed": 800,
+            "modal": 1600,
+            "original": 2048
+        }
+
+        orig_width, orig_height = img.size
+
+        for name, max_side in targets.items():
+            # don't upscale
+            if max(orig_width, orig_height) <= max_side:
+                resized = img
+            else:
+                resized = img.copy()
+                resized.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+
+            out = BytesIO()
+            resized.save(out, format="WEBP", quality=86, method=4)
+            derivatives[name] = (out.getvalue(), "webp", "image/webp", resized.width, resized.height)
+
+        return derivatives
+
 def optimize_image_file(file_bytes: bytes, *, avatar: bool = False) -> Tuple[bytes, str, str]:
     """Normalize static uploads for faster delivery and lower storage usage.
 
@@ -522,8 +558,9 @@ def optimize_image_file(file_bytes: bytes, *, avatar: bool = False) -> Tuple[byt
         return out.getvalue(), "webp", "image/webp"
 
 def upload_file_to_storage(file_bytes: bytes, unique_path: str, content_type: str, bucket_name: str = STORAGE_BUCKET) -> str:
-                                              
+
     if r2_client and R2_BUCKET_NAME and R2_PUBLIC_DOMAIN:
+        start = time.perf_counter()
         try:
             r2_client.put_object(
                 Bucket=R2_BUCKET_NAME,
@@ -532,8 +569,10 @@ def upload_file_to_storage(file_bytes: bytes, unique_path: str, content_type: st
                 ContentType=content_type,
                 CacheControl="public, max-age=31536000, immutable"
             )
+            g.r2_time = getattr(g, "r2_time", 0.0) + (time.perf_counter() - start)
             return f"{R2_PUBLIC_DOMAIN}/{unique_path}"
         except Exception as r2_e:
+            g.r2_time = getattr(g, "r2_time", 0.0) + (time.perf_counter() - start)
             app.logger.warning("Cloudflare R2 upload error: %s", r2_e)
 
     if supabase_admin:
@@ -613,7 +652,7 @@ def generate_default_avatar(name: str) -> str:
     return f"https://api.dicebear.com/7.x/bottts/svg?seed={safe_name}&backgroundColor=b6e3f4,c0aede,d1d4f9"
 
 def resolve_user_avatar(user_id: Optional[str], user_name: Optional[str], existing_avatar: Optional[str] = None) -> str:
-                                                                                        
+
     if existing_avatar and str(existing_avatar).strip():
         avatar_str = sanitize_image_url(existing_avatar, fallback_name=str(user_name or "Cat"))
         if user_id:
@@ -1086,8 +1125,12 @@ def authenticated_user_rate_key() -> str:
         return f"user:{user_id}"
     return f"ip:{get_remote_address()}"
 
+import time
 @app.before_request
 def assign_request_id() -> None:
+    g.start_time = time.perf_counter()
+    g.supabase_time = 0.0
+    g.r2_time = 0.0
     supplied = (request.headers.get("X-Request-ID") or "").strip()
     g.request_id = supplied if re.fullmatch(r"[A-Za-z0-9._:-]{1,64}", supplied) else str(uuid.uuid4())
     if COUNTRY_ACCESS_ENABLED and request.path not in {"/livez", "/healthz"} and not request.path.startswith("/static/"):
@@ -1126,12 +1169,24 @@ def apply_response_headers(response: Response) -> Response:
         f"font-src 'self'; connect-src 'self'{supabase_csp}; "
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
     )
+    if hasattr(g, 'start_time'):
+        app_time = (time.perf_counter() - g.start_time) * 1000
+        supa_time = getattr(g, 'supabase_time', 0.0) * 1000
+        r2_time = getattr(g, 'r2_time', 0.0) * 1000
+        parts = [f"app;dur={app_time:.1f}"]
+        if supa_time > 0: parts.append(f"db;dur={supa_time:.1f}")
+        if r2_time > 0: parts.append(f"r2;dur={r2_time:.1f}")
+        response.headers["Server-Timing"] = ", ".join(parts)
+
     if IS_PRODUCTION:
         response.headers["Strict-Transport-Security"] = "max-age=31536000"
     if request.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     elif request.path.startswith("/static/"):
-        response.headers["Cache-Control"] = "public, max-age=86400"
+        if request.args.get("v"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=86400"
     else:
         response.headers["Cache-Control"] = "no-store"
     return response
@@ -1179,7 +1234,7 @@ def shared_template_context() -> Dict[str, Any]:
     canonical_paths = {"index": "/", "leaderboard_page": "/leaderboard", "contact.page": "/contact"}
     canonical_path = canonical_paths.get(request.endpoint or "")
     canonical_url = PUBLIC_SITE_URL + canonical_path if PUBLIC_SITE_URL and canonical_path else ""
-    return {"supabase_url": SUPABASE_URL, "supabase_anon_key": SUPABASE_ANON_KEY, "google_auth_enabled": GOOGLE_AUTH_ENABLED, "asset_fingerprint": asset_fingerprint,
+    return {"supabase_url": SUPABASE_URL, "supabase_anon_key": SUPABASE_ANON_KEY, "r2_domain": R2_PUBLIC_DOMAIN, "google_auth_enabled": GOOGLE_AUTH_ENABLED, "asset_fingerprint": asset_fingerprint,
             "canonical_url": canonical_url, "indexable_page": canonical_path is not None}
 
 @app.route("/robots.txt")
@@ -1263,7 +1318,7 @@ def index() -> Any:
             top_cat = cast(Dict[str, Any], cached_top) if isinstance(cached_top, dict) else None
         else:
             try:
-                feed_columns = "id,user_id,user_name,user_avatar,name,image_url,likes_count,created_at,bio,description"
+                feed_columns = "id,user_id,user_name,user_avatar,name,image_url,image_url_thumb,image_url_feed,image_url_modal,image_width,image_height,likes_count,created_at,bio,description"
                 def fetch_page() -> Any:
                     q = admin.table("cats").select(feed_columns)
                     if query_text:
@@ -1271,7 +1326,7 @@ def index() -> Any:
                     if sort == "top":
                         q = q.order("likes_count", desc=True)
                     return q.order("created_at", desc=True).order("id").range((page - 1) * page_size, page * page_size).execute()
-                
+
                 def fetch_top() -> Any:
                     if sort == "top":
                         return None
@@ -1280,10 +1335,10 @@ def index() -> Any:
                 with ThreadPoolExecutor(max_workers=2) as executor:
                     fut_page = executor.submit(fetch_page)
                     fut_top = executor.submit(fetch_top)
-                    
+
                     cats_response = fut_page.result()
                     cats = as_row_list(getattr(cats_response, "data", None))
-                    
+
                     if sort == "top" and cats:
                         top_cat = cats[0]
                     else:
@@ -1326,7 +1381,7 @@ def leaderboard_page() -> Any:
             leaderboard = as_row_list(cached_leaderboard)
         else:
             try:
-                feed_columns = "id,user_id,user_name,user_avatar,name,image_url,likes_count,created_at,bio,description"
+                feed_columns = "id,user_id,user_name,user_avatar,name,image_url,image_url_thumb,image_url_feed,image_url_modal,image_width,image_height,likes_count,created_at,bio,description"
                 raw_res: Any = getattr(supabase_admin.table("cats").select(feed_columns).order("likes_count", desc=True).order("created_at", desc=True).limit(10).execute(), "data", [])
                 leaderboard = as_row_list(raw_res)
                 cache_set(leaderboard_key, leaderboard, LEADERBOARD_CACHE_TTL)
@@ -1477,7 +1532,7 @@ def get_cat_details(cat_id: str) -> Any:
 
     if cat_record is None and supabase_admin:
         try:
-            feed_columns = "id,user_id,user_name,user_avatar,name,image_url,likes_count,created_at,bio,description"
+            feed_columns = "id,user_id,user_name,user_avatar,name,image_url,image_url_thumb,image_url_feed,image_url_modal,image_width,image_height,likes_count,created_at,bio,description"
             raw_data = get_db_row(supabase_admin.table("cats").select(feed_columns).eq("id", cat_id))
             if raw_data:
                 cat_record = raw_data
@@ -1577,19 +1632,21 @@ def delete_cat(cat_id: str) -> Any:
         return jsonify({"error": "Database service is unavailable."}), 503
 
     try:
-        cat_row = get_db_row(supabase_admin.table("cats").select("id,user_id,image_url").eq("id", cat_id))
+        cat_row = get_db_row(supabase_admin.table("cats").select("id,user_id,image_url,image_url_thumb,image_url_feed,image_url_modal").eq("id", cat_id))
         if not cat_row:
             return jsonify({"error": "Cat not found."}), 404
         if str(cat_row.get("user_id")) != user_id and not is_admin:
             return jsonify({"error": "Permission denied. You can only delete your own cats."}), 403
 
-        img_url = str(cat_row.get("image_url", ""))
-        supabase_admin.table("cats").delete().eq("id", cat_id).execute()                         
+        supabase_admin.table("cats").delete().eq("id", cat_id).execute()
 
-        try:
-            delete_file_from_storage(img_url, STORAGE_BUCKET, allowed_prefix=f"{str(cat_row.get('user_id') or '')}/")
-        except Exception:
-            app.logger.warning("Cat row deleted but image cleanup failed for %s", cat_id)
+        for key in ["image_url", "image_url_thumb", "image_url_feed", "image_url_modal"]:
+            url = str(cat_row.get(key) or "")
+            if url:
+                try:
+                    delete_file_from_storage(url, STORAGE_BUCKET, allowed_prefix=f"{str(cat_row.get('user_id') or '')}/")
+                except Exception:
+                    app.logger.warning(f"Cat row deleted but image cleanup failed for {key}: %s", cat_id)
 
         invalidate_cat_content(cat_id=cat_id, user_id=cat_row.get("user_id"))
         invalidate_comments(cat_id)
@@ -1608,15 +1665,17 @@ def admin_force_delete(cat_id: str) -> Any:
         return jsonify({"error": "Database service is unavailable."}), 503
 
     try:
-        cat_row = get_db_row(supabase_admin.table("cats").select("id,user_id,image_url").eq("id", cat_id))
+        cat_row = get_db_row(supabase_admin.table("cats").select("id,user_id,image_url,image_url_thumb,image_url_feed,image_url_modal").eq("id", cat_id))
         if not cat_row:
             return jsonify({"error": "Cat not found."}), 404
-        img_url = str(cat_row.get("image_url", ""))
         supabase_admin.table("cats").delete().eq("id", cat_id).execute()
-        try:
-            delete_file_from_storage(img_url, STORAGE_BUCKET, allowed_prefix=f"{str(cat_row.get('user_id') or '')}/")
-        except Exception:
-            app.logger.warning("Admin deleted cat %s but storage cleanup failed", cat_id)
+        for key in ["image_url", "image_url_thumb", "image_url_feed", "image_url_modal"]:
+            url = str(cat_row.get(key) or "")
+            if url:
+                try:
+                    delete_file_from_storage(url, STORAGE_BUCKET, allowed_prefix=f"{str(cat_row.get('user_id') or '')}/")
+                except Exception:
+                    app.logger.warning("Admin deleted cat %s but storage cleanup failed for %s", cat_id, key)
         invalidate_cat_content(cat_id=cat_id, user_id=cat_row.get("user_id"))
         invalidate_comments(cat_id)
         return jsonify({"message": "Cat force deleted by admin successfully."}), 200
@@ -1777,11 +1836,11 @@ def add_comment(cat_id: str) -> Any:
                     validation_rows = as_row_list(getattr(validation_result, "data", None))
                     if not validation_rows:
                         return jsonify({"error": "Comments service is temporarily unavailable."}), 503
-                    
+
                     val_row = validation_rows[0]
                     if not val_row.get("is_valid"):
                         return jsonify({"error": "Invalid reply target."}), 400
-                        
+
                     reply_to_name = val_row.get("reply_to_name")
                     parent_id = str(val_row.get("root_id"))
 
@@ -1991,7 +2050,7 @@ def get_notifications() -> Any:
             with ThreadPoolExecutor(max_workers=2) as executor:
                 fut_notifs = executor.submit(fetch_notifs)
                 fut_unread = executor.submit(fetch_unread)
-                
+
                 raw_res = getattr(fut_notifs.result(), "data", [])
                 notifications = as_row_list(raw_res)
 
@@ -2482,12 +2541,15 @@ def admin_force_delete_user(user_id: str) -> Any:
             return jsonify({"error": "You cannot delete your own administrator account."}), 409
         if admin is not None:
             try:
-                user_cats = fetch_all_rows(lambda: admin.table("cats").select("id,image_url").eq("user_id", user_id).order("id"))
+                user_cats = fetch_all_rows(lambda: admin.table("cats").select("id,image_url,image_url_thumb,image_url_feed,image_url_modal").eq("user_id", user_id).order("id"))
                 profile_response = admin.table("profiles").select("avatar_url").eq("id", user_id).limit(1).execute()
                 profile_rows = as_row_list(getattr(profile_response, "data", None))
                 admin.auth.admin.delete_user(user_id)
                 for cat in user_cats:
-                    delete_file_from_storage(str(cat.get("image_url", "")), STORAGE_BUCKET, allowed_prefix=f"{user_id}/")
+                    for key in ["image_url", "image_url_thumb", "image_url_feed", "image_url_modal"]:
+                        url = str(cat.get(key) or "")
+                        if url:
+                            delete_file_from_storage(url, STORAGE_BUCKET, allowed_prefix=f"{user_id}/")
                     cache_delete(make_cache_key("cat", cat.get("id", "")))
                 if profile_rows:
                     delete_file_from_storage(str(profile_rows[0].get("avatar_url", "")), "avatars", allowed_prefix=f"avatars/{user_id}/")
@@ -2531,16 +2593,16 @@ def get_public_profile(user_id: str) -> Any:
     if admin is not None:
         def fetch_profile() -> Any:
             return read_once_with_retry(lambda: admin.table("profiles").select("id,display_name,avatar_url,bio").eq("id", user_id).limit(1).execute())
-        
+
         def fetch_cats() -> Any:
-            feed_columns = "id,user_id,user_name,user_avatar,name,image_url,likes_count,created_at,bio,description"
+            feed_columns = "id,user_id,user_name,user_avatar,name,image_url,image_url_thumb,image_url_feed,image_url_modal,image_width,image_height,likes_count,created_at,bio,description"
             return fetch_all_rows(lambda: admin.table("cats").select(feed_columns).eq("user_id", user_id).order("created_at", desc=True).order("id"))
 
         try:
             with ThreadPoolExecutor(max_workers=2) as executor:
                 fut_profile = executor.submit(fetch_profile)
                 fut_cats = executor.submit(fetch_cats)
-                
+
                 try:
                     p_res = fut_profile.result()
                     p_data = as_row_list(getattr(p_res, "data", None))

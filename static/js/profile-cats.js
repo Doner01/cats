@@ -30,7 +30,13 @@ function renderProfileCats(cats, ownUploads = false) {
         const bio = escapeHtml(rawBio);
         const owner = escapeHtml(cat.user_name || 'Cat Lover');
         const avatar = escapeHtml(safeImageUrl(cat.user_avatar, cat.user_name || 'Cat Lover'));
-        const image = escapeHtml(safeImageUrl(cat.image_url, cat.name || 'Cat'));
+
+        const image = escapeHtml(safeImageUrl(cat.image_url_feed || cat.image_url, cat.name || 'Cat'));
+        const imageThumb = escapeHtml(safeImageUrl(cat.image_url_thumb || cat.image_url, cat.name || 'Cat'));
+        const srcset = cat.image_url_feed ? `srcset="${imageThumb} 480w, ${image} 800w" sizes="(max-width: 600px) 480px, 800px"` : '';
+        const width = cat.image_width || 640;
+        const height = cat.image_height || 480;
+
         const likes = Math.max(0, Number(cat.likes_count) || 0);
         const liked = userLikedCatIds.has(String(cat.id));
         return `<article id="cat-card-${id}" data-cat-id="${id}" data-cat-modal-id="${id}" data-cat-name="${name}" data-likes="${likes}" class="cat-card feed-card">

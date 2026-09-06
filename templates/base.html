@@ -20,6 +20,8 @@
     >
 
     <meta name="theme-color" content="#faf9f6">
+    {% if supabase_url %}<link rel="preconnect" href="{{ supabase_url }}" crossorigin>{% endif %}
+    {% if r2_domain %}<link rel="preconnect" href="{{ r2_domain }}" crossorigin>{% endif %}
     {% if canonical_url and not status and not unavailable %}
     <link rel="canonical" href="{{ canonical_url }}">
     <meta property="og:url" content="{{ canonical_url }}">
@@ -34,6 +36,7 @@
     <meta name="twitter:description" content="Share your cat, vote for your favorites, and meet the CatRank community.">
 
     <!-- Static CSS -->
+    <link rel="preload" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_fingerprint('css/style.css') }}" as="style">
     <link
         rel="stylesheet"
         href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}?v={{ asset_fingerprint('vendor/fontawesome/css/all.min.css') }}"
@@ -130,7 +133,7 @@
     </script>
 
     <!-- Supabase -->
-    <script
+    <script defer
         src="{{ url_for('static', filename='vendor/supabase.js') }}?v={{ asset_fingerprint('vendor/supabase.js') }}"
     ></script>
 
@@ -1104,7 +1107,7 @@
     <div id="important-alert-container" class="important-alert-container" aria-live="assertive" aria-atomic="true"></div>
 
     <!-- JavaScript -->
-    <script
+    <script defer
         src="{{ url_for('static', filename='js/translations.js') }}?v={{ asset_fingerprint('js/translations.js') }}"
     ></script>
 
@@ -1163,18 +1166,18 @@
         });
     </script>
 
-    <script src="{{ url_for('static', filename='js/toast.js') }}?v={{ asset_fingerprint('js/toast.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/toast.js') }}?v={{ asset_fingerprint('js/toast.js') }}"></script>
 
-    <script
+    <script defer
         src="{{ url_for('static', filename='js/auth.js') }}?v={{ asset_fingerprint('js/auth.js') }}"
     ></script>
 
-    <script
+    <script defer
         src="{{ url_for('static', filename='js/main.js') }}?v={{ asset_fingerprint('js/main.js') }}"
     ></script>
-    <script src="{{ url_for('static', filename='js/favorites.js') }}?v={{ asset_fingerprint('js/favorites.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/favorites.js') }}?v={{ asset_fingerprint('js/favorites.js') }}"></script>
 
-    <script
+    <script defer
         src="{{ url_for('static', filename='js/ui.js') }}?v={{ asset_fingerprint('js/ui.js') }}"
     ></script>
 
@@ -1247,8 +1250,8 @@
         );
     </script>
 
-    <script src="{{ url_for('static', filename='js/account.js') }}?v={{ asset_fingerprint('js/account.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/comment-likes.js') }}?v={{ asset_fingerprint('js/comment-likes.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/account.js') }}?v={{ asset_fingerprint('js/account.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/comment-likes.js') }}?v={{ asset_fingerprint('js/comment-likes.js') }}"></script>
     {% block scripts %}{% endblock %}
 
 </body>

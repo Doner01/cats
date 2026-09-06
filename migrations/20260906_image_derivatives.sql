@@ -1,0 +1,6 @@
+ALTER TABLE cats
+ADD COLUMN IF NOT EXISTS image_url_thumb TEXT,
+ADD COLUMN IF NOT EXISTS image_url_feed TEXT,
+ADD COLUMN IF NOT EXISTS image_url_modal TEXT,
+ADD COLUMN IF NOT EXISTS image_width INT,
+ADD COLUMN IF NOT EXISTS image_height INT;

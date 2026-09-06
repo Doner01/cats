@@ -275,7 +275,7 @@ async function openCatModal(catId) {
             if (requestVersion !== modalRequestVersion) return;
             const cat = data.cat || data;
             if (modalNameElem) modalNameElem.innerText = cat.name || "Whiskers";
-            if (modalImgElem) setModalCatImage(cat.image_url || "", cat.name || "Cat");
+            if (modalImgElem) setModalCatImage(cat.image_url_modal || cat.image_url || "", cat.name || "Cat");
             updateModalOwner(cat);
             if (modalLikeCount) modalLikeCount.innerText = cat.likes_count !== undefined ? cat.likes_count : 0;
             if (modalHeartIcon) {
