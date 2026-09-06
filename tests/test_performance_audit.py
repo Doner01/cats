@@ -10,21 +10,21 @@ class TestPerformanceAudit(unittest.TestCase):
 
     def test_versioned_static_urls(self):
         # We need to verify that static files return the correct Cache-Control
-        resp = self.client.get('/static/css/style.css')
-        self.assertIn('max-age=86400', resp.headers.get('Cache-Control', ''))
-        self.assertNotIn('immutable', resp.headers.get('Cache-Control', ''))
+        with self.client.get('/static/css/style.css') as resp:
+            self.assertIn('max-age=86400', resp.headers.get('Cache-Control', ''))
+            self.assertNotIn('immutable', resp.headers.get('Cache-Control', ''))
         
         # Now with a version parameter
-        resp = self.client.get('/static/css/style.css?v=dummyhash')
-        self.assertIn('max-age=31536000', resp.headers.get('Cache-Control', ''))
-        self.assertIn('immutable', resp.headers.get('Cache-Control', ''))
+        with self.client.get('/static/css/style.css?v=dummyhash') as resp:
+            self.assertIn('max-age=31536000', resp.headers.get('Cache-Control', ''))
+            self.assertIn('immutable', resp.headers.get('Cache-Control', ''))
 
     def test_dynamic_html_not_cached(self):
-        resp = self.client.get('/')
-        self.assertEqual(resp.headers.get('Cache-Control', ''), 'no-store')
+        with self.client.get('/') as resp:
+            self.assertEqual(resp.headers.get('Cache-Control', ''), 'no-store')
 
-        resp = self.client.get('/profile')
-        self.assertEqual(resp.headers.get('Cache-Control', ''), 'no-store')
+        with self.client.get('/profile') as resp:
+            self.assertEqual(resp.headers.get('Cache-Control', ''), 'no-store')
 
     def test_version_changes_with_content(self):
         # We can mock a file or test an existing one
@@ -34,9 +34,9 @@ class TestPerformanceAudit(unittest.TestCase):
         # We assume asset_fingerprint relies on hashlib.sha256(path.read_bytes()).hexdigest()
 
     def test_server_timing_header(self):
-        resp = self.client.get('/')
-        self.assertIn('Server-Timing', resp.headers)
-        self.assertTrue(resp.headers['Server-Timing'].startswith('app;dur='))
+        with self.client.get('/') as resp:
+            self.assertIn('Server-Timing', resp.headers)
+            self.assertTrue(resp.headers['Server-Timing'].startswith('app;dur='))
 
 if __name__ == '__main__':
     unittest.main()

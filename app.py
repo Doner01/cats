@@ -266,7 +266,7 @@ def cache_set(key: str, value: Any, seconds: int) -> None:
     if client is None or monotonic() < cache_retry_after:
         return
     try:
-        client.setex(key, max(1, int(seconds)), json.dumps(value, default=str, separators=(",", ":")))
+        client.set(key, json.dumps(value, default=str, separators=(",", ":")), ex=max(1, int(seconds)))
     except Exception as exc:
         cache_retry_after = monotonic() + 15
         app.logger.debug("Redis cache write failed for %s: %s", key, exc)
@@ -332,6 +332,7 @@ if not (SUPABASE_URL and SUPABASE_ANON_KEY):
 if not SUPABASE_SERVICE_KEY:
     app.logger.warning("SUPABASE_SERVICE_KEY is not set; privileged backend database operations will be unavailable.")
 
+shared_httpx_client = httpx.Client(timeout=10)
 supabase_admin: Optional[Client] = None
 supabase_auth: Optional[Client] = None
 
@@ -348,8 +349,8 @@ def make_supabase_client_options() -> ClientOptions:
         options_factory(
             persist_session=False,
             auto_refresh_token=False,
-            postgrest_client_timeout=10,
-            storage_client_timeout=10,
+            httpx_client=shared_httpx_client,
+
         ),
     )
 
@@ -2259,7 +2260,7 @@ def register_user() -> Any:
             },
             "email_redirect_to": f"{public_site_url()}/login?confirmed=1",
         }
-        signup_client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False, postgrest_client_timeout=10, storage_client_timeout=10))
+        signup_client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False, httpx_client=shared_httpx_client,))
         signup_credentials: Any = {
             "email": email,
             "password": password,
@@ -2911,7 +2912,7 @@ def admin_get_comments() -> Any:
 def new_auth_client() -> Any:
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         raise RuntimeError("Authentication is not configured")
-    return create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False, postgrest_client_timeout=10, storage_client_timeout=10))
+    return create_client(SUPABASE_URL, SUPABASE_ANON_KEY, options=ClientOptions(persist_session=False, auto_refresh_token=False, httpx_client=shared_httpx_client,))
 
 
 def close_auth_client(client: Any) -> None:
